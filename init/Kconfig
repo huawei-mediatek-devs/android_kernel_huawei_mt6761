@@ -2302,3 +2302,4 @@ config ASN1
 source "kernel/Kconfig.locks"
 source "kernel/hwcfs/Kconfig"
 source "kernel/cpu_netlink/Kconfig"
+source "init/sar_ramdisk/Kconfig"
