@@ -729,8 +729,6 @@ static void send_accdet_status_event(u32 cable_type, u32 status)
 		input_report_switch(accdet_input_dev, SW_HEADPHONE_INSERT,
 			status);
 
-        setHeadsetStatus(status); //ADD FOR BUILD-IN FM
-
 		/* when plug 4-pole out, if both AB=3 AB=0 happen,3-pole plug
 		 * in will be incorrectly reported, then 3-pole plug-out is
 		 * reported,if no mantory 4-pole plug-out, icon would be
@@ -751,8 +749,6 @@ static void send_accdet_status_event(u32 cable_type, u32 status)
 		/* when plug 4-pole out, 3-pole plug out should also be
 		 * reported for slow plug-in case
 		 */
-
-        setHeadsetStatus(status); //ADD FOR BUILD-IN FM
 
 		if (status == 0)
 			input_report_switch(accdet_input_dev,
