@@ -1099,12 +1099,12 @@ int bfm_update_platform_logs(bfm_bootfail_log_info_t *pbootfail_log_info)
     if (unlikely(NULL == pbootfail_log_info))
     {
         BFMR_PRINT_INVALID_PARAMS("pbootfail_log_info: %p\n", pbootfail_log_info);
-        return;
+        return -1;
     }
 
     if (1 > pbootfail_log_info->log_dir_count)
     {
-        return;
+        return -1;
     }
 
     dst_file_path = bfmr_malloc(BFMR_MAX_PATH);
@@ -1172,6 +1172,8 @@ __out:
     bfmr_free(src_file_path);
     src_file_path = NULL;
     }
+
+    return 0;
 }
 
 
