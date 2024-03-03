@@ -21,6 +21,9 @@
 #include <linux/module.h>
 #include <linux/gfp.h>
 #include <net/tcp.h>
+#ifdef CONFIG_HW_WIFIPRO
+#include <hwnet/ipv4/wifipro_tcp_monitor.h>
+#endif
 
 int sysctl_tcp_thin_linear_timeouts __read_mostly;
 
@@ -534,6 +537,13 @@ void tcp_retransmit_timer(struct sock *sk)
 	icsk->icsk_backoff++;
 	icsk->icsk_retransmits++;
 
+#ifdef CONFIG_HW_WIFIPRO
+	if (is_wifipro_on) {
+	    wifipro_handle_retrans(sk, icsk);
+	}
+#endif
+
+
 out_reset_timer:
 	/* If stream is thin, use linear timeouts. Since 'icsk_backoff' is
 	 * used to reset timer, set to 0. Recalculate 'icsk_rto' as this
@@ -550,6 +560,12 @@ out_reset_timer:
 	    icsk->icsk_retransmits <= TCP_THIN_LINEAR_RETRIES) {
 		icsk->icsk_backoff = 0;
 		icsk->icsk_rto = min(__tcp_set_rto(tp), TCP_RTO_MAX);
+#ifdef CONFIG_HW_SYN_LINEAR_RETRY
+    } else if (sk->sk_state == TCP_SYN_SENT &&
+        icsk->icsk_retransmits <= TCP_SYN_SENT_LINEAR_RETRIES &&
+        icsk->icsk_rto == TCP_TIMEOUT_INIT) {
+        icsk->icsk_backoff = 0;
+#endif
 	} else {
 		/* Use normal (exponential) backoff */
 		icsk->icsk_rto = min(icsk->icsk_rto << 1, TCP_RTO_MAX);

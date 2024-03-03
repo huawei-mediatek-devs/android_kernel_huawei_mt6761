@@ -76,6 +76,9 @@
 #include <asm/unaligned.h>
 #include <linux/errqueue.h>
 
+#ifdef CONFIG_HW_WIFIPRO
+#include <hwnet/ipv4/wifipro_tcp_monitor.h>
+#endif
 int sysctl_tcp_timestamps __read_mostly = 1;
 int sysctl_tcp_window_scaling __read_mostly = 1;
 int sysctl_tcp_sack __read_mostly = 1;
@@ -101,6 +104,12 @@ int sysctl_tcp_moderate_rcvbuf __read_mostly = 1;
 int sysctl_tcp_early_retrans __read_mostly = 3;
 int sysctl_tcp_invalid_ratelimit __read_mostly = HZ/2;
 int sysctl_tcp_default_init_rwnd __read_mostly = TCP_INIT_CWND * 2;
+#ifdef CONFIG_TCP_AUTOTUNING
+int sysctl_tcp_autotuning __read_mostly = 1;
+#endif
+#ifdef CONFIG_TCP_NODELAY
+int sysctl_tcp_nodelay __read_mostly = 0;
+#endif
 
 #define FLAG_DATA		0x01 /* Incoming frame contained data.		*/
 #define FLAG_WIN_UPDATE		0x02 /* Incoming ACK was a window update.	*/
@@ -125,6 +134,11 @@ int sysctl_tcp_default_init_rwnd __read_mostly = TCP_INIT_CWND * 2;
 
 #define TCP_REMNANT (TCP_FLAG_FIN|TCP_FLAG_URG|TCP_FLAG_SYN|TCP_FLAG_PSH)
 #define TCP_HP_BITS (~(TCP_RESERVED_BITS|TCP_FLAG_PSH))
+
+#ifdef CONFIG_CHR_NETLINK_MODULE
+extern void notify_chr_thread_to_send_msg(unsigned int dst_addr, unsigned int src_addr);
+extern void notify_chr_thread_to_update_rtt(u32 seq_rtt_us, struct sock *sk, u8 data_net_flag);
+#endif
 
 #define REXMIT_NONE	0 /* no loss recovery to do */
 #define REXMIT_LOST	1 /* retransmit packets marked lost */
@@ -445,6 +459,9 @@ void tcp_init_buffer_space(struct sock *sk)
 	tp->rcvq_space.space = tp->rcv_wnd;
 	tp->rcvq_space.time = tcp_time_stamp;
 	tp->rcvq_space.seq = tp->copied_seq;
+#ifdef CONFIG_TCP_AUTOTUNING
+	tp->rcvq_space.segs = tp->segs_in;
+#endif
 
 	maxwin = tcp_full_space(sk);
 
@@ -548,9 +565,17 @@ static void tcp_rcv_rtt_update(struct tcp_sock *tp, u32 sample, int win_dep)
 		/* No previous measure. */
 		new_sample = m << 3;
 	}
+#ifdef CONFIG_TCP_AUTOTUNING
+	if (tp->rcv_rtt_est.rtt != new_sample) {
+		tp->rcv_rtt_est.rtt = new_sample;
+		if (new_sample && new_sample < tp->rcv_rtt_est.min_rtt)
+			tp->rcv_rtt_est.min_rtt = new_sample;
+	}
+#else
 
 	if (tp->rcv_rtt_est.rtt != new_sample)
 		tp->rcv_rtt_est.rtt = new_sample;
+#endif
 }
 
 static inline void tcp_rcv_rtt_measure(struct tcp_sock *tp)
@@ -576,6 +601,54 @@ static inline void tcp_rcv_rtt_measure_ts(struct sock *sk,
 		tcp_rcv_rtt_update(tp, tcp_time_stamp - tp->rx_opt.rcv_tsecr, 0);
 }
 
+#ifdef CONFIG_TCP_AUTOTUNING
+#define BW_SCALE 24
+#define BW_UNIT (1 << BW_SCALE)
+
+static const u32 dsack_full_bw_cnt = 10;
+
+static u32 dsack_full_rwnd(struct sock *sk)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	u64 rate;
+
+	rate = tp->rcv_rate.bw << 1;
+	rate *= jiffies_to_usecs(tp->rcv_rtt_est.min_rtt) >> 3;
+
+	return (u32)(rate >> BW_SCALE);
+}
+
+static void tcp_update_arriving_rate(struct sock *sk, int copied, int time)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	u64 bw;
+	u32 delta_us;
+
+	delta_us = jiffies_to_usecs(time);
+
+	bw = (u64)copied * BW_UNIT;
+	if (likely(delta_us))
+		do_div(bw, delta_us);
+
+	if (bw > tp->rcv_rate.bw) {
+		tp->rcv_rate.bw = bw;
+		tp->rcv_rate.rtt_cnt = 0;
+		tp->rcv_rate.rcv_wnd = ~0U;
+		return;
+	}
+
+	tp->rcv_rate.rtt_cnt++;
+
+	if (tp->rcv_rate.rtt_cnt >= dsack_full_bw_cnt &&
+	    tp->rcv_rate.rcv_wnd == ~0U && tp->rcv_rtt_est.min_rtt != ~0U) {
+		u32 rwnd = dsack_full_rwnd(sk);
+
+		if (rwnd > (sysctl_tcp_rmem[1] >> 1))
+			tp->rcv_rate.rcv_wnd = rwnd;
+	}
+}
+#endif
+
 /*
  * This function should be called every time data is copied to user space.
  * It calculates the appropriate TCP receive buffer space.
@@ -583,15 +656,26 @@ static inline void tcp_rcv_rtt_measure_ts(struct sock *sk,
 void tcp_rcv_space_adjust(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	u32 copied;
+	int copied;
 	int time;
+#ifdef CONFIG_TCP_AUTOTUNING
+	int arrived, segs = tp->segs_in;
+#endif
 
 	time = tcp_time_stamp - tp->rcvq_space.time;
 	if (time < (tp->rcv_rtt_est.rtt >> 3) || tp->rcv_rtt_est.rtt == 0)
 		return;
-
 	/* Number of bytes copied to user in last RTT */
 	copied = tp->copied_seq - tp->rcvq_space.seq;
+#ifdef CONFIG_TCP_AUTOTUNING
+	if (sysctl_tcp_autotuning > 1) {
+		arrived = (segs - tp->rcvq_space.segs) * tp->advmss;
+		copied = max(copied, arrived);
+		copied <<= !!tp->rcv_rate.loss;
+		tcp_update_arriving_rate(sk, copied, time);
+	}
+#endif
+
 	if (copied <= tp->rcvq_space.space)
 		goto new_measure;
 
@@ -646,6 +730,9 @@ void tcp_rcv_space_adjust(struct sock *sk)
 new_measure:
 	tp->rcvq_space.seq = tp->copied_seq;
 	tp->rcvq_space.time = tcp_time_stamp;
+#ifdef CONFIG_TCP_AUTOTUNING
+	tp->rcvq_space.segs = segs;
+#endif
 }
 
 /* There is something which you must keep in mind when you analyze the
@@ -735,6 +822,13 @@ static void tcp_rtt_estimator(struct sock *sk, long mrtt_us)
 	 * does not matter how to _calculate_ it. Seems, it was trap
 	 * that VJ failed to avoid. 8)
 	 */
+#ifdef CONFIG_HW_WIFIPRO
+	if ((is_wifipro_on) && mrtt_us != 0) {
+		unsigned int rtt_jiffies = usecs_to_jiffies(mrtt_us);
+		wifipro_update_rtt(rtt_jiffies<<3, sk);
+	}
+#endif
+
 	if (srtt != 0) {
 		m -= (srtt >> 3);	/* m is now error in rtt est */
 		srtt += m;		/* rtt = 7/8 rtt + 1/8 new */
@@ -3226,6 +3320,20 @@ static int tcp_clean_rtx_queue(struct sock *sk, int prior_fackets,
 		ca_rtt_us = skb_mstamp_us_delta(now, &sack->last_sackt);
 	}
 	sack->rate->rtt_us = ca_rtt_us; /* RTT of last (S)ACKed packet, or -1 */
+
+#ifdef CONFIG_CHR_NETLINK_MODULE
+	if (flag & FLAG_SYN_ACKED) {
+
+		tp->first_data_flag = true;
+		tp->data_net_flag = false;
+	}
+
+	if (flag & FLAG_DATA_ACKED && tp->first_data_flag) {
+		notify_chr_thread_to_update_rtt((u32)seq_rtt_us, sk, tp->data_net_flag);
+		tp->first_data_flag = false;
+	}
+#endif
+
 	rtt_update = tcp_ack_update_rtt(sk, flag, seq_rtt_us, sack_rtt_us,
 					ca_rtt_us);
 
@@ -4649,11 +4757,34 @@ err:
 
 }
 
+#ifdef CONFIG_TCP_NODELAY
+static void tcp_reset_nodelay(struct tcp_sock *tp)
+{
+	tp->pingpong = 0;
+	tp->nodelay_size = 0;
+}
+#endif
+
+#ifdef CONFIG_TCP_AUTOTUNING
+static void tcp_autotuning_cong_avoid(struct sock *sk, struct sk_buff *skb)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	tcp_dsack_set(sk, TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq);
+	inet_csk(sk)->icsk_ack.pingpong = 0;
+	tp->rcv_rate.loss++;
+}
+#endif
+
 static void tcp_data_queue(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	bool fragstolen = false;
 	int eaten = -1;
+
+#ifdef CONFIG_TCP_AUTOTUNING
+	u32 seq, end_seq;
+#endif
 
 	if (TCP_SKB_CB(skb)->seq == TCP_SKB_CB(skb)->end_seq) {
 		__kfree_skb(skb);
@@ -4665,6 +4796,10 @@ static void tcp_data_queue(struct sock *sk, struct sk_buff *skb)
 	tcp_ecn_accept_cwr(tp, skb);
 
 	tp->rx_opt.dsack = 0;
+
+#ifdef CONFIG_TCP_NODELAY
+	tcp_reset_nodelay(tp);
+#endif
 
 	/*  Queue data for delivery to the user.
 	 *  Packets in sequence go to the receive queue.
@@ -4709,6 +4844,11 @@ queue_and_out:
 
 		if (!RB_EMPTY_ROOT(&tp->out_of_order_queue)) {
 			tcp_ofo_queue(sk);
+
+#ifdef CONFIG_TCP_AUTOTUNING
+			if (sysctl_tcp_autotuning)
+				tcp_autotuning_cong_avoid(sk, skb);
+#endif
 
 			/* RFC2581. 4.2. SHOULD send immediate ACK, when
 			 * gap in queue is filled.
@@ -4764,7 +4904,19 @@ drop:
 		goto queue_and_out;
 	}
 
+#ifdef CONFIG_TCP_AUTOTUNING
+		seq = TCP_SKB_CB(skb)->seq;
+		end_seq =  TCP_SKB_CB(skb)->end_seq;
+#endif
 	tcp_data_queue_ofo(sk, skb);
+
+#ifdef CONFIG_TCP_AUTOTUNING
+	if (sysctl_tcp_autotuning && tp->rx_opt.num_sacks) {
+		if (before(end_seq,tp->selective_acks[0].end_seq)) {
+			tcp_dsack_extend(sk, seq, end_seq);
+		}
+	}
+#endif
 }
 
 static struct sk_buff *tcp_skb_next(struct sk_buff *skb, struct sk_buff_head *list)
@@ -5495,6 +5647,10 @@ void tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 			int eaten = 0;
 			bool fragstolen = false;
 
+#ifdef CONFIG_TCP_NODELAY
+			tcp_reset_nodelay(tp);
+#endif
+
 			if (tp->ucopy.task == current &&
 			    tp->copied_seq == tp->rcv_nxt &&
 			    len - tcp_header_len <= tp->ucopy.len &&
@@ -5708,6 +5864,9 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 	struct tcp_fastopen_cookie foc = { .len = -1 };
 	int saved_clamp = tp->rx_opt.mss_clamp;
 	bool fastopen_fail;
+#ifdef CONFIG_CHR_NETLINK_MODULE
+	struct inet_sock *inet = inet_sk(sk);
+#endif
 
 	tcp_parse_options(skb, &tp->rx_opt, 0, &foc);
 	if (tp->rx_opt.saw_tstamp && tp->rx_opt.rcv_tsecr)
@@ -5765,6 +5924,14 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 		 */
 
 		tcp_ecn_rcv_synack(tp, th);
+#ifdef CONFIG_CHR_NETLINK_MODULE
+		if (icsk->icsk_retransmits > 2) {
+			SOCK_DEBUG(sk, "tcp_rcv_synsent_state_process:icsk_retransmits=%d,notify_chr_thread_to_send_msg()!\n", icsk->icsk_retransmits);
+			notify_chr_thread_to_send_msg(inet->inet_daddr, inet->inet_saddr);
+		} else {
+			SOCK_DEBUG(sk, "tcp_rcv_synsent_state_process:icsk_retransmits=%d\n", icsk->icsk_retransmits);
+		}
+#endif
 
 		tcp_init_wl(tp, TCP_SKB_CB(skb)->seq);
 		tcp_ack(sk, skb, FLAG_SLOWPATH);
@@ -6362,12 +6529,7 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 	}
 
 
-	/* Accept backlog is full. If we have already queued enough
-	 * of warm entries in syn queue, drop request. It is better than
-	 * clogging syn queue with openreqs with exponentially increasing
-	 * timeout.
-	 */
-	if (sk_acceptq_is_full(sk) && inet_csk_reqsk_queue_young(sk) > 1) {
+	if (sk_acceptq_is_full(sk)) {
 		NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);
 		goto drop;
 	}

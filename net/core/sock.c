@@ -1405,6 +1405,9 @@ struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 			get_net(net);
 		sock_net_set(sk, net);
 		atomic_set(&sk->sk_wmem_alloc, 1);
+#ifdef CONFIG_HW_DPIMARK_MODULE
+				sk->sk_hwdpi_mark = 0;
+#endif
 
 		mem_cgroup_sk_alloc(sk);
 		cgroup_sk_alloc(&sk->sk_cgrp_data);

@@ -108,6 +108,10 @@
 #include <net/busy_poll.h>
 #include <linux/errqueue.h>
 
+#ifdef CONFIG_HW_FDLEAK
+#include <chipset_common/hwfdleak/fdleak.h>
+#endif
+
 #ifdef CONFIG_NET_RX_BUSY_POLL
 unsigned int sysctl_net_busy_read __read_mostly;
 unsigned int sysctl_net_busy_poll __read_mostly;
@@ -426,6 +430,9 @@ struct file *sock_alloc_file(struct socket *sock, int flags, const char *dname)
 	sock->file = file;
 	file->f_flags = O_RDWR | (flags & O_NONBLOCK);
 	file->private_data = sock;
+#ifdef CONFIG_HW_FDLEAK
+	fdleak_report(FDLEAK_WP_SOCKET, 0);
+#endif
 	return file;
 }
 EXPORT_SYMBOL(sock_alloc_file);
@@ -540,7 +547,10 @@ static int sockfs_setattr(struct dentry *dentry, struct iattr *iattr)
 	if (!err && (iattr->ia_valid & ATTR_UID)) {
 		struct socket *sock = SOCKET_I(d_inode(dentry));
 
-		sock->sk->sk_uid = iattr->ia_uid;
+		if (sock->sk)
+			sock->sk->sk_uid = iattr->ia_uid;
+		else
+			err = -ENOENT;
 	}
 
 	return err;
@@ -576,6 +586,11 @@ struct socket *sock_alloc(void)
 	inode->i_uid = current_fsuid();
 	inode->i_gid = current_fsgid();
 	inode->i_op = &sockfs_inode_ops;
+#ifdef CONFIG_HUAWEI_KSTATE
+	if (sock != NULL && current != NULL) {
+		sock->pid = current->tgid;
+	}
+#endif
 
 	this_cpu_add(sockets_in_use, 1);
 	return sock;
@@ -591,12 +606,16 @@ EXPORT_SYMBOL(sock_alloc);
  *	an inode not a file.
  */
 
-void sock_release(struct socket *sock)
+static void __sock_release(struct socket *sock, struct inode *inode)
 {
 	if (sock->ops) {
 		struct module *owner = sock->ops->owner;
 
+		if (inode)
+			inode_lock(inode);
 		sock->ops->release(sock);
+		if (inode)
+			inode_unlock(inode);
 		sock->ops = NULL;
 		module_put(owner);
 	}
@@ -610,6 +629,14 @@ void sock_release(struct socket *sock)
 		return;
 	}
 	sock->file = NULL;
+#ifdef CONFIG_HW_FDLEAK
+	fdleak_report(FDLEAK_WP_SOCKET, 1);
+#endif
+}
+
+void sock_release(struct socket *sock)
+{
+	__sock_release(sock, NULL);
 }
 EXPORT_SYMBOL(sock_release);
 
@@ -1043,7 +1070,7 @@ static int sock_mmap(struct file *file, struct vm_area_struct *vma)
 
 static int sock_close(struct inode *inode, struct file *filp)
 {
-	sock_release(SOCKET_I(inode));
+	__sock_release(SOCKET_I(inode), inode);
 	return 0;
 }
 

@@ -20,6 +20,9 @@
 #include "reg.h"
 #include "rdev-ops.h"
 
+#ifdef CONFIG_HUAWEI_WIFI
+extern void wifi_disconnect_report(void);
+#endif
 /*
  * Software SME in cfg80211, using auth/assoc/deauth calls to the
  * driver. This is is for implementing nl80211's connect/disconnect
@@ -810,6 +813,11 @@ void cfg80211_connect_bss(struct net_device *dev, const u8 *bssid,
 	list_add_tail(&ev->list, &wdev->event_list);
 	spin_unlock_irqrestore(&wdev->event_lock, flags);
 	queue_work(cfg80211_wq, &rdev->event_work);
+#ifdef CONFIG_HUAWEI_WIFI
+	if(wdev->iftype == NL80211_IFTYPE_STATION){
+		wifi_disconnect_report();
+	}
+#endif
 }
 EXPORT_SYMBOL(cfg80211_connect_bss);
 
@@ -1126,9 +1134,13 @@ int cfg80211_disconnect(struct cfg80211_registered_device *rdev,
 		err = cfg80211_sme_disconnect(wdev, reason);
 	else if (!rdev->ops->disconnect)
 		cfg80211_mlme_down(rdev, dev);
-	else if (wdev->current_bss)
+	else if (wdev->ssid_len)
 		err = rdev_disconnect(rdev, dev, reason);
-
+#ifdef CONFIG_HUAWEI_WIFI
+	if(wdev->iftype == NL80211_IFTYPE_STATION){
+		wifi_disconnect_report();
+	}
+#endif
 	/*
 	 * Clear ssid_len unless we actually were fully connected,
 	 * in which case cfg80211_disconnected() will take care of

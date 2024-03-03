@@ -37,6 +37,10 @@
 #include "xt_qtaguid_internal.h"
 #include "xt_qtaguid_print.h"
 #include "../../fs/proc/internal.h"
+#ifdef CONFIG_HW_WIFIPRO
+#include <linux/snmp.h>
+extern void wifipro_update_tcp_statistics(int mib_type, const struct sk_buff *skb, struct sock *from_sk);
+#endif
 
 /*
  * We only use the xt_socket funcs within a similar context to avoid unexpected
@@ -1221,6 +1225,12 @@ static void iface_stat_update_from_skb(const struct sk_buff *skb,
 		 par->hooknum, __func__, el_dev->name, el_dev->type,
 		 par->family, proto, direction);
 
+#ifdef CONFIG_HW_WIFIPRO
+        if(direction == IFS_TX){
+                wifipro_update_tcp_statistics(WIFIPRO_TCP_MIB_OUTSEGS, skb, NULL);
+        }
+#endif
+
 	spin_lock_bh(&iface_stat_list_lock);
 	entry = get_iface_entry(el_dev->name);
 	if (entry == NULL) {
@@ -1775,6 +1785,19 @@ static bool qtaguid_mt(const struct sk_buff *skb, struct xt_action_param *par)
 				gid_lte(filp->f_cred->fsgid, gid_max)) ^
 			!(info->invert & XT_QTAGUID_GID)) {
 			MT_DEBUG("qtaguid[%d]: leaving gid not matching\n",
+				par->hooknum);
+			res = false;
+			goto put_sock_ret_res;
+		}
+		//Thus (!a && b) || (a && !b) == a ^ b
+	} else if (info->match & XT_QTAGUID_PID) {
+		if ((sk->sk_socket == NULL)) {
+			res = false;
+			goto put_sock_ret_res;
+		}
+
+		if (((sk->sk_socket->pid >= info->xt_pid_min) && (sk->sk_socket->pid <= info->xt_pid_max)) ^ !(info->invert & XT_QTAGUID_PID)) {
+			MT_DEBUG("qtaguid-PID XT_QTAGUID_PID[%d]: leaving Pid not matching\n",
 				par->hooknum);
 			res = false;
 			goto put_sock_ret_res;
