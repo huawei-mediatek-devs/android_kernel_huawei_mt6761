@@ -23,10 +23,6 @@
 #include <linux/slab.h>
 #include <linux/list_lru.h>
 
-#ifdef CONFIG_HUAWEI_BINDER_ASHMEM
-#include "binder_ashmem.h"
-#endif
-
 extern struct list_lru binder_alloc_lru;
 struct binder_transaction;
 
@@ -54,7 +50,8 @@ struct binder_buffer {
 	unsigned free:1;
 	unsigned allow_user_free:1;
 	unsigned async_transaction:1;
-	unsigned debug_id:29;
+	unsigned free_in_progress:1;
+	unsigned debug_id:28;
 
 	struct binder_transaction *transaction;
 
@@ -62,11 +59,6 @@ struct binder_buffer {
 	size_t data_size;
 	size_t offsets_size;
 	size_t extra_buffers_size;
-
-#ifdef CONFIG_HUAWEI_BINDER_ASHMEM
-	struct binder_ashmem ashmem;
-#endif
-
 	void *data;
 };
 
@@ -121,10 +113,6 @@ struct binder_alloc {
 	size_t buffer_size;
 	uint32_t buffer_free;
 	int pid;
-#ifdef CONFIG_HUAWEI_BINDER_ASHMEM
-	atomic_t ashmem_size;
-	size_t max_ashmem_size;
-#endif
 	size_t pages_high;
 };
 
