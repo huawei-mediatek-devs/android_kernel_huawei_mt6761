@@ -2825,6 +2825,10 @@ int add_swap_count_continuation(swp_entry_t entry, gfp_t gfp_mask)
 	 * will not corrupt the GFP_ATOMIC caller's atomic page table kmaps.
 	 */
 	head = vmalloc_to_page(si->swap_map + offset);
+	if (!head) {
+		spin_unlock(&si->lock);
+		return -ENOMEM;
+	}
 	offset &= ~PAGE_MASK;
 
 	/*

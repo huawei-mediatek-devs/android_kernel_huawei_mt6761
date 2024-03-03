@@ -76,6 +76,10 @@ static struct vfsmount *shm_mnt;
 
 #include "internal.h"
 
+#ifdef CONFIG_HW_MEMORY_MONITOR
+#include <chipset_common/mmonitor/mmonitor.h>
+#endif
+
 #define BLOCKS_PER_PAGE  (PAGE_SIZE/512)
 #define VM_ACCT(size)    (PAGE_ALIGN(size) >> PAGE_SHIFT)
 
@@ -211,7 +215,7 @@ static int shmem_reserve_inode(struct super_block *sb)
 static void shmem_free_inode(struct super_block *sb)
 {
 	struct shmem_sb_info *sbinfo = SHMEM_SB(sb);
-	if (sbinfo->max_inodes) {
+	if (sbinfo && sbinfo->max_inodes) {
 		spin_lock(&sbinfo->stat_lock);
 		sbinfo->free_inodes++;
 		spin_unlock(&sbinfo->stat_lock);
@@ -1617,6 +1621,9 @@ repeat:
 	if (swap.val) {
 		/* Look it up and read it in.. */
 		page = lookup_swap_cache(swap);
+#ifdef CONFIG_HW_MEMORY_MONITOR
+		count_mmonitor_event(FILE_CACHE_MAP_COUNT);
+#endif
 		if (!page) {
 			/* Or update major stats only when swapin succeeds?? */
 			if (fault_type) {

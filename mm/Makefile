@@ -2,6 +2,13 @@
 # Makefile for the linux memory manager.
 #
 
+subdir-ccflags-y += -Werror
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/include
+
+ifdef CONFIG_MTK_ION
+subdir-ccflags-y += -I$(srctree)/drivers/staging/android/ion
+endif
+
 KASAN_SANITIZE_slab_common.o := n
 KASAN_SANITIZE_slab.o := n
 KASAN_SANITIZE_slub.o := n
@@ -37,7 +44,7 @@ obj-y			:= filemap.o mempool.o oom_kill.o \
 			   mm_init.o mmu_context.o percpu.o slab_common.o \
 			   compaction.o vmacache.o \
 			   interval_tree.o list_lru.o workingset.o \
-			   debug.o $(mmu-y)
+			   debug.o $(mmu-y) vmpressure.o
 
 obj-y += init-mm.o
 
@@ -76,7 +83,7 @@ obj-$(CONFIG_MIGRATION) += migrate.o
 obj-$(CONFIG_QUICKLIST) += quicklist.o
 obj-$(CONFIG_TRANSPARENT_HUGEPAGE) += huge_memory.o khugepaged.o
 obj-$(CONFIG_PAGE_COUNTER) += page_counter.o
-obj-$(CONFIG_MEMCG) += memcontrol.o vmpressure.o
+obj-$(CONFIG_MEMCG) += memcontrol.o
 obj-$(CONFIG_MEMCG_SWAP) += swap_cgroup.o
 obj-$(CONFIG_CGROUP_HUGETLB) += hugetlb_cgroup.o
 obj-$(CONFIG_MEMORY_FAILURE) += memory-failure.o
@@ -100,3 +107,6 @@ obj-$(CONFIG_IDLE_PAGE_TRACKING) += page_idle.o
 obj-$(CONFIG_FRAME_VECTOR) += frame_vector.o
 obj-$(CONFIG_DEBUG_PAGE_REF) += debug_page_ref.o
 obj-$(CONFIG_HARDENED_USERCOPY) += usercopy.o
+obj-$(CONFIG_HUAWEI_UNMOVABLE_ISOLATE) += unmovable_isolate.o
+obj-$(CONFIG_PROCESS_RECLAIM)	 += process_reclaim.o
+obj-$(CONFIG_HUAWEI_SLOW_PATH_COUNT) += slowpath_count.o

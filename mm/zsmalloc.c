@@ -68,7 +68,7 @@
  * A single 'zspage' is composed of up to 2^N discontiguous 0-order (single)
  * pages. ZS_MAX_ZSPAGE_ORDER defines upper limit on N.
  */
-#define ZS_MAX_ZSPAGE_ORDER 2
+#define ZS_MAX_ZSPAGE_ORDER 3
 #define ZS_MAX_PAGES_PER_ZSPAGE (_AC(1, UL) << ZS_MAX_ZSPAGE_ORDER)
 
 #define ZS_HANDLE_SIZE (sizeof(unsigned long))
@@ -113,7 +113,12 @@
  */
 #define OBJ_ALLOCATED_TAG 1
 #define OBJ_TAG_BITS 1
+#if BITS_PER_LONG == 32
+/* minus 1 bit for large DRAM (>3GB) */
+#define OBJ_INDEX_BITS	(BITS_PER_LONG - _PFN_BITS - OBJ_TAG_BITS - 1)
+#else
 #define OBJ_INDEX_BITS	(BITS_PER_LONG - _PFN_BITS - OBJ_TAG_BITS)
+#endif
 #define OBJ_INDEX_MASK	((_AC(1, UL) << OBJ_INDEX_BITS) - 1)
 
 #define MAX(a, b) ((a) >= (b) ? (a) : (b))
@@ -473,7 +478,7 @@ static bool is_zspage_isolated(struct zspage *zspage)
 	return zspage->isolated;
 }
 
-static int is_first_page(struct page *page)
+static __maybe_unused int is_first_page(struct page *page)
 {
 	return PagePrivate(page);
 }
@@ -757,7 +762,7 @@ static void insert_zspage(struct size_class *class,
 {
 	struct zspage *head;
 
-	zs_stat_inc(class, fullness, 1);
+	zs_stat_inc(class, (enum zs_stat_type)fullness, 1);
 	head = list_first_entry_or_null(&class->fullness_list[fullness],
 					struct zspage, list);
 	/*
@@ -785,7 +790,7 @@ static void remove_zspage(struct size_class *class,
 	VM_BUG_ON(is_zspage_isolated(zspage));
 
 	list_del_init(&zspage->list);
-	zs_stat_dec(class, fullness, 1);
+	zs_stat_dec(class, (enum zs_stat_type)fullness, 1);
 }
 
 /*
@@ -1968,6 +1973,7 @@ bool zs_page_isolate(struct page *page, isolate_mode_t mode)
 	struct zspage *zspage;
 	struct address_space *mapping;
 
+	return false;
 	/*
 	 * Page is locked so zspage couldn't be destroyed. For detail, look at
 	 * lock_zspage in free_zspage.
