@@ -956,6 +956,13 @@ config NUMA_BALANCING
 
 	  This system will be inactive on UMA systems.
 
+config HUAWEI_BOOST_KILL
+	bool "boost kill"
+	default n
+	help
+	  if set, the process to be killed will be move to fast cpu and its nice
+	  value will also set to -20.
+
 config NUMA_BALANCING_DEFAULT_ENABLED
 	bool "Automatically enable NUMA aware memory/task placement"
 	default y
@@ -1012,6 +1019,13 @@ config CGROUP_PIDS
 	  since the PIDs limit only affects a process's ability to fork, not to
 	  attach to a cgroup.
 
+config CGROUP_IOLIMIT
+	bool "IO bandwidth limit cgroup subsystem"
+	help
+	  Provides a cgroup implementing for io bandwidth while a process
+	  in the cgroup read or write.
+
+
 config CGROUP_DEVICE
 	bool "Device controller for cgroups"
 	help
@@ -1055,6 +1069,16 @@ config CGROUP_SCHEDTUNE
 	     configured with a different boost value
 
 	  Say N if unsure.
+
+config HW_CGROUP_WORKINGSET
+	bool "workingset cgroup subsystem"
+	depends on CRYPTO_CRC32C
+	depends on TASK_DELAY_ACCT
+	help
+	  Provides a cgroup implementing filepage collector and prereader of workingset.
+
+	  This cgroup workingset for application, collect it touched filepages and
+	  preread those filepages.
 
 config PAGE_COUNTER
        bool
@@ -1615,7 +1639,7 @@ config KALLSYMS_ABSOLUTE_PERCPU
 	default X86_64 && SMP
 
 config KALLSYMS_BASE_RELATIVE
-	bool
+	bool "Enable KALLSYMS_BASE_RELATIVE or not"
 	depends on KALLSYMS
 	default !IA64 && !(TILE && 64BIT)
 	help
@@ -1892,6 +1916,7 @@ config SLUB_DEBUG
 	default y
 	bool "Enable SLUB debugging support" if EXPERT
 	depends on SLUB && SYSFS
+	depends on !MTK_ENABLE_AGO
 	help
 	  SLUB has extensive debug support features. Disabling these can
 	  result in significant savings in code size. This also disables
@@ -2029,6 +2054,7 @@ config HAVE_GENERIC_DMA_COHERENT
 config SLABINFO
 	bool
 	depends on PROC_FS
+	depends on !MTK_ENABLE_GMO
 	depends on SLAB || SLUB_DEBUG
 	default y
 
@@ -2274,3 +2300,5 @@ config ASN1
 	  functions to call on what tags.
 
 source "kernel/Kconfig.locks"
+source "kernel/hwcfs/Kconfig"
+source "kernel/cpu_netlink/Kconfig"

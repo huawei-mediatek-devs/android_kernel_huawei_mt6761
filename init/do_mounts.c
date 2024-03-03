@@ -34,6 +34,9 @@
 #include <linux/nfs_mount.h>
 
 #include "do_mounts.h"
+#ifdef CONFIG_HW_BFMR_MTK
+#include <chipset_common/bfmr/bfm/chipsets/mtk/bfm_mtk.h>
+#endif
 
 int __initdata rd_doload;	/* 1 = load RAM disk, 0 = don't load */
 
@@ -418,6 +421,9 @@ retry:
 		printk("DEBUG_BLOCK_EXT_DEVT is enabled, you need to specify "
 		       "explicit textual name for \"root=\" boot option.\n");
 #endif
+#ifdef CONFIG_HW_BFMR_MTK
+		set_boot_fail_flag(SYSTEM_MOUNT_FAIL);
+#endif
 		panic("VFS: Unable to mount root fs on %s", b);
 	}
 	if (!(flags & MS_RDONLY)) {
@@ -433,6 +439,9 @@ retry:
 	printk("\n");
 #ifdef CONFIG_BLOCK
 	__bdevname(ROOT_DEV, b);
+#endif
+#ifdef CONFIG_HW_BFMR_MTK
+	set_boot_fail_flag(SYSTEM_MOUNT_FAIL);
 #endif
 	panic("VFS: Unable to mount root fs on %s", b);
 out:
@@ -509,6 +518,10 @@ void __init change_floppy(char *fmt, ...)
 }
 #endif
 
+#ifndef CONFIG_MTK_ROOT_DEVICE
+void mount_block_root_post(void) { }
+#endif
+
 void __init mount_root(void)
 {
 #ifdef CONFIG_ROOT_NFS
@@ -539,6 +552,8 @@ void __init mount_root(void)
 		if (err < 0)
 			pr_emerg("Failed to create /dev/root: %d\n", err);
 		mount_block_root("/dev/root", root_mountflags);
+
+		mount_block_root_post();
 	}
 #endif
 }
