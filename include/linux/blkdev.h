@@ -23,6 +23,7 @@
 #include <linux/smp.h>
 #include <linux/rcupdate.h>
 #include <linux/percpu-refcount.h>
+#include <linux/wbt.h>
 #include <linux/scatterlist.h>
 
 struct module;
@@ -36,6 +37,7 @@ struct sg_io_hdr;
 struct bsg_job;
 struct blkcg_gq;
 struct blk_flush_queue;
+struct rq_wb;
 struct pr_ops;
 
 #define BLKDEV_MIN_RQ	4
@@ -151,6 +153,7 @@ struct request {
 	struct gendisk *rq_disk;
 	struct hd_struct *part;
 	unsigned long start_time;
+	struct wb_issue_stat wb_stat;
 #ifdef CONFIG_BLK_CGROUP
 	struct request_list *rl;		/* rl this rq is alloced from */
 	unsigned long long start_time_ns;
@@ -305,6 +308,8 @@ struct request_queue {
 	int			nr_rqs[2];	/* # allocated [a]sync rqs */
 	int			nr_rqs_elvpriv;	/* # allocated rqs w/ elvpriv */
 
+	struct rq_wb		*rq_wb;
+
 	/*
 	 * If blkcg is not used, @q->root_rl serves all requests.  If blkcg
 	 * is used, root blkg allocates from @q->root_rl and all other
@@ -330,6 +335,8 @@ struct request_queue {
 	struct blk_mq_ctx __percpu	*queue_ctx;
 	unsigned int		nr_queues;
 
+	unsigned int		queue_depth;
+
 	/* hw dispatch queues */
 	struct blk_mq_hw_ctx	**queue_hw_ctx;
 	unsigned int		nr_hw_queues;
@@ -345,7 +352,7 @@ struct request_queue {
 	 */
 	struct delayed_work	delay_work;
 
-	struct backing_dev_info	backing_dev_info;
+	struct backing_dev_info	*backing_dev_info;
 
 	/*
 	 * The queue owner gets to use this for whatever they like.
@@ -415,6 +422,11 @@ struct request_queue {
 
 	unsigned int		nr_sorted;
 	unsigned int		in_flight[2];
+
+#ifdef CONFIG_WBT
+	struct blk_rq_stat	rq_stats[4];
+#endif
+
 	/*
 	 * Number of active block driver functions for which blk_drain_queue()
 	 * must wait. Must be incremented around functions that unlock the
@@ -478,6 +490,13 @@ struct request_queue {
 	struct list_head	tag_set_list;
 	struct bio_set		*bio_split;
 
+	unsigned long           bw_timestamp;
+	unsigned long           last_ticks;
+	sector_t                last_sects[2];
+	unsigned long           last_ios[2];
+	sector_t                disk_bw;
+	unsigned long           disk_iops;
+
 	bool			mq_sysfs_init_done;
 };
 
@@ -518,6 +537,38 @@ struct request_queue {
 				 (1 << QUEUE_FLAG_STACKABLE)	|	\
 				 (1 << QUEUE_FLAG_SAME_COMP)	|	\
 				 (1 << QUEUE_FLAG_POLL))
+
+/* MTK PATCH */
+/* Block r/w size profiling */
+#ifdef CONFIG_MTK_BLK_RW_PROFILING
+#define BLKRNUM    _IO(0x12, 10) /* get block device read number */
+#define BLKWNUM    _IO(0x12, 11) /* get block device write number */
+#define BLKRWNUM   _IO(0x12, 12) /* get block device read write number */
+#define BLKRWCLR   _IO(0x12, 13) /* clear block device read write number */
+
+#define CHECK_SIZE_LIMIT (512*1024)
+#define FS_RW_UNIT (0x1000)
+#define RW_ARRAY_SIZE (256)
+
+struct block_rw_profiling {
+	__u32 buf_byte;
+	/*
+	 * placeholder for the start address of the data buffer where kernel
+	 * will copy the data.
+	 */
+	__u8 *buf_ptr;
+};
+
+enum block_rw_enum {
+	blockread = 0,
+	blockwrite = 1,
+	blockrw = 2,
+};
+
+void mtk_trace_block_rq_get_rw_counter(u32 *temp_buf,
+	enum block_rw_enum operation);
+int mtk_trace_block_rq_get_rw_counter_clr(void);
+#endif
 
 static inline void queue_lockdep_assert_held(struct request_queue *q)
 {
@@ -684,6 +735,14 @@ static inline bool blk_write_same_mergeable(struct bio *a, struct bio *b)
 		return true;
 
 	return false;
+}
+
+static inline unsigned int blk_queue_depth(struct request_queue *q)
+{
+	if (q->queue_depth)
+		return q->queue_depth;
+
+	return q->nr_requests;
 }
 
 /*
@@ -1002,6 +1061,7 @@ extern void blk_limits_io_min(struct queue_limits *limits, unsigned int min);
 extern void blk_queue_io_min(struct request_queue *q, unsigned int min);
 extern void blk_limits_io_opt(struct queue_limits *limits, unsigned int opt);
 extern void blk_queue_io_opt(struct request_queue *q, unsigned int opt);
+extern void blk_set_queue_depth(struct request_queue *q, unsigned int depth);
 extern void blk_set_default_limits(struct queue_limits *lim);
 extern void blk_set_stacking_limits(struct queue_limits *lim);
 extern int blk_stack_limits(struct queue_limits *t, struct queue_limits *b,
@@ -1028,7 +1088,6 @@ extern void blk_queue_rq_timed_out(struct request_queue *, rq_timed_out_fn *);
 extern void blk_queue_rq_timeout(struct request_queue *, unsigned int);
 extern void blk_queue_flush_queueable(struct request_queue *q, bool queueable);
 extern void blk_queue_write_cache(struct request_queue *q, bool enabled, bool fua);
-extern struct backing_dev_info *blk_get_backing_dev_info(struct block_device *bdev);
 
 extern int blk_rq_map_sg(struct request_queue *, struct request *, struct scatterlist *);
 extern void blk_dump_rq_flags(struct request *, char *);

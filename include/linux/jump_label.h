@@ -150,6 +150,8 @@ extern int static_key_count(struct static_key *key);
 extern void static_key_enable(struct static_key *key);
 extern void static_key_disable(struct static_key *key);
 
+extern int jump_label_register(struct module *mod);
+
 /*
  * We should be using ATOMIC_INIT() for initializing .enabled, but
  * the inclusion of atomic.h is problematic for inclusion of jump_label.h
@@ -214,6 +216,11 @@ static inline void jump_label_lock(void) {}
 static inline void jump_label_unlock(void) {}
 
 static inline int jump_label_apply_nops(struct module *mod)
+{
+	return 0;
+}
+
+static inline int jump_label_register(struct module *mod)
 {
 	return 0;
 }

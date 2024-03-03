@@ -5,7 +5,6 @@
 
 #include <linux/sched/prio.h>
 
-
 struct sched_param {
 	int sched_priority;
 };
@@ -318,6 +317,21 @@ extern char ___assert_task_state[1 - 2*!!(
 /* Task command name length */
 #define TASK_COMM_LEN 16
 
+#ifdef CONFIG_HW_VIP_THREAD
+enum DYNAMIC_VIP_TYPE
+{
+	DYNAMIC_VIP_BINDER = 0,
+	DYNAMIC_VIP_RWSEM,
+	DYNAMIC_VIP_MUTEX,
+	DYNAMIC_VIP_SEM,
+	DYNAMIC_VIP_FUTEX,
+	DYNAMIC_VIP_MAX,
+};
+
+#define VIP_MSG_LEN (unsigned long)64
+#define VIP_DEPTH_MAX 2
+#endif
+
 enum task_event {
 	PUT_PREV_TASK   = 0,
 	PICK_NEXT_TASK  = 1,
@@ -353,6 +367,41 @@ extern void init_idle_bootup_task(struct task_struct *idle);
 extern cpumask_var_t cpu_isolated_map;
 
 extern int runqueue_is_locked(int cpu);
+
+#ifdef CONFIG_HOTPLUG_CPU
+extern int sched_isolate_count(const cpumask_t *mask, bool include_offline);
+extern int sched_isolate_cpu(int cpu);
+extern int sched_deisolate_cpu(int cpu);
+extern int sched_deisolate_cpu_unlocked(int cpu);
+#else
+static inline int sched_isolate_count(const cpumask_t *mask,
+				      bool include_offline)
+{
+	cpumask_t count_mask;
+
+	if (include_offline)
+		cpumask_andnot(&count_mask, mask, cpu_online_mask);
+	else
+		return 0;
+
+	return cpumask_weight(&count_mask);
+}
+
+static inline int sched_isolate_cpu(int cpu)
+{
+	return 0;
+}
+
+static inline int sched_deisolate_cpu(int cpu)
+{
+	return 0;
+}
+
+static inline int sched_deisolate_cpu_unlocked(int cpu)
+{
+	return 0;
+}
+#endif
 
 #if defined(CONFIG_SMP) && defined(CONFIG_NO_HZ_COMMON)
 extern void nohz_balance_enter_idle(int cpu);
@@ -821,10 +870,24 @@ struct signal_struct {
 	struct mm_struct *oom_mm;	/* recorded mm when the thread group got
 					 * killed by the oom killer */
 
+#ifdef CONFIG_HW_DIE_CATCH
+	unsigned short unexpected_die_catch_flags; /* Only settable by CAP_SYS_RESOURCE and task*/
+#endif
+
 	struct mutex cred_guard_mutex;	/* guard against foreign influences on
 					 * credential calculations
 					 * (notably. ptrace) */
 };
+
+#ifdef CONFIG_HW_DIE_CATCH
+/*  if the process will die by SIGKILL,SIGTERM , it will send SIGABORT to notify userspace*/
+#define KILL_CATCH_FLAG     (0x1)
+/*  if the process will die by system call exit , it will print the log*/
+#define EXIT_CATCH_FLAG     (0x2)
+/*  if the process will die by system call exit , it will send SIGABORT to notify userspace*/
+#define EXIT_CATCH_ABORT_FLAG       (0x4)
+#endif
+
 
 /*
  * Bits in flags field of signal_struct.
@@ -952,6 +1015,18 @@ struct task_delay_info {
 	u64 freepages_start;
 	u64 freepages_delay;	/* wait for memory reclaim */
 	u32 freepages_count;	/* total count of memory reclaim */
+#ifdef CONFIG_HW_MEMORY_MONITOR
+	spinlock_t	allocpages_lock;
+	u64 allocpages_start;
+	u64 allocpages_delay;	/* wait for memoroy slowpath allocation */
+	u64 allocpages_count;	/* total count of memory slowpath allocation */
+	u64 allocpages_delay_max;
+	u64 allocpages_delay_max_order;
+	u64 allocuser_delay;
+	u64 allocuser_count;
+	u64 allocuser_delay_max;
+	u64 allocuser_delay_max_order;
+#endif
 };
 #endif	/* CONFIG_TASK_DELAY_ACCT */
 
@@ -1099,19 +1174,57 @@ struct sched_domain_attr {
 extern int sched_domain_level_max;
 
 struct capacity_state {
+#ifndef CONFIG_MTK_UNIFY_POWER
 	unsigned long cap;	/* compute capacity */
 	unsigned long power;	/* power consumption at this compute capacity */
+#else
+	unsigned long long cap;	/* compute capacity */
+	unsigned int volt;	/* 10uv */
+	unsigned int dyn_pwr;	/* power consumption at this compute capacity */
+	unsigned int lkg_pwr[1];
+#endif
 };
 
 struct idle_state {
 	unsigned long power;	 /* power consumption in this idle state */
 };
 
+#ifdef CONFIG_MTK_SCHED_EAS_POWER_SUPPORT
+typedef int (*idle_power_func)(int, int, int, void *, int);
+typedef int (*busy_power_func)(int, int, void*, int);
+#endif
+
+/* For multi-scheudling support */
+enum SCHED_LB_TYPE {
+	SCHED_HMP_LB = 0,
+	SCHED_EAS_LB,
+	SCHED_HYBRID_LB,
+	SCHED_UNKNOWN_LB
+};
+
+#ifdef CONFIG_MTK_SCHED_BOOST
+extern bool sched_boost(void);
+#else
+static inline bool sched_boost(void)
+{
+	return 0;
+}
+#endif
+
 struct sched_group_energy {
+#ifdef CONFIG_MTK_SCHED_EAS_POWER_SUPPORT
+	idle_power_func idle_power;
+	busy_power_func busy_power;
+#endif
 	unsigned int nr_idle_states;	/* number of idle states */
 	struct idle_state *idle_states;	/* ptr to idle state array */
 	unsigned int nr_cap_states;	/* number of capacity states */
+#ifdef CONFIG_MTK_UNIFY_POWER
+	struct upower_tbl_row *cap_states;
+	unsigned int lkg_idx;
+#else
 	struct capacity_state *cap_states; /* ptr to capacity state array */
+#endif
 };
 
 unsigned long capacity_curr_of(int cpu);
@@ -1382,7 +1495,38 @@ struct sched_avg {
 	u64 last_update_time, load_sum;
 	u32 util_sum, period_contrib;
 	unsigned long load_avg, util_avg;
+#ifdef CONFIG_SCHED_HMP
+	unsigned long loadwop_avg, loadwop_sum;
+	unsigned long pending_load;
+	u32 nr_pending;
+	u32 nr_dequeuing_low_prio;
+	u32 nr_normal_prio;
+	u64 hmp_last_up_migration;
+	u64 hmp_last_down_migration;
+#endif /* CONFIG_SCHED_HMP */
 };
+
+#ifdef CONFIG_SCHED_HWSTATUS
+typedef struct sched_hwstatus{
+	u64			last_jiffies;
+	u64			sum_exec_runtime_big;
+	u64 		sum_exec_runtime_mid;
+	u64			sum_exec_runtime_ltt;
+	u64			wait_sum;
+	s64			sum_sleep_runtime;
+
+	u64			iowait_sum;
+	u64			iowait_max;
+
+	u64			dstate_block_max;
+	s64			dstate_block_sum;
+
+	u64			wait_count;
+	u64			sleep_count;
+	u64			iowait_count;
+	u64			dstate_block_count;
+}sched_hwstatus;
+#endif
 
 #ifdef CONFIG_SCHEDSTATS
 struct sched_statistics {
@@ -1446,6 +1590,9 @@ struct sched_statistics {
 	/* select_task_rq_fair() */
 	u64			nr_wakeups_cas_attempts;
 	u64			nr_wakeups_cas_count;
+#ifdef CONFIG_SCHED_HWSTATUS
+	sched_hwstatus		hwstatus;
+#endif
 };
 #endif
 
@@ -1493,6 +1640,16 @@ struct sched_entity {
 	u64			exec_start;
 	u64			sum_exec_runtime;
 	u64			vruntime;
+#ifdef CONFIG_SCHED_HMP
+	unsigned long pending_load;
+	u32 nr_pending;
+#ifdef CONFIG_SCHED_HMP_PRIO_FILTER
+	u32 nr_dequeuing_low_prio;
+	u32 nr_normal_prio;
+#endif
+	u64 hmp_last_up_migration;
+	u64 hmp_last_down_migration;
+#endif /* CONFIG_SCHED_HMP */
 	u64			prev_sum_exec_runtime;
 
 	u64			nr_migrations;
@@ -1519,6 +1676,11 @@ struct sched_entity {
 	 */
 	struct sched_avg	avg ____cacheline_aligned_in_smp;
 #endif
+
+#ifdef CONFIG_MTK_RT_THROTTLE_MON
+	u64			mtk_isr_time;
+#endif
+
 };
 
 struct sched_rt_entity {
@@ -1622,6 +1784,21 @@ struct tlbflush_unmap_batch {
 	bool writable;
 };
 
+#ifdef CONFIG_BLK_DEV_THROTTLING
+struct blk_throtl_wb_stat {
+	u32 pages;
+	u32 bios;
+};
+#endif
+
+#ifdef CONFIG_HUAWEI_SWAP_ZDATA
+struct reclaim_result {
+	unsigned nr_reclaimed;
+	unsigned nr_writedblock;
+	s64 elapsed_centisecs64;
+};
+#endif
+
 struct task_struct {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	/*
@@ -1635,6 +1812,15 @@ struct task_struct {
 	atomic_t usage;
 	unsigned int flags;	/* per process flags, defined below */
 	unsigned int ptrace;
+
+#ifdef CONFIG_HW_VIP_THREAD
+	int static_vip;
+	atomic64_t dynamic_vip;
+	struct list_head vip_entry;
+	int vip_depth;
+	u64 enqueue_time;
+	u64 dynamic_vip_start;
+#endif
 
 #ifdef CONFIG_SMP
 	struct llist_node wake_entry;
@@ -1708,7 +1894,7 @@ struct task_struct {
 
 	struct mm_struct *mm, *active_mm;
 	/* per-thread vma caching */
-	u32 vmacache_seqnum;
+	u64 vmacache_seqnum;
 	struct vm_area_struct *vmacache[VMACACHE_SIZE];
 #if defined(SPLIT_RSS_COUNTING)
 	struct task_rss_stat	rss_stat;
@@ -1820,6 +2006,12 @@ struct task_struct {
 /* mm fault and swap info: this can arguably be seen as either mm-specific or thread-specific */
 	unsigned long min_flt, maj_flt;
 
+	/* for thrashing accounting */
+	unsigned long fm_flt;
+#ifdef CONFIG_SWAP
+	unsigned long swap_in, swap_out;
+#endif
+
 	struct task_cputime cputime_expires;
 	struct list_head cpu_timers[3];
 
@@ -1911,7 +2103,7 @@ struct task_struct {
 	int softirq_context;
 #endif
 #ifdef CONFIG_LOCKDEP
-# define MAX_LOCK_DEPTH 48UL
+# define MAX_LOCK_DEPTH 32UL
 	u64 curr_chain_key;
 	int lockdep_depth;
 	unsigned int lockdep_recursion;
@@ -1931,6 +2123,9 @@ struct task_struct {
 #ifdef CONFIG_BLOCK
 /* stack plugging */
 	struct blk_plug *plug;
+#endif
+#ifdef CONFIG_BLK_DEV_THROTTLING
+	struct blk_throtl_wb_stat wb_stat;
 #endif
 
 /* VM state */
@@ -2124,6 +2319,13 @@ struct task_struct {
 	/* A live task holds one reference. */
 	atomic_t stack_refcount;
 #endif
+#ifdef CONFIG_HUAWEI_SWAP_ZDATA
+	struct reclaim_result *proc_reclaimed_result;
+#endif
+#ifdef CONFIG_PREEMPT_MONITOR
+	unsigned long preempt_dur;
+#endif
+
 /* CPU-specific state of this task */
 	struct thread_struct thread;
 /*
@@ -2154,6 +2356,11 @@ static inline struct vm_struct *task_stack_vm_area(const struct task_struct *t)
 
 /* Future-safe accessor for struct task_struct's cpus_allowed. */
 #define tsk_cpus_allowed(tsk) (&(tsk)->cpus_allowed)
+enum iso_prio_t {ISO_CUSTOMIZE, ISO_TURBO, ISO_SCHED, ISO_UNSET};
+extern int set_cpu_isolation(enum iso_prio_t prio, struct cpumask *cpumask_ptr);
+extern int unset_cpu_isolation(enum iso_prio_t prio);
+extern struct cpumask cpu_all_masks;
+extern enum iso_prio_t iso_prio;
 
 static inline int tsk_nr_cpus_allowed(struct task_struct *p)
 {
@@ -2451,6 +2658,7 @@ extern void thread_group_cputime_adjusted(struct task_struct *p, cputime_t *ut, 
 #define PF_SWAPWRITE	0x00800000	/* Allowed to write to swap */
 #define PF_NO_SETAFFINITY 0x04000000	/* Userland is not allowed to meddle with cpus_allowed */
 #define PF_MCE_EARLY    0x08000000      /* Early kill for mce process policy */
+#define PF_MUTEX_GC	0x10000000	/* whether this task hold the GC mutex */
 #define PF_MUTEX_TESTER	0x20000000	/* Thread belongs to the rt mutex tester */
 #define PF_FREEZER_SKIP	0x40000000	/* Freezer should not count it as freezable */
 #define PF_SUSPEND_TASK 0x80000000      /* this thread called freeze_processes and should not be frozen */
@@ -2510,6 +2718,10 @@ static inline void memalloc_noio_restore(unsigned int flags)
 #define PFA_SPEC_SSB_DISABLE		4	/* Speculative Store Bypass disabled */
 #define PFA_SPEC_SSB_FORCE_DISABLE	5	/* Speculative Store Bypass force disabled*/
 
+#define PFA_SLEEP_ON_THROTL	25
+#define PFA_FLUSHER		26
+#define PFA_IN_PAGEFAULT	27
+#define PFA_IN_WB_THRD         28
 
 #define TASK_PFA_TEST(name, func)					\
 	static inline bool task_##func(struct task_struct *p)		\
@@ -2541,6 +2753,22 @@ TASK_PFA_CLEAR(SPEC_SSB_DISABLE, spec_ssb_disable)
 
 TASK_PFA_TEST(SPEC_SSB_FORCE_DISABLE, spec_ssb_force_disable)
 TASK_PFA_SET(SPEC_SSB_FORCE_DISABLE, spec_ssb_force_disable)
+
+TASK_PFA_TEST(SLEEP_ON_THROTL, sleep_on_throtl)
+TASK_PFA_SET(SLEEP_ON_THROTL, sleep_on_throtl)
+TASK_PFA_CLEAR(SLEEP_ON_THROTL, sleep_on_throtl)
+
+TASK_PFA_TEST(FLUSHER, flusher)
+TASK_PFA_SET(FLUSHER, flusher)
+TASK_PFA_CLEAR(FLUSHER, flusher)
+
+TASK_PFA_TEST(IN_PAGEFAULT, in_pagefault)
+TASK_PFA_SET(IN_PAGEFAULT, in_pagefault)
+TASK_PFA_CLEAR(IN_PAGEFAULT, in_pagefault)
+
+TASK_PFA_TEST(IN_WB_THRD, in_wb_thrd)
+TASK_PFA_SET(IN_WB_THRD, in_wb_thrd)
+TASK_PFA_CLEAR(IN_WB_THRD, in_wb_thrd)
 
 /*
  * task->jobctl flags
@@ -2635,6 +2863,13 @@ static inline void calc_load_exit_idle(void) { }
  * Please use one of the three interfaces below.
  */
 extern unsigned long long notrace sched_clock(void);
+
+/*
+ * alternative sched_clock to get arch_timer cycle as well
+ */
+extern unsigned long long notrace
+sched_clock_get_cyc(unsigned long long *cyc_ret);
+
 /*
  * See the comment in kernel/sched/clock.c
  */
@@ -3801,4 +4036,5 @@ void cpufreq_add_update_util_hook(int cpu, struct update_util_data *data,
 void cpufreq_remove_update_util_hook(int cpu);
 #endif /* CONFIG_CPU_FREQ */
 
+#include <linux/sched/sched.h>
 #endif

@@ -105,6 +105,9 @@ enum pageflags {
 	PG_young,
 	PG_idle,
 #endif
+#ifdef CONFIG_TASK_PROTECT_LRU
+	PG_protect,
+#endif
 	__NR_PAGEFLAGS,
 
 	/* Filesystems */
@@ -347,6 +350,9 @@ PAGEFLAG_FALSE(HWPoison)
 #define __PG_HWPOISON 0
 #endif
 
+#ifdef CONFIG_TASK_PROTECT_LRU
+PAGEFLAG(Protect, protect, PF_ANY)
+#endif
 #if defined(CONFIG_IDLE_PAGE_TRACKING) && defined(CONFIG_64BIT)
 TESTPAGEFLAG(Young, young, PF_ANY)
 SETPAGEFLAG(Young, young, PF_ANY)

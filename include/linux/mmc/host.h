@@ -25,6 +25,7 @@
 
 struct mmc_ios {
 	unsigned int	clock;			/* clock rate */
+	unsigned int	old_rate;
 	unsigned short	vdd;
 
 /* vdd stores the bit number of the selected voltage range from below. */
@@ -170,11 +171,28 @@ struct device;
 struct mmc_async_req {
 	/* active mmc request */
 	struct mmc_request	*mrq;
+#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+	struct mmc_request	*mrq_que;
+	bool cmdq_en;
+#endif
 	/*
 	 * Check error status of completed mmc request.
 	 * Returns 0 if success otherwise non zero.
 	 */
 	int (*err_check) (struct mmc_card *, struct mmc_async_req *);
+#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+#define MMC_QUEUE_BEFORE_ENQ			(0)	/* mrq is entered in driver */
+#define MMC_QUEUE_ENQ				(1)	/* mrq is enqueued in device */
+#define MMC_QUEUE_BEFORE_QRDY			(2)	/* mrq is 44/45 issue & wait for qrdy */
+#define MMC_QUEUE_BEFORE_TRAN			(3)	/* mrq is checking qrdy & ready to transfer */
+#define MMC_QUEUE_TRAN				(4)	/* mrq is transfer */
+#define MMC_QUEUE_BUSY				(5)	/* mrq is transfer done & cheking busy in case of write */
+#define MMC_QUEUE_BEFORE_POST			(7)	/* mrq is terminated transfer
+							 * including busy check & ready to post process
+							 */
+	unsigned long		state;
+	unsigned int		prio;
+#endif
 };
 
 /**
@@ -208,6 +226,11 @@ struct mmc_context_info {
 	wait_queue_head_t	wait;
 	spinlock_t		lock;
 };
+
+#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+#define EMMC_MAX_QUEUE_DEPTH		(32)
+#define EMMC_MIN_RT_CLASS_TAG_COUNT	(4)
+#endif
 
 struct regulator;
 struct mmc_pwrseq;
@@ -329,6 +352,7 @@ struct mmc_host {
 	spinlock_t		lock;		/* lock for claim and bus ops */
 
 	struct mmc_ios		ios;		/* current io bus settings */
+	struct mmc_ios          cached_ios;
 
 	/* group bitfields together to minimize padding */
 	unsigned int		use_spi_crc:1;
@@ -387,6 +411,51 @@ struct mmc_host {
 	/* Ongoing data transfer that allows commands during transfer */
 	struct mmc_request	*ongoing_mrq;
 
+#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+	struct mmc_async_req	*areq_que[EMMC_MAX_QUEUE_DEPTH];
+	struct mmc_async_req	*areq_cur;
+	atomic_t		areq_cnt;
+
+	spinlock_t		cmd_que_lock;
+	spinlock_t		dat_que_lock;
+	spinlock_t		que_lock;
+	struct list_head	cmd_que;
+	struct list_head	dat_que;
+
+	unsigned long		state;
+	wait_queue_head_t	cmp_que;
+	wait_queue_head_t	cmdq_que;
+	struct mmc_request	*volatile done_mrq;
+	struct mmc_command	chk_cmd;
+	struct mmc_request	chk_mrq;
+	struct mmc_command	que_cmd;
+	struct mmc_request	que_mrq;
+	struct mmc_command	deq_cmd;
+	struct mmc_request	deq_mrq;
+
+	struct mmc_queue_req	*mqrq_cur;
+	struct mmc_queue_req	*mqrq_prev;
+	struct mmc_request	*prev_mrq;
+
+	struct task_struct	*cmdq_thread;
+	atomic_t		cq_rw;
+	atomic_t		cq_w;
+	unsigned int	wp_error;
+	atomic_t		cq_wait_rdy;
+	atomic_t		cq_rdy_cnt;
+	unsigned long	task_id_index;
+	int				cur_rw_task;
+
+	volatile int		is_data_dma;
+	atomic_t		cq_tuning_now;
+#ifdef CONFIG_MMC_FFU
+	atomic_t		stop_queue;
+#endif
+	unsigned int	data_mrq_queued[32];
+	unsigned int	cmdq_support_changed;
+	int			align_size;
+#endif
+
 #ifdef CONFIG_FAIL_MMC_REQUEST
 	struct fault_attr	fail_mmc_request;
 #endif
@@ -412,9 +481,116 @@ struct mmc_host {
 	struct io_latency_state io_lat_read;
 	struct io_latency_state io_lat_write;
 #endif
-
+#ifdef CONFIG_HUAWEI_EMMC_DSM
+	void *iomt_info;
+#endif
 	unsigned long		private[0] ____cacheline_aligned;
 };
+
+/*IO mantains and test info*/
+#define IOMT_CMD_TIMEOUT_TICKS	(((1 * HZ)/10) * 3)
+#define IOMT_MRQ_TIMEOUT_TICKS	(IOMT_CMD_TIMEOUT_TICKS)
+
+struct msdc_iomt_info {
+	struct timer_list iomt_cmd_to_timer;	/*cmd timeout timer*/
+	struct tasklet_struct mrq_tmo_tasklet;
+	unsigned int iomt_last_cmd_code;
+	unsigned int iomt_last_cmd_arg;
+	unsigned int op_arg;
+	unsigned int block_ticks;
+	unsigned int task_id;
+	unsigned long iomt_busy_ticks;
+};
+
+static inline unsigned long msdc_iomt_calculate_ticks(
+		unsigned long before, unsigned long after)
+{
+	return after - before;
+}
+
+static inline void iomt_host_latency_mrq_init(struct mmc_request *mrq)
+{
+	mrq->io_start_ticks = 0;
+}
+
+static inline void iomt_host_latency_mrq_start(struct mmc_request *mrq)
+{
+	mrq->io_start_ticks = jiffies;
+}
+
+static inline void iomt_host_latency_mrq_start_mtk(struct mmc_host *mmc_host,
+						struct mmc_request *mrq)
+{
+	unsigned int task_id;
+	struct mmc_async_req *areq = NULL;
+	struct mmc_request *mrq_que = NULL;
+
+	if ((mrq->cmd != NULL) &&
+	    ((mrq->cmd->opcode == MMC_WRITE_REQUESTED_QUEUE) ||
+	    (mrq->cmd->opcode == MMC_READ_REQUESTED_QUEUE)))
+		task_id = ((mrq->cmd->arg >> 16) & 0x1f);
+	else
+		return;
+
+	if (task_id >= ARRAY_SIZE(mmc_host->areq_que))
+		return;
+
+	areq = mmc_host->areq_que[task_id];
+
+	if (areq != NULL &&
+	    areq->mrq == mrq) {
+		mrq_que = areq->mrq_que;
+		if (mrq_que != NULL)
+			mrq->io_start_ticks =
+				mrq_que->io_start_ticks;
+	}
+}
+
+static inline void iomt_host_latency_mrq_end(struct mmc_host *mmc_host,
+						struct mmc_request *mrq)
+{
+	struct msdc_iomt_info *iomt_info = NULL;
+	unsigned long diff;
+
+	if (mmc_host->iomt_info == NULL)
+		return;
+
+	if ((mrq->io_start_ticks == 0) || (mrq->io_start_ticks > jiffies))
+		return;
+
+	if (mrq->cmd == NULL)
+		return;
+
+	if ((mrq->cmd->opcode != MMC_WRITE_REQUESTED_QUEUE) &&
+	    (mrq->cmd->opcode != MMC_READ_REQUESTED_QUEUE) &&
+	    (mrq->cmd->opcode != MMC_SET_QUEUE_CONTEXT) &&
+	    (mrq->cmd->opcode != MMC_QUEUE_READ_ADDRESS))
+		return;
+
+	iomt_info = (struct msdc_iomt_info *)(mmc_host->iomt_info);
+
+	diff = jiffies - mrq->io_start_ticks;
+
+	if (unlikely(diff >= IOMT_MRQ_TIMEOUT_TICKS)) {
+		iomt_info->op_arg = 0;
+		iomt_info->block_ticks = 0;
+		iomt_info->task_id = ~0;
+
+		if (mrq->cmd) {
+			iomt_info->op_arg = (unsigned short)mrq->cmd->arg;
+			iomt_info->op_arg |=
+				(((unsigned int)mrq->cmd->opcode) << 16);
+			iomt_info->task_id = mrq->cmd->arg;
+		}
+
+		iomt_info->block_ticks = (unsigned short)diff;
+
+		if (mrq->data)
+			iomt_info->block_ticks |=
+				(((unsigned int)mrq->data->blocks) << 16);
+		tasklet_schedule(&iomt_info->mrq_tmo_tasklet);
+	}
+}
 
 struct mmc_host *mmc_alloc_host(int extra, struct device *);
 int mmc_add_host(struct mmc_host *);
@@ -447,6 +623,15 @@ int mmc_power_restore_host(struct mmc_host *host);
 void mmc_detect_change(struct mmc_host *, unsigned long delay);
 void mmc_request_done(struct mmc_host *, struct mmc_request *);
 void mmc_command_done(struct mmc_host *host, struct mmc_request *mrq);
+
+#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+void mmc_handle_queued_request(struct mmc_host *host);
+int mmc_blk_end_queued_req(struct mmc_host *host,
+	struct mmc_async_req *areq, int index, int status);
+/* add for emmc reset when error happen */
+extern int current_mmc_part_type;
+extern int emmc_resetting_when_cmdq;
+#endif
 
 static inline void mmc_signal_sdio_irq(struct mmc_host *host)
 {
