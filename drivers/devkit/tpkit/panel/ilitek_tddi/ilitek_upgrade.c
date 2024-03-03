@@ -135,7 +135,7 @@ static int ilitek_upgrade_fw(char *file_name, bool enforce)
         ret = -ENOMEM;
         goto err_free_flash_sector;
     }
-
+
     ret = convert_hex_file(p_fw->data, p_fw->size, false);
     if (ret) {
         ilitek_err("covert firmware data failed, ret = %d", ret);

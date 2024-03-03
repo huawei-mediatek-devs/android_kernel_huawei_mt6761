@@ -46,7 +46,7 @@ static int ilitek_report_release_data(struct ts_fingers *p_info)
     p_info->cur_finger_number = 0;
 
     return 0;
-}
+}
 
 static int ilitek_read_roi_data(void)
 {
