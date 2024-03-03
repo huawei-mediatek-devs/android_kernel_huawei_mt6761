@@ -9,6 +9,7 @@
 #include <linux/quicklist.h>
 #include <linux/seq_file.h>
 #include <linux/swap.h>
+#include <linux/ion.h>
 #include <linux/vmstat.h>
 #include <linux/atomic.h>
 #include <linux/vmalloc.h>
@@ -18,6 +19,10 @@
 #include <asm/page.h>
 #include <asm/pgtable.h>
 #include "internal.h"
+
+#ifdef CONFIG_HUAWEI_UNMOVABLE_ISOLATE
+#include <linux/unmovable_isolate.h>
+#endif
 
 void __attribute__((weak)) arch_report_meminfo(struct seq_file *m)
 {
@@ -50,6 +55,7 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	long available;
 	unsigned long pages[NR_LRU_LISTS];
 	int lru;
+	unsigned long ion_total = get_ion_total();
 
 	si_meminfo(&i);
 	si_swapinfo(&i);
@@ -152,6 +158,28 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	show_val_kb(m, "CmaTotal:       ", totalcma_pages);
 	show_val_kb(m, "CmaFree:        ",
 		    global_page_state(NR_FREE_CMA_PAGES));
+#endif
+
+#ifdef CONFIG_ION
+	show_val_kb(m, "IonTotalCache:  ", global_page_state(NR_IONCACHE_PAGES));
+	show_val_kb(m, "IonTotalUsed:   ", ion_total >> PAGE_SHIFT);
+#endif
+#ifdef CONFIG_HUAWEI_UNMOVABLE_ISOLATE
+	show_val_kb(m, "Isolate1Free:   ",
+		    global_page_state(NR_FREE_UNMOVABLE_ISOLATE1_PAGES));
+	show_val_kb(m, "Isolate2Free:   ",
+		    global_page_state(NR_FREE_UNMOVABLE_ISOLATE2_PAGES));
+#endif
+
+#ifdef CONFIG_TASK_PROTECT_LRU
+	show_val_kb(m, "PActive(anon):  ",
+		    global_page_state(NR_PROTECT_ACTIVE_ANON));
+	show_val_kb(m, "PInactive(anon):",
+		    global_page_state(NR_PROTECT_INACTIVE_ANON));
+	show_val_kb(m, "PActive(file):  ",
+		    global_page_state(NR_PROTECT_ACTIVE_FILE));
+	show_val_kb(m, "PInactive(file):",
+		    global_page_state(NR_PROTECT_INACTIVE_FILE));
 #endif
 
 	hugetlb_report_meminfo(m);

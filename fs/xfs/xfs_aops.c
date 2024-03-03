@@ -535,7 +535,7 @@ xfs_submit_ioend(
 	ioend->io_bio->bi_private = ioend;
 	ioend->io_bio->bi_end_io = xfs_end_bio;
 	bio_set_op_attrs(ioend->io_bio, REQ_OP_WRITE,
-			 (wbc->sync_mode == WB_SYNC_ALL) ? WRITE_SYNC : 0);
+			 wbc_to_write_flag(wbc));
 	/*
 	 * If we are failing the IO now, just mark the ioend with an
 	 * error and finish it. This will run IO completion immediately
@@ -607,7 +607,7 @@ xfs_chain_bio(
 	bio_chain(ioend->io_bio, new);
 	bio_get(ioend->io_bio);		/* for xfs_destroy_ioend */
 	bio_set_op_attrs(ioend->io_bio, REQ_OP_WRITE,
-			  (wbc->sync_mode == WB_SYNC_ALL) ? WRITE_SYNC : 0);
+			  wbc_to_write_flag(wbc));
 	submit_bio(ioend->io_bio);
 	ioend->io_bio = new;
 }

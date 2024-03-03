@@ -164,6 +164,10 @@ bool ovl_dentry_is_opaque(struct dentry *dentry);
 void ovl_dentry_set_opaque(struct dentry *dentry, bool opaque);
 bool ovl_is_whiteout(struct dentry *dentry);
 const struct cred *ovl_override_creds(struct super_block *sb);
+static void ovl_revert_creds(const struct cred *cred) {
+	if (cred)
+		revert_creds(cred);
+};
 void ovl_dentry_update(struct dentry *dentry, struct dentry *upperdentry);
 void ovl_inode_update(struct inode *inode, struct inode *upperinode);
 struct dentry *ovl_lookup(struct inode *dir, struct dentry *dentry,
@@ -197,15 +201,7 @@ bool ovl_is_private_xattr(const char *name);
 
 struct inode *ovl_new_inode(struct super_block *sb, umode_t mode);
 struct inode *ovl_get_inode(struct super_block *sb, struct inode *realinode);
-static inline void ovl_copyattr(struct inode *from, struct inode *to)
-{
-	to->i_uid = from->i_uid;
-	to->i_gid = from->i_gid;
-	to->i_mode = from->i_mode;
-	to->i_atime = from->i_atime;
-	to->i_mtime = from->i_mtime;
-	to->i_ctime = from->i_ctime;
-}
+void ovl_copyattr(struct inode *from, struct inode *to);
 
 /* dir.c */
 extern const struct inode_operations ovl_dir_inode_operations;

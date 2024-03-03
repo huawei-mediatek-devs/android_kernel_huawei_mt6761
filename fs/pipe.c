@@ -28,6 +28,14 @@
 
 #include "internal.h"
 
+#ifdef CONFIG_HW_FDLEAK
+#include <chipset_common/hwfdleak/fdleak.h>
+#endif
+
+#ifdef CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG
+#include <mt-plat/aee.h>
+#endif
+
 /*
  * The max size that a non-root user is allowed to grow the pipe. Can
  * be set by root in /proc/sys/fs/pipe-max-size
@@ -579,6 +587,9 @@ pipe_release(struct inode *inode, struct file *file)
 	__pipe_unlock(pipe);
 
 	put_pipe_info(inode, pipe);
+#ifdef CONFIG_HW_FDLEAK
+	fdleak_report(FDLEAK_WP_PIPE, 1);
+#endif
 	return 0;
 }
 
@@ -791,6 +802,11 @@ err_inode:
 	return err;
 }
 
+#ifdef CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG
+#define MSG_SIZE_TO_AEE 70
+char msg_to_aee[MSG_SIZE_TO_AEE];
+#endif
+
 static int __do_pipe_flags(int *fd, struct file **files, int flags)
 {
 	int error;
@@ -823,6 +839,22 @@ static int __do_pipe_flags(int *fd, struct file **files, int flags)
  err_read_pipe:
 	fput(files[0]);
 	fput(files[1]);
+#ifdef CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG
+	if (fdr >= 1023 || fdw >= 1023) {
+		snprintf(msg_to_aee, MSG_SIZE_TO_AEE, "[FDLEAK] [pid:%d] %s\n",
+			current->pid, current->comm);
+		aee_kernel_warning_api("FDLEAK_DEBUG", 0, DB_OPT_DEFAULT |
+			DB_OPT_LOW_MEMORY_KILLER |
+			DB_OPT_PID_MEMORY_INFO | /* smaps and hprof*/
+			DB_OPT_NATIVE_BACKTRACE |
+			DB_OPT_DUMPSYS_ACTIVITY |
+			DB_OPT_PROCESS_COREDUMP |
+			DB_OPT_DUMPSYS_SURFACEFLINGER |
+			DB_OPT_DUMPSYS_GFXINFO |
+			DB_OPT_DUMPSYS_PROCSTATS,
+			"show kernel & natvie backtace\n", msg_to_aee);
+	}
+#endif
 	return error;
 }
 
@@ -858,6 +890,9 @@ SYSCALL_DEFINE2(pipe2, int __user *, fildes, int, flags)
 		} else {
 			fd_install(fd[0], files[0]);
 			fd_install(fd[1], files[1]);
+#ifdef CONFIG_HW_FDLEAK
+			fdleak_report(FDLEAK_WP_PIPE, 0);
+#endif
 		}
 	}
 	return error;

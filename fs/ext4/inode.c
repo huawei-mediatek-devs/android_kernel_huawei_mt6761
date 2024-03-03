@@ -37,6 +37,7 @@
 #include <linux/printk.h>
 #include <linux/slab.h>
 #include <linux/bitops.h>
+#include <mt-plat/mtk_blocktag.h>
 
 #include "ext4_jbd2.h"
 #include "xattr.h"
@@ -45,6 +46,12 @@
 
 #include <trace/events/ext4.h>
 #include <trace/events/android_fs.h>
+
+#ifdef CONFIG_HUAWEI_IO_TRACING
+#include <iotrace/iotrace.h>
+DEFINE_TRACE(ext4_da_write_begin_end);
+DEFINE_TRACE(mpage_da_map_and_submit);
+#endif
 
 #define MPAGE_DA_EXTENT_TAIL 0x01
 
@@ -1097,6 +1104,7 @@ static int ext4_block_write_begin(struct page *page, loff_t pos, unsigned len,
 	unsigned bbits;
 	struct buffer_head *bh, *head, *wait[2], **wait_bh = wait;
 	bool decrypt = false;
+	bool hwcrypt = fscrypt_is_hw_encrypt(inode);
 
 	BUG_ON(!PageLocked(page));
 	BUG_ON(from > PAGE_SIZE);
@@ -1149,6 +1157,13 @@ static int ext4_block_write_begin(struct page *page, loff_t pos, unsigned len,
 		if (!buffer_uptodate(bh) && !buffer_delay(bh) &&
 		    !buffer_unwritten(bh) &&
 		    (block_start < from || block_end > to)) {
+			if (hwcrypt) {
+				ll_rw_block_crypt(inode, REQ_OP_READ,
+					0, 1, &bh);
+				*wait_bh++ = bh;
+				decrypt = false;
+				continue;
+			}
 			ll_rw_block(REQ_OP_READ, 0, 1, &bh);
 			*wait_bh++ = bh;
 			decrypt = ext4_encrypted_inode(inode) &&
@@ -1297,6 +1312,7 @@ retry_journal:
 		return ret;
 	}
 	*pagep = page;
+	mtk_btag_pidlog_set_pid(*pagep);
 	return ret;
 }
 
@@ -2103,6 +2119,7 @@ static int ext4_writepage(struct page *page,
 		return __ext4_journalled_writepage(page, len);
 
 	ext4_io_submit_init(&io_submit, wbc);
+	io_submit.inode = inode;
 	io_submit.io_end = ext4_init_io_end(inode, GFP_NOFS);
 	if (!io_submit.io_end) {
 		redirty_page_for_writepage(wbc, page);
@@ -2567,13 +2584,23 @@ static int mpage_prepare_extent_to_map(struct mpage_da_data *mpd)
 	mpd->map.m_len = 0;
 	mpd->next_page = index;
 	while (index <= end) {
-		nr_pages = pagevec_lookup_range_tag(&pvec, mapping, &index, end,
-				tag);
+		nr_pages = pagevec_lookup_tag(&pvec, mapping, &index, tag,
+			      min(end - index, (pgoff_t)PAGEVEC_SIZE-1) + 1);
 		if (nr_pages == 0)
 			goto out;
 
 		for (i = 0; i < nr_pages; i++) {
 			struct page *page = pvec.pages[i];
+
+			/*
+			 * At this point, the page may be truncated or
+			 * invalidated (changing page->mapping to NULL), or
+			 * even swizzled back from swapper_space to tmpfs file
+			 * mapping. However, page->index will not change
+			 * because we have a reference on the page.
+			 */
+			if (page->index > end)
+				goto out;
 
 			/*
 			 * Accumulated enough dirty pages? This doesn't apply
@@ -2740,6 +2767,7 @@ static int ext4_writepages(struct address_space *mapping,
 	mpd.inode = inode;
 	mpd.wbc = wbc;
 	ext4_io_submit_init(&mpd.io_submit, wbc);
+	mpd.io_submit.inode = inode;
 retry:
 	if (wbc->sync_mode == WB_SYNC_ALL || wbc->tagged_writepages)
 		tag_pages_for_writeback(mapping, mpd.first_page, mpd.last_page);
@@ -2943,6 +2971,10 @@ static int ext4_da_write_begin(struct file *file, struct address_space *mapping,
 						      pagep, fsdata);
 		if (ret < 0)
 			return ret;
+#ifdef CONFIG_HUAWEI_IO_TRACING
+		if (ret == 1)
+			trace_ext4_da_write_begin_end(inode, pos, len, flags);
+#endif
 		if (ret == 1)
 			return 0;
 	}
@@ -3009,7 +3041,9 @@ retry_journal:
 		put_page(page);
 		return ret;
 	}
-
+#ifdef CONFIG_HUAWEI_IO_TRACING
+	trace_ext4_da_write_begin_end(inode, pos, len, flags);
+#endif
 	*pagep = page;
 	return ret;
 }
@@ -3498,7 +3532,11 @@ static ssize_t ext4_direct_IO_write(struct kiocb *iocb, struct iov_iter *iter)
 		dio_flags = DIO_LOCKING;
 	}
 #ifdef CONFIG_EXT4_FS_ENCRYPTION
+#if 0
 	BUG_ON(ext4_encrypted_inode(inode) && S_ISREG(inode->i_mode));
+#else
+	WARN_ON(fscrypt_is_sw_encrypt(inode));
+#endif
 #endif
 	if (IS_DAX(inode)) {
 		ret = dax_do_io(iocb, inode, iter, get_block_func,
@@ -3620,8 +3658,11 @@ static ssize_t ext4_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 	int rw = iov_iter_rw(iter);
 
 #ifdef CONFIG_EXT4_FS_ENCRYPTION
+	if (fscrypt_is_hw_encrypt(inode))
+		goto skip_check;
 	if (ext4_encrypted_inode(inode) && S_ISREG(inode->i_mode))
 		return 0;
+skip_check:
 #endif
 
 	/*
@@ -3816,6 +3857,7 @@ static int __ext4_block_zero_page_range(handle_t *handle,
 		if (!buffer_uptodate(bh))
 			goto unlock;
 		if (S_ISREG(inode->i_mode) &&
+			fscrypt_is_sw_encrypt(inode) &&
 		    ext4_encrypted_inode(inode)) {
 			/* We expect the key to be set. */
 			BUG_ON(!fscrypt_has_encryption_key(inode));

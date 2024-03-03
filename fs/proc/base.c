@@ -97,6 +97,11 @@
 
 #include "../../lib/kstrtox.h"
 
+#if defined(CONFIG_HW_VIP_THREAD) || defined(CONFIG_PROCESS_RECLAIM) || defined(CONFIG_HUAWEI_SWAP_ZDATA)
+#define GLOBAL_SYSTEM_UID KUIDT_INIT(1000)
+#define GLOBAL_SYSTEM_GID KGIDT_INIT(1000)
+#endif
+
 /* NOTE:
  *	Implementing inode permission operations in /proc is almost
  *	certainly an error.  Permission checks need to happen during
@@ -497,6 +502,10 @@ static int proc_pid_schedstat(struct seq_file *m, struct pid_namespace *ns,
 
 	return 0;
 }
+#endif
+
+#ifdef CONFIG_HW_MEMORY_MONITOR
+extern int proc_tid_memstat(struct seq_file *m, struct pid_namespace *ns, struct pid *pid, struct task_struct *task);
 #endif
 
 #ifdef CONFIG_LATENCYTOP
@@ -930,6 +939,85 @@ static const struct file_operations proc_mem_operations = {
 	.release	= mem_release,
 };
 
+#ifdef CONFIG_HW_VIP_THREAD
+static int proc_static_vip_show(struct seq_file *m, void *v)
+{
+	struct inode *inode = m->private;
+	struct task_struct *p;
+	p = get_proc_task(inode);
+	if (!p) {
+		return -ESRCH;
+	}
+	task_lock(p);
+	seq_printf(m, "%d\n", p->static_vip);
+	task_unlock(p);
+	put_task_struct(p);
+	return 0;
+}
+
+static int proc_static_vip_open(struct inode* inode, struct file *filp)
+{
+	return single_open(filp, proc_static_vip_show, inode);
+}
+
+static ssize_t proc_static_vip_write(struct file *file, const char __user *buf,
+			     size_t count, loff_t *ppos)
+{
+	struct task_struct *task = NULL;
+	char buffer[PROC_NUMBUF] = {0};
+	const size_t max_len = sizeof(buffer) - 1;
+	int err = 0,static_vip = 0;
+	if (copy_from_user(buffer, buf, count > max_len ? max_len : count)) {
+		return -EFAULT;
+	}
+	err = kstrtoint(strstrip(buffer), 0, &static_vip);
+	if(err) {
+		return err;
+	}
+	task = get_proc_task(file_inode(file));
+	if (!task) {
+		return -ESRCH;
+	}
+
+#ifdef CONFIG_SCHED_HWSTATUS
+        if((static_vip != 0) &&(task->static_vip == 0)) {
+                sched_hwstatus_updatefg(task->pid, task->tgid);
+        }
+#endif
+
+	task->static_vip = (static_vip != 0) ? 1 : 0;
+
+	put_task_struct(task);
+	return count;
+}
+
+static ssize_t proc_static_vip_read(struct file* file, char __user *buf,
+							    size_t count, loff_t *ppos)
+{
+	char buffer[PROC_NUMBUF] = {0};
+	struct task_struct *task = NULL;
+	int static_vip = -1;
+	size_t len = 0;
+	task = get_proc_task(file_inode(file));
+	if (!task) {
+		return -ESRCH;
+	}
+	static_vip = task->static_vip;
+	put_task_struct(task);
+	len = snprintf(buffer, sizeof(buffer), "%d\n", static_vip);
+	return simple_read_from_buffer(buf, count, ppos, buffer, len);
+}
+
+static const struct file_operations proc_static_vip_operations = {
+	.open       = proc_static_vip_open,
+	.write      = proc_static_vip_write,
+	.read       = proc_static_vip_read,
+	.llseek     = seq_lseek,
+	.release    = single_release,
+};
+
+#endif
+
 static int environ_open(struct inode *inode, struct file *file)
 {
 	return __mem_open(inode, file, PTRACE_MODE_READ);
@@ -1244,6 +1332,92 @@ static const struct file_operations proc_oom_score_adj_operations = {
 	.write		= oom_score_adj_write,
 	.llseek		= default_llseek,
 };
+
+#ifdef CONFIG_HW_DIE_CATCH
+static ssize_t unexpected_die_catch_read(struct file *file, char __user *buf,
+					size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file_inode(file));
+	char buffer[PROC_NUMBUF];
+	unsigned int die_catch_flags = 0;
+	unsigned long flags;
+	size_t len;
+
+	if (!task)
+		return -ESRCH;
+
+	if (lock_task_sighand(task, &flags)) {
+		die_catch_flags = task->signal->unexpected_die_catch_flags;
+		unlock_task_sighand(task, &flags);
+	}
+
+	put_task_struct(task);
+	len = snprintf(buffer, sizeof(buffer), "%d\n", die_catch_flags);
+	return simple_read_from_buffer(buf, count, ppos, buffer, len);
+}
+
+static ssize_t unexpected_die_catch_write(struct file *file, const char __user *buf,
+					size_t count, loff_t *ppos)
+{
+	struct task_struct *task;
+	char buffer[PROC_NUMBUF];
+	unsigned long flags;
+	unsigned int die_catch_flags;
+	int err;
+
+	memset(buffer, 0, sizeof(buffer));
+
+	if (count > sizeof(buffer) - 1)
+		count = sizeof(buffer) - 1;
+
+	if (copy_from_user(buffer, buf, count)) {
+		err = -EFAULT;
+		goto out;
+	}
+
+	err = kstrtouint(strstrip(buffer), 0, &die_catch_flags);
+	if (err)
+		goto out;
+
+	task = get_proc_task(file_inode(file));
+	if (!task) {
+		err = -ESRCH;
+		goto out;
+	}
+
+	task_lock(task);
+	if (!task->mm) {
+		err = -EINVAL;
+		goto err_task_lock;
+	}
+
+	if (!lock_task_sighand(task, &flags)) {
+		err = -ESRCH;
+		goto err_task_lock;
+	}
+
+	if (!capable(CAP_SYS_ADMIN) && !capable(CAP_KILL)) {
+		err = -EACCES;
+		goto err_sighand;
+	}
+
+	task->signal->unexpected_die_catch_flags = (unsigned short)die_catch_flags;
+
+err_sighand:
+	unlock_task_sighand(task, &flags);
+err_task_lock:
+	task_unlock(task);
+	put_task_struct(task);
+out:
+	return err < 0 ? err : count;
+}
+
+static const struct file_operations proc_unexpected_die_catch_operations = {
+	.read = unexpected_die_catch_read,
+	.write = unexpected_die_catch_write,
+	.llseek = default_llseek,
+};
+#endif
 
 #ifdef CONFIG_AUDITSYSCALL
 #define TMPBUFLEN 21
@@ -1742,6 +1916,20 @@ int pid_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat)
 	return 0;
 }
 
+#if defined(CONFIG_HW_VIP_THREAD) || defined(CONFIG_PROCESS_RECLAIM) || defined(CONFIG_HUAWEI_SWAP_ZDATA)
+bool is_special_entry(struct dentry *dentry, const char* special_proc)
+{
+	if (NULL == dentry || NULL == special_proc)
+		return false;
+
+	const unsigned char *name = dentry->d_name.name;
+	if (NULL != name && !strncmp(special_proc, name, 32))
+		return true;
+	else
+		return false;
+}
+#endif
+
 /* dentry stuff */
 
 /*
@@ -1777,12 +1965,44 @@ int pid_revalidate(struct dentry *dentry, unsigned int flags)
 			rcu_read_lock();
 			cred = __task_cred(task);
 			inode->i_uid = cred->euid;
-			inode->i_gid = cred->egid;
+			if (0 != cred->egid.val) {
+#ifdef CONFIG_PROCESS_RECLAIM
+				if (is_special_entry(dentry, "reclaim"))
+					inode->i_gid = GLOBAL_SYSTEM_GID;
+				else
+#endif
+#ifdef CONFIG_HUAWEI_SWAP_ZDATA
+				if (is_special_entry(dentry, "reclaim_result"))
+					inode->i_gid = GLOBAL_SYSTEM_GID;
+				else
+#endif
+#ifdef CONFIG_HW_VIP_THREAD
+				if (is_special_entry(dentry, "static_vip"))
+					inode->i_gid = GLOBAL_SYSTEM_GID;
+				else
+#endif
+					inode->i_gid = cred->egid;
+            }else
+				inode->i_gid = cred->egid;
 			rcu_read_unlock();
 		} else {
 			inode->i_uid = GLOBAL_ROOT_UID;
 			inode->i_gid = GLOBAL_ROOT_GID;
 		}
+#ifdef CONFIG_HUAWEI_SWAP_ZDATA
+		if (is_special_entry(dentry, "reclaim_result"))
+				inode->i_gid = GLOBAL_SYSTEM_GID;
+					else
+#endif
+
+#ifdef CONFIG_HW_VIP_THREAD
+		if (is_special_entry(dentry, "static_vip"))
+		{
+			inode->i_uid = GLOBAL_SYSTEM_UID;
+			inode->i_gid = GLOBAL_SYSTEM_GID;
+		}
+#endif
+
 		inode->i_mode &= ~(S_ISUID | S_ISGID);
 		security_task_to_inode(task, inode);
 		put_task_struct(task);
@@ -2913,9 +3133,16 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("mounts",     S_IRUGO, proc_mounts_operations),
 	REG("mountinfo",  S_IRUGO, proc_mountinfo_operations),
 	REG("mountstats", S_IRUSR, proc_mountstats_operations),
+#ifdef CONFIG_PROCESS_RECLAIM
+	REG("reclaim", S_IWUSR|S_IWGRP, proc_reclaim_operations),
+#endif
+#ifdef CONFIG_HUAWEI_SWAP_ZDATA
+	ONE("reclaim_result", S_IRUSR|S_IRGRP, process_reclaim_result_read),
+#endif
 #ifdef CONFIG_PROC_PAGE_MONITOR
 	REG("clear_refs", S_IWUSR, proc_clear_refs_operations),
 	REG("smaps",      S_IRUGO, proc_pid_smaps_operations),
+	REG("smaps_simple", S_IRUGO, proc_pid_smaps_simple_operations),
 	REG("pagemap",    S_IRUSR, proc_pagemap_operations),
 #endif
 #ifdef CONFIG_SECURITY
@@ -2966,6 +3193,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 #endif
 #ifdef CONFIG_CHECKPOINT_RESTORE
 	REG("timers",	  S_IRUGO, proc_timers_operations),
+#endif
+#ifdef CONFIG_HW_DIE_CATCH
+	REG("unexpected_die_catch", S_IRUGO|S_IWUSR, proc_unexpected_die_catch_operations),
 #endif
 	REG("timerslack_ns", S_IRUGO|S_IWUGO, proc_pid_set_timerslack_ns_operations),
 #ifdef CONFIG_CPU_FREQ_TIMES
@@ -3324,6 +3554,9 @@ static const struct pid_entry tid_base_stuff[] = {
 #ifdef CONFIG_SCHED_INFO
 	ONE("schedstat", S_IRUGO, proc_pid_schedstat),
 #endif
+#ifdef CONFIG_HW_MEMORY_MONITOR
+	ONE("mstat", S_IRUGO, proc_tid_memstat),
+#endif
 #ifdef CONFIG_LATENCYTOP
 	REG("latency",  S_IRUGO, proc_lstats_operations),
 #endif
@@ -3357,6 +3590,9 @@ static const struct pid_entry tid_base_stuff[] = {
 #endif
 #ifdef CONFIG_CPU_FREQ_TIMES
 	ONE("time_in_state", 0444, proc_time_in_state_show),
+#endif
+#ifdef CONFIG_HW_VIP_THREAD
+        REG("static_vip", S_IRUGO | S_IWGRP, proc_static_vip_operations),
 #endif
 };
 

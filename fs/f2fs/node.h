@@ -150,6 +150,9 @@ struct nat_entry_set {
 	struct list_head entry_list;	/* link with dirty nat entries */
 	nid_t set;			/* set number*/
 	unsigned int entry_cnt;		/* the # of nat entries in set */
+#ifdef CONFIG_F2FS_JOURNAL_APPEND
+	bool can_merge;
+#endif
 };
 
 struct free_nid {

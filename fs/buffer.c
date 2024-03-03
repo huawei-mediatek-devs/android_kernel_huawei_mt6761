@@ -44,10 +44,17 @@
 #include <linux/mpage.h>
 #include <linux/bit_spinlock.h>
 #include <trace/events/block.h>
+#ifdef CONFIG_HUAWEI_IO_TRACING
+#include <iotrace/iotrace.h>
+DEFINE_TRACE(block_write_begin_enter);
+DEFINE_TRACE(block_write_begin_end);
+#endif
+
+#include <linux/hie.h>
 
 static int fsync_buffers_list(spinlock_t *lock, struct list_head *list);
-static int submit_bh_wbc(int op, int op_flags, struct buffer_head *bh,
-			 unsigned long bio_flags,
+static int submit_bh_wbc_crypt(struct inode *inode, int op, int op_flags,
+			 struct buffer_head *bh, unsigned long bio_flags,
 			 struct writeback_control *wbc);
 
 #define BH_ENTRY(list) list_entry((list), struct buffer_head, b_assoc_buffers)
@@ -1082,6 +1089,10 @@ static struct buffer_head *
 __getblk_slow(struct block_device *bdev, sector_t block,
 	     unsigned size, gfp_t gfp)
 {
+#ifdef CONFIG_ZONE_MOVABLE_CMA
+	/* __GFP_MOVABLE is not allowed for buffer_head */
+	gfp &= ~__GFP_MOVABLE;
+#endif
 	/* Size must be multiple of hard sectorsize */
 	if (unlikely(size & (bdev_logical_block_size(bdev)-1) ||
 			(size < 512 || size > PAGE_SIZE))) {
@@ -1697,7 +1708,7 @@ int __block_write_full_page(struct inode *inode, struct page *page,
 	struct buffer_head *bh, *head;
 	unsigned int blocksize, bbits;
 	int nr_underway = 0;
-	int write_flags = (wbc->sync_mode == WB_SYNC_ALL ? WRITE_SYNC : 0);
+	int write_flags = wbc_to_write_flag(wbc);
 
 	head = create_page_buffers(page, inode,
 					(1 << BH_Dirty)|(1 << BH_Uptodate));
@@ -1786,7 +1797,8 @@ int __block_write_full_page(struct inode *inode, struct page *page,
 	do {
 		struct buffer_head *next = bh->b_this_page;
 		if (buffer_async_write(bh)) {
-			submit_bh_wbc(REQ_OP_WRITE, write_flags, bh, 0, wbc);
+			submit_bh_wbc_crypt(inode, REQ_OP_WRITE,
+				write_flags, bh, 0, wbc);
 			nr_underway++;
 		}
 		bh = next;
@@ -1840,7 +1852,8 @@ recover:
 		struct buffer_head *next = bh->b_this_page;
 		if (buffer_async_write(bh)) {
 			clear_buffer_dirty(bh);
-			submit_bh_wbc(REQ_OP_WRITE, write_flags, bh, 0, wbc);
+			submit_bh_wbc_crypt(inode, REQ_OP_WRITE,
+				write_flags, bh, 0, wbc);
 			nr_underway++;
 		}
 		bh = next;
@@ -1963,6 +1976,10 @@ int __block_write_begin_int(struct page *page, loff_t pos, unsigned len,
 	BUG_ON(to > PAGE_SIZE);
 	BUG_ON(from > to);
 
+#ifdef CONFIG_HUAWEI_IO_TRACING
+	trace_block_write_begin_enter(inode, page, pos, len);
+#endif
+
 	head = create_page_buffers(page, inode, 0);
 	blocksize = head->b_size;
 	bbits = block_size_bits(blocksize);
@@ -2029,6 +2046,9 @@ int __block_write_begin_int(struct page *page, loff_t pos, unsigned len,
 	}
 	if (unlikely(err))
 		page_zero_new_buffers(page, from, to);
+#ifdef CONFIG_HUAWEI_IO_TRACING
+	trace_block_write_begin_end(inode, page, err);
+#endif
 	return err;
 }
 
@@ -3051,8 +3071,9 @@ void guard_bio_eod(int op, struct bio *bio)
 	}
 }
 
-static int submit_bh_wbc(int op, int op_flags, struct buffer_head *bh,
-			 unsigned long bio_flags, struct writeback_control *wbc)
+int submit_bh_wbc_crypt(struct inode *inode, int op, int op_flags,
+			struct buffer_head *bh, unsigned long bio_flags,
+			struct writeback_control *wbc)
 {
 	struct bio *bio;
 
@@ -3089,6 +3110,9 @@ static int submit_bh_wbc(int op, int op_flags, struct buffer_head *bh,
 	bio->bi_private = bh;
 	bio->bi_flags |= bio_flags;
 
+	if (inode)
+		hie_set_bio_crypt_context(inode, bio);
+
 	/* Take care of bh's that straddle the end of the device */
 	guard_bio_eod(op, bio);
 
@@ -3105,13 +3129,20 @@ static int submit_bh_wbc(int op, int op_flags, struct buffer_head *bh,
 int _submit_bh(int op, int op_flags, struct buffer_head *bh,
 	       unsigned long bio_flags)
 {
-	return submit_bh_wbc(op, op_flags, bh, bio_flags, NULL);
+	return submit_bh_wbc_crypt(NULL, op, op_flags, bh, bio_flags, NULL);
 }
 EXPORT_SYMBOL_GPL(_submit_bh);
 
-int submit_bh(int op, int op_flags,  struct buffer_head *bh)
+int submit_bh_crypt(struct inode *inode, int op, int op_flags,
+	struct buffer_head *bh)
 {
-	return submit_bh_wbc(op, op_flags, bh, 0, NULL);
+	return submit_bh_wbc_crypt(inode, op, op_flags, bh, 0, NULL);
+}
+EXPORT_SYMBOL(submit_bh_crypt);
+
+int submit_bh(int op, int op_flags, struct buffer_head *bh)
+{
+	return submit_bh_wbc_crypt(NULL, op, op_flags, bh, 0, NULL);
 }
 EXPORT_SYMBOL(submit_bh);
 
@@ -3141,7 +3172,8 @@ EXPORT_SYMBOL(submit_bh);
  * All of the buffers must be for the same device, and must also be a
  * multiple of the current approved size for the device.
  */
-void ll_rw_block(int op, int op_flags,  int nr, struct buffer_head *bhs[])
+void ll_rw_block_crypt(struct inode *inode, int op, int op_flags, int nr,
+		       struct buffer_head *bhs[])
 {
 	int i;
 
@@ -3154,19 +3186,25 @@ void ll_rw_block(int op, int op_flags,  int nr, struct buffer_head *bhs[])
 			if (test_clear_buffer_dirty(bh)) {
 				bh->b_end_io = end_buffer_write_sync;
 				get_bh(bh);
-				submit_bh(op, op_flags, bh);
+				submit_bh_crypt(inode, op, op_flags, bh);
 				continue;
 			}
 		} else {
 			if (!buffer_uptodate(bh)) {
 				bh->b_end_io = end_buffer_read_sync;
 				get_bh(bh);
-				submit_bh(op, op_flags, bh);
+				submit_bh_crypt(inode, op, op_flags, bh);
 				continue;
 			}
 		}
 		unlock_buffer(bh);
 	}
+}
+EXPORT_SYMBOL(ll_rw_block_crypt);
+
+void ll_rw_block(int op, int op_flags, int nr, struct buffer_head *bhs[])
+{
+	ll_rw_block_crypt(NULL, op, op_flags, nr, bhs);
 }
 EXPORT_SYMBOL(ll_rw_block);
 
