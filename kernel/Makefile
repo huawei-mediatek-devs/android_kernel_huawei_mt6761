@@ -2,6 +2,13 @@
 # Makefile for the linux kernel.
 #
 
+subdir-ccflags-y += -Werror
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/mtprof
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/sched
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/mcdi/include
+
 obj-y     = fork.o exec_domain.o panic.o \
 	    cpu.o exit.o softirq.o resource.o \
 	    sysctl.o sysctl_binary.o capability.o ptrace.o user.o \
@@ -66,10 +73,12 @@ obj-$(CONFIG_KEXEC_CORE) += kexec_core.o
 obj-$(CONFIG_KEXEC) += kexec.o
 obj-$(CONFIG_KEXEC_FILE) += kexec_file.o
 obj-$(CONFIG_BACKTRACE_SELF_TEST) += backtracetest.o
+CFLAGS_compat.o = -Wno-maybe-uninitialized
 obj-$(CONFIG_COMPAT) += compat.o
 obj-$(CONFIG_CGROUPS) += cgroup.o
 obj-$(CONFIG_CGROUP_FREEZER) += cgroup_freezer.o
 obj-$(CONFIG_CGROUP_PIDS) += cgroup_pids.o
+obj-$(CONFIG_CGROUP_IOLIMIT) += cgroup_io_limit.o
 obj-$(CONFIG_CPUSETS) += cpuset.o
 obj-$(CONFIG_UTS_NS) += utsname.o
 obj-$(CONFIG_USER_NS) += user_namespace.o
@@ -85,6 +94,8 @@ obj-$(CONFIG_GCOV_KERNEL) += gcov/
 obj-$(CONFIG_KCOV) += kcov.o
 obj-$(CONFIG_KPROBES) += kprobes.o
 obj-$(CONFIG_KGDB) += debug/
+obj-$(CONFIG_DETECT_HUAWEI_HUNG_TASK) += huawei_hung_task.o
+obj-$(CONFIG_DETECT_HUAWEI_HUNG_TASK) += huawei_init_watchdog.o
 obj-$(CONFIG_DETECT_HUNG_TASK) += hung_task.o
 obj-$(CONFIG_LOCKUP_DETECTOR) += watchdog.o
 obj-$(CONFIG_HARDLOCKUP_DETECTOR) += watchdog_hld.o
@@ -117,6 +128,12 @@ obj-$(CONFIG_TORTURE_TEST) += torture.o
 obj-$(CONFIG_MEMBARRIER) += membarrier.o
 
 obj-$(CONFIG_HAS_IOMEM) += memremap.o
+obj-$(CONFIG_HW_VIP_THREAD) += hwcfs/
+obj-$(CONFIG_HW_VIP_THREAD) += cpu_netlink/
+obj-$(CONFIG_HW_CPULOAD_NOTI) += cpu_netlink/
+obj-$(CONFIG_HW_IAWARE_THREAD_BOOST) += cpu_netlink/
+
+obj-$(CONFIG_HW_CGROUP_WORKINGSET) += cgroup_workingset.o
 
 $(obj)/configs.o: $(obj)/config_data.h
 

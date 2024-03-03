@@ -1328,8 +1328,15 @@ static char *cgroup_file_name(struct cgroup *cgrp, const struct cftype *cft,
 {
 	struct cgroup_subsys *ss = cft->ss;
 
+#ifdef CONFIG_CPUSETS
+	if (cft->ss && !(cft->flags & CFTYPE_NO_PREFIX) &&
+	    !(cgrp->root->flags & CGRP_ROOT_NOPREFIX) &&
+	    !(cft->ss->id == cpuset_cgrp_id &&
+	    (cgrp->root->flags & CGRP_ROOT_CPUSET_NOPREFIX)))
+#else
 	if (cft->ss && !(cft->flags & CFTYPE_NO_PREFIX) &&
 	    !(cgrp->root->flags & CGRP_ROOT_NOPREFIX))
+#endif
 		snprintf(buf, CGROUP_FILE_NAME_MAX, "%s.%s",
 			 cgroup_on_dfl(cgrp) ? ss->name : ss->legacy_name,
 			 cft->name);
@@ -1669,6 +1676,8 @@ static int cgroup_show_options(struct seq_file *seq,
 				seq_show_option(seq, ss->legacy_name, NULL);
 	if (root->flags & CGRP_ROOT_NOPREFIX)
 		seq_puts(seq, ",noprefix");
+	if (root->flags & CGRP_ROOT_CPUSET_NOPREFIX)
+		seq_puts(seq, ",cpuset_noprefix");
 	if (root->flags & CGRP_ROOT_XATTR)
 		seq_puts(seq, ",xattr");
 
@@ -1729,6 +1738,10 @@ static int parse_cgroupfs_options(char *data, struct cgroup_sb_opts *opts)
 		}
 		if (!strcmp(token, "noprefix")) {
 			opts->flags |= CGRP_ROOT_NOPREFIX;
+			continue;
+		}
+		if (!strcmp(token, "cpuset_noprefix")) {
+			opts->flags |= CGRP_ROOT_CPUSET_NOPREFIX;
 			continue;
 		}
 		if (!strcmp(token, "clone_children")) {
@@ -6600,7 +6613,7 @@ static int cgroup_css_links_read(struct seq_file *seq, void *v)
 		struct task_struct *task;
 		int count = 0;
 
-		seq_printf(seq, "css_set %p\n", cset);
+		seq_printf(seq, "css_set %pK\n", cset);
 
 		list_for_each_entry(task, &cset->tasks, cg_list) {
 			if (count++ > MAX_TASKS_SHOWN_PER_CSS)

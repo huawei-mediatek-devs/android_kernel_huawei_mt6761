@@ -25,6 +25,8 @@
 #include <linux/posix-timers.h>
 #include <linux/workqueue.h>
 #include <linux/freezer.h>
+#include <linux/ratelimit.h>
+#include <linux/module.h>
 
 /**
  * struct alarm_base - Alarm timer bases
@@ -136,8 +138,15 @@ static inline void alarmtimer_rtc_timer_init(void) { }
  */
 static void alarmtimer_enqueue(struct alarm_base *base, struct alarm *alarm)
 {
+	static DEFINE_RATELIMIT_STATE(ratelimit, HZ - 1, 5);
+
 	if (alarm->state & ALARMTIMER_STATE_ENQUEUED)
 		timerqueue_del(&base->timerqueue, &alarm->node);
+
+	if (__ratelimit(&ratelimit)) {
+		ratelimit.begin = jiffies;
+		pr_notice("%s, %lld\n", __func__, alarm->node.expires.tv64);
+	}
 
 	timerqueue_add(&base->timerqueue, &alarm->node);
 	alarm->state |= ALARMTIMER_STATE_ENQUEUED;
@@ -205,7 +214,48 @@ ktime_t alarm_expires_remaining(const struct alarm *alarm)
 }
 EXPORT_SYMBOL_GPL(alarm_expires_remaining);
 
+typedef enum 
+{
+    RUNMODE_FLAG_NORMAL,
+    RUNMODE_FLAG_FACTORY,
+    RUNMODE_FLAG_UNKNOW
+}hw_runmode_t;
+
+#define RUNMODE_FLAG_NORMAL_KEY     "normal"
+#define RUNMODE_FLAG_FACTORY_KEY    "factory"
+static hw_runmode_t runmode_factory = RUNMODE_FLAG_UNKNOW;
+
+static int __init init_runmode(char *str)
+{
+    if(!str || !(*str)) {
+        printk(KERN_CRIT"%s:get run mode fail\n",__func__);
+        return 0;
+    }    
+
+    if(!strncmp(str, RUNMODE_FLAG_FACTORY_KEY, sizeof(RUNMODE_FLAG_FACTORY_KEY)-1)) {
+        runmode_factory = RUNMODE_FLAG_FACTORY;
+        printk(KERN_NOTICE "%s:run mode is factory\n", __func__);
+    } else {
+        runmode_factory = RUNMODE_FLAG_NORMAL;
+        printk(KERN_NOTICE "%s:run mode is normal\n", __func__);
+    }    
+
+    return 1;
+}
+
+__setup("androidboot.huawei_swtype=", init_runmode);
+
+
+
+bool hw_alarm_stop = 0;
+module_param(hw_alarm_stop, bool, 0644);
+MODULE_PARM_DESC(hw_alarm_stop, "stop or not alarm");
+EXPORT_SYMBOL(hw_alarm_stop);
+
 #ifdef CONFIG_RTC_CLASS
+
+extern unsigned int runmode_is_factory(void);
+
 /**
  * alarmtimer_suspend - Suspend time callback
  * @dev: unused
@@ -218,13 +268,17 @@ EXPORT_SYMBOL_GPL(alarm_expires_remaining);
  */
 static int alarmtimer_suspend(struct device *dev)
 {
-	struct rtc_time tm;
-	ktime_t min, now;
+	struct rtc_time tm, time;
+	ktime_t min, now, temp;
 	unsigned long flags;
 	struct rtc_device *rtc;
 	int i;
 	int ret;
 
+	if (hw_alarm_stop && runmode_is_factory()){
+		pr_err("runmode_is_factory true, forbid alarms\n");
+		return 0;
+	}
 	spin_lock_irqsave(&freezer_delta_lock, flags);
 	min = freezer_delta;
 	freezer_delta = ktime_set(0, 0);
@@ -247,8 +301,10 @@ static int alarmtimer_suspend(struct device *dev)
 		if (!next)
 			continue;
 		delta = ktime_sub(next->expires, base->gettime());
-		if (!min.tv64 || (delta.tv64 < min.tv64))
+		if (!min.tv64 || (delta.tv64 < min.tv64)) {
 			min = delta;
+			temp = next->expires;
+		}
 	}
 	if (min.tv64 == 0)
 		return 0;
@@ -263,6 +319,14 @@ static int alarmtimer_suspend(struct device *dev)
 	rtc_read_time(rtc, &tm);
 	now = rtc_tm_to_ktime(tm);
 	now = ktime_add(now, min);
+
+	time = rtc_ktime_to_tm(now);
+	pr_notice_ratelimited("%s convert %lld to %04d/%02d/%02d %02d:%02d:%02d (now = %04d/%02d/%02d %02d:%02d:%02d)\n",
+			__func__, temp.tv64,
+			time.tm_year+1900, time.tm_mon+1, time.tm_mday,
+			time.tm_hour, time.tm_min, time.tm_sec,
+			tm.tm_year+1900, tm.tm_mon+1, tm.tm_mday,
+			tm.tm_hour, tm.tm_min, tm.tm_sec);
 
 	/* Set alarm, if in the past reject suspend briefly to handle */
 	ret = rtc_timer_start(rtc, &rtctimer, now, ktime_set(0, 0));

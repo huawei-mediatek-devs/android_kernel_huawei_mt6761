@@ -790,7 +790,6 @@ void __noreturn do_exit(long code)
 	 * mm_release() -> exit_pi_state_list().
 	 */
 	raw_spin_unlock_wait(&tsk->pi_lock);
-
 	if (unlikely(in_atomic())) {
 		pr_info("note: %s[%d] exited with preempt_count %d\n",
 			current->comm, task_pid_nr(current),
@@ -888,6 +887,10 @@ void __noreturn do_exit(long code)
 	exit_rcu();
 	TASKS_RCU(__srcu_read_unlock(&tasks_rcu_exit_srcu, tasks_rcu_i));
 
+#ifdef CONFIG_HUAWEI_SWAP_ZDATA
+	exit_proc_reclaim(tsk);
+#endif
+
 	do_task_dead();
 }
 EXPORT_SYMBOL_GPL(do_exit);
@@ -938,6 +941,41 @@ do_group_exit(int exit_code)
 	/* NOTREACHED */
 }
 
+#ifdef CONFIG_HW_DIE_CATCH
+/*
+* catch_unexpected_exit,
+ * difficult :if the signal handler, call exit, it maybe will have some nested handler
+*/
+int catch_unexpected_exit(int exit_code)
+{
+	struct signal_struct *sig = current->signal;
+	siginfo_t info;
+	unsigned short die_catch_flags = sig->unexpected_die_catch_flags;
+
+	/*reset the unexpected_die_catch_flags to avoid recursive in signal handler*/
+	sig->unexpected_die_catch_flags = 0;
+
+	/*print critical process exit info*/
+	if (die_catch_flags & EXIT_CATCH_FLAG) {
+		pr_warn("ExitCatch: %s[%d] exited with exit_code %d\n",
+				current->comm, task_pid_nr(current), exit_code);
+	}
+
+	if (die_catch_flags & EXIT_CATCH_ABORT_FLAG) {
+		/*
+		* Send a SIGABRT, regardless of whether we were in kernel
+		* or user mode.
+		*/
+		info.si_signo = SIGABRT;
+		info.si_errno = 0;
+		info.si_code = 0;
+		force_sig_info(SIGABRT, &info, current);
+		return 1;
+	}
+	return 0;
+}
+#endif
+
 /*
  * this kills every thread in the thread group. Note that any externally
  * wait4()-ing process will get the correct exit code - even if this
@@ -945,7 +983,13 @@ do_group_exit(int exit_code)
  */
 SYSCALL_DEFINE1(exit_group, int, error_code)
 {
+#ifdef CONFIG_HW_DIE_CATCH
+	if (!catch_unexpected_exit(error_code)) {
+		do_group_exit((error_code & 0xff) << 8);
+	}
+#else
 	do_group_exit((error_code & 0xff) << 8);
+#endif
 	/* NOTREACHED */
 	return 0;
 }
