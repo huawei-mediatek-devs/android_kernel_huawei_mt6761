@@ -335,7 +335,39 @@ static ssize_t regulator_uV_show(struct device *dev,
 
 	return ret;
 }
-static DEVICE_ATTR(microvolts, 0444, regulator_uV_show, NULL);
+
+static ssize_t regulator_uV_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf,
+				  size_t size)
+{
+	struct regulator_dev *rdev = dev_get_drvdata(dev);
+	ssize_t ret = 0;
+	char *pvalue = NULL, *parm = NULL;
+	unsigned int microvolts = 0;
+
+	if (!strstr(saved_command_line, "androidboot.swtype=factory")) {
+		pr_info("%s: not in factory mode\n", __func__);
+		return size;
+	}
+	if (buf != NULL && size != 0) {
+		pvalue = (char *)buf;
+		parm = strsep(&pvalue, " ");
+		if (parm)
+			ret = kstrtou32(parm, 10, (unsigned int *)&microvolts);
+
+		if (!ret) {
+			mutex_lock(&rdev->mutex);
+			ret = _regulator_do_set_voltage(rdev, microvolts,
+					       rdev->constraints->max_uV);
+			mutex_unlock(&rdev->mutex);
+		}
+	}
+
+	return size;
+}
+
+static DEVICE_ATTR(microvolts, 0664, regulator_uV_show, regulator_uV_store);
 
 static ssize_t regulator_uA_show(struct device *dev,
 				struct device_attribute *attr, char *buf)

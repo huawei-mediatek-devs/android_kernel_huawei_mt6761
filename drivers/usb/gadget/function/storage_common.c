@@ -28,8 +28,20 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/usb/composite.h>
+#include <uapi/linux/usb/ch9.h>
 
 #include "storage_common.h"
+
+#ifdef CONFIG_USBIF_COMPLIANCE
+static struct usb_otg20_descriptor
+fsg_otg_desc = {
+	.bLength = sizeof(fsg_otg_desc),
+	.bDescriptorType = USB_DT_OTG,
+	/* OTG 2.0: */
+	.bmAttributes =	USB_OTG_SRP | USB_OTG_HNP,
+	.bcdOTG = cpu_to_le16(0x200),
+};
+#endif
 
 /* There is only one interface. */
 
@@ -71,6 +83,9 @@ struct usb_endpoint_descriptor fsg_fs_bulk_out_desc = {
 EXPORT_SYMBOL_GPL(fsg_fs_bulk_out_desc);
 
 struct usb_descriptor_header *fsg_fs_function[] = {
+#ifdef CONFIG_USBIF_COMPLIANCE
+	(struct usb_descriptor_header *) &fsg_otg_desc,
+#endif
 	(struct usb_descriptor_header *) &fsg_intf_desc,
 	(struct usb_descriptor_header *) &fsg_fs_bulk_in_desc,
 	(struct usb_descriptor_header *) &fsg_fs_bulk_out_desc,
@@ -108,6 +123,9 @@ EXPORT_SYMBOL_GPL(fsg_hs_bulk_out_desc);
 
 
 struct usb_descriptor_header *fsg_hs_function[] = {
+#ifdef CONFIG_USBIF_COMPLIANCE
+	(struct usb_descriptor_header *) &fsg_otg_desc,
+#endif
 	(struct usb_descriptor_header *) &fsg_intf_desc,
 	(struct usb_descriptor_header *) &fsg_hs_bulk_in_desc,
 	(struct usb_descriptor_header *) &fsg_hs_bulk_out_desc,
@@ -152,6 +170,9 @@ struct usb_ss_ep_comp_descriptor fsg_ss_bulk_out_comp_desc = {
 EXPORT_SYMBOL_GPL(fsg_ss_bulk_out_comp_desc);
 
 struct usb_descriptor_header *fsg_ss_function[] = {
+#ifdef CONFIG_USBIF_COMPLIANCE
+	(struct usb_descriptor_header *) &fsg_otg_desc,
+#endif
 	(struct usb_descriptor_header *) &fsg_intf_desc,
 	(struct usb_descriptor_header *) &fsg_ss_bulk_in_desc,
 	(struct usb_descriptor_header *) &fsg_ss_bulk_in_comp_desc,
@@ -439,10 +460,37 @@ ssize_t fsg_store_file(struct fsg_lun *curlun, struct rw_semaphore *filesem,
 		       const char *buf, size_t count)
 {
 	int		rc = 0;
+	static int	incdrom = 0;
 
+#if !defined(CONFIG_USB_G_ANDROID)
 	if (curlun->prevent_medium_removal && fsg_lun_is_open(curlun)) {
 		LDBG(curlun, "eject attempt prevented\n");
 		return -EBUSY;				/* "Door is locked" */
+	}
+#endif
+
+	pr_notice("fsg_store_file file=%s, count=%d, curlun->cdrom=%d\n", buf,
+			(int)count, curlun->cdrom);
+
+	/*
+	 * WORKAROUND:VOLD would clean the file path after switching to bicr.
+	 * So when the lun is being a CD-ROM a.k.a. BICR.
+	 * Dont clean the file path to empty.
+	 */
+	if (curlun->cdrom == 1 && count == 1)
+		return count;
+
+	/*
+	 * WORKAROUND:Should be closed the fsg lun for virtual cd-rom,
+	 * when switch to
+	 * other usb functions. Use the special keyword "off",
+	 * because the init can
+	 * not parse the char '\n' in rc file and write into the sysfs.
+	 */
+	if (count == 3 &&
+			buf[0] == 'o' && buf[1] == 'f' && buf[2] == 'f' &&
+			fsg_lun_is_open(curlun)) {
+		((char *) buf)[0] = 0;
 	}
 
 	/* Remove a trailing newline */
@@ -457,9 +505,46 @@ ssize_t fsg_store_file(struct fsg_lun *curlun, struct rw_semaphore *filesem,
 		if (rc == 0)
 			curlun->unit_attention_data =
 					SS_NOT_READY_TO_READY_TRANSITION;
+
+		pr_info("fsg_store_file: count=%zu, buf=%pK, curlun=%pK\n", count, buf, curlun);
+		if (count > 3 && 0 == memcmp(&buf[count-4], ".iso", 4)) {
+			pr_info("buf=%s, buf[count-4]=%s\n", buf, &buf[count-4]);
+			curlun->cdrom = 1;
+			curlun->ro = 1;
+			curlun->removable = 1;
+			curlun->nofua = 1;
+			incdrom = 1;
+		} else if (count == strlen("none") && buf && 0 == memcmp(buf, "none", strlen("none"))) {
+			curlun->cdrom = 1;
+			curlun->ro = 1;
+			curlun->removable = 1;
+			curlun->nofua = 1;
+			incdrom = 0;
+			if (fsg_lun_is_open(curlun)) {
+				fsg_lun_close(curlun);
+				curlun->unit_attention_data = SS_MEDIUM_NOT_PRESENT;
+			}
+		} else {
+			curlun->cdrom = 0;
+			curlun->ro = 0;
+			curlun->removable = 1;
+			curlun->nofua = 1;
+			incdrom = 0;
+		}
 	} else if (fsg_lun_is_open(curlun)) {
-		fsg_lun_close(curlun);
-		curlun->unit_attention_data = SS_MEDIUM_NOT_PRESENT;
+		int needclose = 1;
+
+		if (incdrom) {
+			if (count == 4 && buf && 0 == memcmp(buf, "none", 4)) {
+				needclose = 1;
+			} else {
+				needclose = 0;
+			}
+		}
+		if (needclose) {
+			fsg_lun_close(curlun);
+			curlun->unit_attention_data = SS_MEDIUM_NOT_PRESENT;
+		}
 	}
 	up_write(filesem);
 	return (rc < 0 ? rc : count);
@@ -504,7 +589,6 @@ ssize_t fsg_store_removable(struct fsg_lun *curlun, const char *buf,
 	return count;
 }
 EXPORT_SYMBOL_GPL(fsg_store_removable);
-
 ssize_t fsg_store_inquiry_string(struct fsg_lun *curlun, const char *buf,
 				 size_t count)
 {
@@ -522,5 +606,4 @@ ssize_t fsg_store_inquiry_string(struct fsg_lun *curlun, const char *buf,
 	return count;
 }
 EXPORT_SYMBOL_GPL(fsg_store_inquiry_string);
-
 MODULE_LICENSE("GPL");

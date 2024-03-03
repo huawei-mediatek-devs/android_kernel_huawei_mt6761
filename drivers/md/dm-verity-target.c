@@ -16,6 +16,9 @@
 
 #include "dm-verity.h"
 #include "dm-verity-fec.h"
+#if defined (CONFIG_OEM_DEFINE_VERITY_FEC)
+#include "verity_handle.h"
+#endif
 
 #include <linux/module.h>
 #include <linux/reboot.h>
@@ -97,11 +100,16 @@ static sector_t verity_position_at_level(struct dm_verity *v, sector_t block,
 /*
  * Wrapper for crypto_shash_init, which handles verity salting.
  */
-static int verity_hash_init(struct dm_verity *v, struct shash_desc *desc)
+int verity_hash_init(struct dm_verity *v, struct shash_desc *desc,u32 count)
 {
 	int r;
 
 	desc->tfm = v->tfm;
+#ifdef CONFIG_DM_OEM_USE_SOFT_SHA1
+	if (count) {
+		desc->tfm = v->tfm_soft;
+	}
+#endif
 	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
 
 	r = crypto_shash_init(desc);
@@ -123,7 +131,7 @@ static int verity_hash_init(struct dm_verity *v, struct shash_desc *desc)
 	return 0;
 }
 
-static int verity_hash_update(struct dm_verity *v, struct shash_desc *desc,
+int verity_hash_update(struct dm_verity *v, struct shash_desc *desc,
 			      const u8 *data, size_t len)
 {
 	int r = crypto_shash_update(desc, data, len);
@@ -134,7 +142,7 @@ static int verity_hash_update(struct dm_verity *v, struct shash_desc *desc,
 	return r;
 }
 
-static int verity_hash_final(struct dm_verity *v, struct shash_desc *desc,
+int verity_hash_final(struct dm_verity *v, struct shash_desc *desc,
 			     u8 *digest)
 {
 	int r;
@@ -161,7 +169,8 @@ int verity_hash(struct dm_verity *v, struct shash_desc *desc,
 {
 	int r;
 
-	r = verity_hash_init(v, desc);
+	/*0 mean that we use sha ce algorithm*/
+	r = verity_hash_init(v, desc, 0);
 	if (unlikely(r < 0))
 		return r;
 
@@ -286,9 +295,14 @@ static int verity_verify_level(struct dm_verity *v, struct dm_verity_io *io,
 		if (likely(memcmp(verity_io_real_digest(v, io), want_digest,
 				  v->digest_size) == 0))
 			aux->hash_verified = 1;
+#if defined(CONFIG_OEM_DEFINE_VERITY_FEC)
+		else if (oem_verity_fec_decode(v, io, hash_block, data , NULL, NULL, NULL,
+		want_digest, DM_VERITY_BLOCK_TYPE_METADATA) == 0)
+#else
 		else if (verity_fec_decode(v, io,
 					   DM_VERITY_BLOCK_TYPE_METADATA,
 					   hash_block, data, NULL) == 0)
+#endif
 			aux->hash_verified = 1;
 		else if (verity_handle_err(v,
 					   DM_VERITY_BLOCK_TYPE_METADATA,
@@ -383,7 +397,7 @@ int verity_for_bv_block(struct dm_verity *v, struct dm_verity_io *io,
 	return 0;
 }
 
-static int verity_bv_hash_update(struct dm_verity *v, struct dm_verity_io *io,
+int verity_bv_hash_update(struct dm_verity *v, struct dm_verity_io *io,
 				 u8 *data, size_t len)
 {
 	return verity_hash_update(v, verity_io_hash_desc(v, io), data, len);
@@ -416,6 +430,8 @@ static int verity_verify_io(struct dm_verity_io *io)
 	bool is_zero;
 	struct dm_verity *v = io->v;
 	struct bvec_iter start;
+	struct bvec_iter start2;
+	struct bvec_iter start3;
 	unsigned b;
 
 	for (b = 0; b < io->n_blocks; b++) {
@@ -448,11 +464,15 @@ static int verity_verify_io(struct dm_verity_io *io)
 			continue;
 		}
 
-		r = verity_hash_init(v, desc);
+		/*0 mean that we use sha ce algorithm*/
+		r = verity_hash_init(v, desc, 0);
 		if (unlikely(r < 0))
 			return r;
 
 		start = io->iter;
+		start2 = start;
+		start3 = start;
+
 		r = verity_for_bv_block(v, io, &io->iter, verity_bv_hash_update);
 		if (unlikely(r < 0))
 			return r;
@@ -467,8 +487,13 @@ static int verity_verify_io(struct dm_verity_io *io)
 				set_bit(cur_block, v->validated_blocks);
 			continue;
 		}
+#if defined(CONFIG_OEM_DEFINE_VERITY_FEC)
+		else if (oem_verity_fec_decode(v, io, cur_block, NULL, &start, &start3, &start2,
+		    verity_io_want_digest(v, io), DM_VERITY_BLOCK_TYPE_DATA) == 0)
+#else
 		else if (verity_fec_decode(v, io, DM_VERITY_BLOCK_TYPE_DATA,
 					   cur_block, NULL, &start) == 0)
+#endif
 			continue;
 		else if (verity_handle_err(v, DM_VERITY_BLOCK_TYPE_DATA,
 					   cur_block))
@@ -749,7 +774,12 @@ void verity_dtr(struct dm_target *ti)
 		crypto_free_shash(v->tfm);
 
 	kfree(v->alg_name);
+#ifdef CONFIG_DM_OEM_USE_SOFT_SHA1
+	if (v->tfm_soft)
+		crypto_free_shash(v->tfm_soft);
 
+	kfree(v->alg_name_soft);
+#endif
 	if (v->hash_dev)
 		dm_put_device(ti, v->hash_dev);
 
@@ -998,6 +1028,24 @@ int verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 		v->tfm = NULL;
 		goto bad;
 	}
+
+#ifdef CONFIG_DM_OEM_USE_SOFT_SHA1
+	v->alg_name_soft = kstrdup("s1sh", GFP_KERNEL);
+	if (!v->alg_name_soft) {
+		ti->error = "Cannot allocate algorithm name";
+		r = -ENOMEM;
+		goto bad;
+	}
+
+	v->tfm_soft = crypto_alloc_shash(v->alg_name_soft, 0, 0);
+	if (IS_ERR(v->tfm_soft)) {
+		ti->error = "Cannot initialize hash function";
+		r = PTR_ERR(v->tfm_soft);
+		v->tfm_soft = NULL;
+		goto bad;
+	}
+#endif
+
 	v->digest_size = crypto_shash_digestsize(v->tfm);
 	if ((1 << v->hash_dev_block_bits) < v->digest_size * 2) {
 		ti->error = "Digest size too big";
@@ -1152,6 +1200,11 @@ static int __init dm_verity_init(void)
 	if (r < 0)
 		DMERR("register failed %d", r);
 
+#if defined (CONFIG_OEM_DEFINE_VERITY_FEC)
+#if defined (CONFIG_HUAWEI_DSM)
+	verity_dsm_init();
+#endif
+#endif
 	return r;
 }
 

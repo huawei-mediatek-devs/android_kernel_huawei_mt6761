@@ -6,8 +6,20 @@ ifdef CONFIG_COMPAT
 obj-$(CONFIG_ION) += compat_ion.o
 endif
 
+obj-$(CONFIG_HUAWEI_SPECIAL_SCENE_POOL) += hisi_ion_scene_pool.o
+
 obj-$(CONFIG_ION_DUMMY) += ion_dummy_driver.o
 obj-$(CONFIG_ION_TEGRA) += tegra/
 obj-$(CONFIG_ION_HISI) += hisilicon/
 obj-$(CONFIG_ION_OF) += ion_of.o
 
+obj-$(CONFIG_MTK_ION) += mtk/
+ccflags-$(CONFIG_MTK_ION)  += -I$(srctree)/drivers/staging/android/ion/mtk
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/mmp/
+
+ccflags-y += -DION_HISTORY_RECORD
+ifeq ($(CONFIG_MTK_ENG_BUILD), y)
+ccflags-y += -DION_RUNTIME_DEBUGGER=1
+else
+ccflags-y += -DION_RUNTIME_DEBUGGER=0
+endif

@@ -21,6 +21,9 @@
 #include "ion.h"
 #include "ion_priv.h"
 #include "compat_ion.h"
+#ifdef CONFIG_HW_FDLEAK
+#include <chipset_common/hwfdleak/fdleak.h>
+#endif
 
 union ion_ioctl_arg {
 	struct ion_fd_data fd;
@@ -129,12 +132,24 @@ long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		struct ion_handle *handle;
 
 		handle = ion_handle_get_by_id(client, data.handle.handle);
-		if (IS_ERR(handle))
-			return PTR_ERR(handle);
+		if (IS_ERR(handle)) {
+			ret = PTR_ERR(handle);
+			IONMSG("ION_IOC_SHARE handle(%d) is invalid, ret %d\n",
+			       data.handle.handle, ret);
+			return ret;
+		}
 		data.fd.fd = ion_share_dma_buf_fd(client, handle);
 		ion_handle_put(handle);
-		if (data.fd.fd < 0)
+		if (data.fd.fd < 0) {
+			IONMSG("ION_IOC_SHARE fd = %d.\n", data.fd.fd);
 			ret = data.fd.fd;
+		}
+#ifdef CONFIG_HW_FDLEAK
+		if (ION_IOC_SHARE == cmd)
+			fdleak_report(FDLEAK_WP_DMABUF, 0);
+		else
+			fdleak_report(FDLEAK_WP_DMABUF, 1);
+#endif
 		break;
 	}
 	case ION_IOC_IMPORT:
@@ -142,10 +157,13 @@ long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		struct ion_handle *handle;
 
 		handle = ion_import_dma_buf_fd(client, data.fd.fd);
-		if (IS_ERR(handle))
+		if (IS_ERR(handle)) {
 			ret = PTR_ERR(handle);
-		else
-			data.handle.handle = handle->id;
+			IONMSG("ion_import fail: fd=%d, ret=%d\n",
+			       data.fd.fd, ret);
+			return ret;
+		}
+		data.handle.handle = handle->id;
 		break;
 	}
 	case ION_IOC_SYNC:
@@ -155,8 +173,10 @@ long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	}
 	case ION_IOC_CUSTOM:
 	{
-		if (!dev->custom_ioctl)
+		if (!dev->custom_ioctl) {
+			IONMSG("ION_IOC_CUSTOM dev has no custom ioctl!.\n");
 			return -ENOTTY;
+		}
 		ret = dev->custom_ioctl(client, data.custom.cmd,
 						data.custom.arg);
 		break;

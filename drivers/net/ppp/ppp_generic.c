@@ -501,6 +501,8 @@ static ssize_t ppp_write(struct file *file, const char __user *buf,
 	if (!pf)
 		return -ENXIO;
 	ret = -ENOMEM;
+	if((count + pf->hdrlen) < count)
+		goto out;
 	skb = alloc_skb(count + pf->hdrlen, GFP_KERNEL);
 	if (!skb)
 		goto out;

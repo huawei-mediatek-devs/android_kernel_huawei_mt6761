@@ -1012,7 +1012,7 @@ static int spi_transfer_one_message(struct spi_master *master,
 				ret = 0;
 				ms = 8LL * 1000LL * xfer->len;
 				do_div(ms, xfer->speed_hz);
-				ms += ms + 200; /* some tolerance */
+				ms += ms + 2000; /* some tolerance; 200ms->2000ms by MTK */
 
 				if (ms > UINT_MAX)
 					ms = UINT_MAX;

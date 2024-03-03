@@ -103,6 +103,8 @@ source "drivers/usb/usbip/Kconfig"
 
 endif
 
+source "drivers/usb/mtu3/Kconfig"
+
 source "drivers/usb/musb/Kconfig"
 
 source "drivers/usb/dwc3/Kconfig"
@@ -157,6 +159,12 @@ endif # USB
 source "drivers/usb/phy/Kconfig"
 
 source "drivers/usb/gadget/Kconfig"
+
+config HUAWEI_USB
+	bool "Use Huawei usb code"
+	default n
+	---help---
+	  use Huawei usb feature
 
 config USB_LED_TRIG
 	bool "USB LED Triggers"

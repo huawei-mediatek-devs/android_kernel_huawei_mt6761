@@ -27,6 +27,39 @@
 #include "bus.h"
 
 #define to_mmc_driver(d)	container_of(d, struct mmc_driver, drv)
+struct mmc_info
+{
+   unsigned int manfid;
+   char name[50];
+} mmc_manfid[]=
+{
+	{0x15,"samsung"},{0xCE,"samsung"},//just for emmc
+	{0x90,"hynix"  },{0xAD,"hynix"  },//just for emmc
+	{0x11,"toshiba"},{0x98,"toshiba"},//just for emmc
+	{0x45,"sandisk"},{0x02,"sandisk"},//just for emmc
+	{0x13,"micron" },{0x2C,"micron" },//just for emmc
+	{0xFE,"micron"}
+};
+
+char* mmc_manfid_info(struct mmc_card *card_new)
+{
+	unsigned int i;
+	if(!card_new) {
+		printk("mmc_manfid_info: the card_new is null, please check.\n");
+		return "default";
+	}
+
+	for(i= 0;i < sizeof(mmc_manfid)/sizeof(struct mmc_info);i++)
+	{
+		if(card_new->cid.manfid == mmc_manfid[i].manfid)
+		{
+			return mmc_manfid[i].name;
+		}
+	}
+
+	return "default";
+
+}
 
 static ssize_t type_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -152,12 +185,18 @@ static int mmc_bus_suspend(struct device *dev)
 
 	ret = pm_generic_suspend(dev);
 	if (ret)
-		return ret;
+		goto out;
 
 	ret = host->bus_ops->suspend(host);
-	if (ret)
+	/*
+	 * Resume subsytem when suspend failed.
+	 */
+	if (ret) {
+		pr_info("%s: error %d during suspend\n",
+			mmc_hostname(host), ret);
 		pm_generic_resume(dev);
-
+	}
+out:
 	return ret;
 }
 
@@ -335,7 +374,7 @@ int mmc_add_card(struct mmc_card *card)
 			mmc_card_ddr52(card) ? "DDR " : "",
 			type);
 	} else {
-		pr_info("%s: new %s%s%s%s%s%s card at address %04x\n",
+		pr_info("%s: new %s%s%s%s%s%s card at address %04x, manfid:0x%02x(%s), date:%d/%d\n",
 			mmc_hostname(card->host),
 			mmc_card_uhs(card) ? "ultra high speed " :
 			(mmc_card_hs(card) ? "high speed " : ""),
@@ -343,7 +382,8 @@ int mmc_add_card(struct mmc_card *card)
 			(mmc_card_hs200(card) ? "HS200 " : ""),
 			mmc_card_hs400es(card) ? "Enhanced strobe " : "",
 			mmc_card_ddr52(card) ? "DDR " : "",
-			uhs_bus_speed_mode, type, card->rca);
+			uhs_bus_speed_mode, type, card->rca, card->cid.manfid,
+			!mmc_card_sdio(card)? mmc_manfid_info(card):"", card->cid.year, card->cid.month);
 	}
 
 #ifdef CONFIG_DEBUG_FS

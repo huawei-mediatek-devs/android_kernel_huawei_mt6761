@@ -4,6 +4,7 @@
 # 15 Sep 2000, Christoph Hellwig <hch@infradead.org>
 # Rewritten to use lists instead of if-statements.
 #
+#subdir-ccflags-y += -Werror
 
 obj-y				+= irqchip/
 obj-y				+= bus/
@@ -173,6 +174,29 @@ obj-$(CONFIG_CORESIGHT)		+= hwtracing/coresight/
 obj-y				+= hwtracing/intel_th/
 obj-$(CONFIG_STM)		+= hwtracing/stm/
 obj-$(CONFIG_ANDROID)		+= android/
+obj-$(CONFIG_HUAWEI_RWLOG)      += rwlog/
 obj-$(CONFIG_NVMEM)		+= nvmem/
 obj-$(CONFIG_FPGA)		+= fpga/
+obj-$(CONFIG_HUAWEI_BFM)        += hwbfm/
 obj-$(CONFIG_TEE)		+= tee/
+obj-$(CONFIG_HW_WIFIPRO)       += hwnet/
+obj-$(CONFIG_HUAWEI_DSM)	+= dsm/
+obj-$(CONFIG_LOG_EXCEPTION)	+= log_usertype/
+obj-$(CONFIG_LOGGER_EXTEND)	+= log/
+obj-m				+= rphone/
+obj-y				+= devkit/tpkit/
+obj-$(CONFIG_AUDIOKIT)		+= devkit/audiokit/
+obj-$(CONFIG_TRUSTY)		+= trusty/
+obj-y				+= huawei_platform/
+obj-y				+= tzdriver/
+obj-$(CONFIG_HW_GADGET)		+= hwusb/
+obj-$(CONFIG_HW_MEMORY_MONITOR)	+= mmonitor/
+obj-$(CONFIG_HW_MEMORY_MONITOR)	+= allocpages_delayacct/
+obj-$(CONFIG_HW_CPULOAD_NOTI) += cpuload/
+obj-$(CONFIG_HW_ZEROHUNG) += hwzerohung/
+obj-$(CONFIG_LCD_KIT_DRIVER) += devkit/lcdkit/
+obj-$(CONFIG_HW_FDLEAK) += hwfdleak/
+obj-y                           += huawei/
+obj-$(CONFIG_HUAWEI_DUBAI) += dubai/
+obj-$(CONFIG_OASES) += oases/
+obj-$(CONFIG_HUAWEI_IO_TRACING) += iotrace/

@@ -22,6 +22,12 @@
 #include "host.h"
 #include "mmc_ops.h"
 
+#ifdef CONFIG_HUAWEI_SDCARD_DSM
+#include <linux/mmc/dsm_sdcard.h>
+#endif
+#ifdef CONFIG_HUAWEI_EMMC_DSM
+#include <linux/mmc/dsm_emmc.h>
+#endif
 #define MMC_OPS_TIMEOUT_MS	(10 * 60 * 1000) /* 10 minute timeout */
 
 static const u8 tuning_blk_pattern_4bit[] = {
@@ -90,6 +96,7 @@ int mmc_send_status(struct mmc_card *card, u32 *status)
 
 static int _mmc_select_card(struct mmc_host *host, struct mmc_card *card)
 {
+	int err;
 	struct mmc_command cmd = {0};
 
 	BUG_ON(!host);
@@ -104,7 +111,27 @@ static int _mmc_select_card(struct mmc_host *host, struct mmc_card *card)
 		cmd.flags = MMC_RSP_NONE | MMC_CMD_AC;
 	}
 
-	return mmc_wait_for_cmd(host, &cmd, MMC_CMD_RETRIES);
+	/*We must ensure that the total lossing time in sd suspend is less then
+	12s,so we just retry once instead of four for damaged sd cards*/
+	err = mmc_wait_for_cmd(host, &cmd, MMC_CMD_RETRIES);
+#ifdef CONFIG_HUAWEI_SDCARD_DSM
+	if (!strcmp(mmc_hostname(host), "mmc1"))
+		 dsm_sdcard_cmd_logs[DSM_SDCARD_CMD7].value = cmd.resp[0];
+
+	if (err) {
+		if (-ENOMEDIUM != err && -ETIMEDOUT != err
+				&& !strcmp(mmc_hostname(host), "mmc1")) {
+			dsm_sdcard_report(DSM_SDCARD_CMD7, DSM_SDCARD_CMD7_RESP_ERR);
+			printk(KERN_ERR "%s:send cmd7 fail ,err=%d !!!!\n",mmc_hostname(host),err);
+		}
+		return err;
+	}
+#else
+	if (err)
+		return err;
+#endif
+
+	return 0;
 }
 
 int mmc_select_card(struct mmc_card *card)
@@ -229,8 +256,32 @@ int mmc_all_send_cid(struct mmc_host *host, u32 *cid)
 	cmd.flags = MMC_RSP_R2 | MMC_CMD_BCR;
 
 	err = mmc_wait_for_cmd(host, &cmd, MMC_CMD_RETRIES);
-	if (err)
+#ifdef CONFIG_HUAWEI_SDCARD_DSM
+	if (!strcmp(mmc_hostname(host), "mmc1")) {
+		 dsm_sdcard_cmd_logs[DSM_SDCARD_CMD2_R0].value = cmd.resp[0];
+		 dsm_sdcard_cmd_logs[DSM_SDCARD_CMD2_R1].value = cmd.resp[1];
+		 dsm_sdcard_cmd_logs[DSM_SDCARD_CMD2_R2].value = cmd.resp[2];
+		 dsm_sdcard_cmd_logs[DSM_SDCARD_CMD2_R3].value = cmd.resp[3];
+	}
+
+	if (err) {
+		if (-ENOMEDIUM != err && -ETIMEDOUT != err
+			&& !strcmp(mmc_hostname(host), "mmc1"))
+			dsm_sdcard_report(DSM_SDCARD_CMD2_R3, DSM_SDCARD_CMD2_RESP_ERR);
+
+		if (!strcmp(mmc_hostname(host),"mmc1"))
+			printk(KERN_ERR "%s:send cmd2 fail,err=%d\n",mmc_hostname(host),err);
+
 		return err;
+	}
+#else
+	if (err) {
+	    if (!strcmp(mmc_hostname(host),"mmc1"))
+		   printk(KERN_ERR "%s:send cmd2 fail,err=%d\n", mmc_hostname(host), err);
+
+		return err;
+	}
+#endif
 
 	memcpy(cid, cmd.resp, sizeof(u32) * 4);
 
@@ -319,6 +370,14 @@ mmc_send_cxd_data(struct mmc_card *card, struct mmc_host *host,
 
 	mmc_wait_for_req(host, &mrq);
 
+#ifdef CONFIG_HUAWEI_EMMC_DSM
+	if (cmd.error || data.error)
+		if (!strcmp(mmc_hostname(host), "mmc0")) {
+			DSM_EMMC_LOG(card, DSM_EMMC_SEND_CXD_ERR,
+				"opcode:%d failed, cmd.error:%d, data.error:%d\n",
+				opcode, cmd.error, data.error);
+		}
+#endif
 	if (cmd.error)
 		return cmd.error;
 	if (data.error)

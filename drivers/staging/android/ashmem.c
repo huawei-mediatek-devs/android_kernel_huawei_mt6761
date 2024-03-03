@@ -34,6 +34,12 @@
 #include <linux/shmem_fs.h>
 #include "ashmem.h"
 
+#define CREATE_TRACE_POINTS
+#include "trace/ashmem.h"
+#ifdef CONFIG_HW_FDLEAK
+#include <chipset_common/hwfdleak/fdleak.h>
+#endif
+
 #define ASHMEM_NAME_PREFIX "dev/ashmem/"
 #define ASHMEM_NAME_PREFIX_LEN (sizeof(ASHMEM_NAME_PREFIX) - 1)
 #define ASHMEM_FULL_NAME_LEN (ASHMEM_NAME_LEN + ASHMEM_NAME_PREFIX_LEN)
@@ -262,6 +268,9 @@ static int ashmem_open(struct inode *inode, struct file *file)
 	asma->prot_mask = PROT_MASK;
 	file->private_data = asma;
 
+#ifdef CONFIG_HW_FDLEAK
+	fdleak_report(FDLEAK_WP_ASHMEM, 0);
+#endif
 	return 0;
 }
 
@@ -287,6 +296,9 @@ static int ashmem_release(struct inode *ignored, struct file *file)
 		fput(asma->file);
 	kmem_cache_free(ashmem_area_cachep, asma);
 
+#ifdef CONFIG_HW_FDLEAK
+	fdleak_report(FDLEAK_WP_ASHMEM, 1);
+#endif
 	return 0;
 }
 
@@ -535,8 +547,10 @@ static int set_name(struct ashmem_area *asma, void __user *name)
 	/* cannot change an existing mapping's name */
 	if (unlikely(asma->file))
 		ret = -EINVAL;
-	else
+	else {
 		strcpy(asma->name + ASHMEM_NAME_PREFIX_LEN, local_name);
+		trace_ashmem_set_name(local_name, current->tgid);
+	}
 
 	mutex_unlock(&ashmem_mutex);
 	return ret;

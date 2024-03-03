@@ -28,6 +28,13 @@
 #include "sdhci-pltfm.h"
 #include <linux/of.h>
 
+#ifdef CONFIG_HUAWEI_EMMC_DSM
+#include <linux/mmc/mmc.h>
+#include <linux/mmc/sdio.h>
+#include <linux/mmc/sd.h>
+#include <linux/mmc/dsm_emmc.h>
+#include <linux/workqueue.h>
+#endif
 #define SDHCI_ARASAN_VENDOR_REGISTER	0x78
 
 #define VENDOR_ENHANCED_STROBE		BIT(0)
@@ -99,6 +106,12 @@ struct sdhci_arasan_data {
 
 /* Controller does not have CD wired and will not function normally without */
 #define SDHCI_ARASAN_QUIRK_FORCE_CDTEST	BIT(0)
+#ifdef CONFIG_HUAWEI_EMMC_DSM
+	u64 para;
+	u32 cmd_data_status;
+	void *data;
+	struct work_struct dsm_work;
+#endif
 };
 
 static const struct sdhci_arasan_soc_ctl_map rk3399_soc_ctl_map = {
@@ -574,6 +587,104 @@ static void sdhci_arasan_unregister_sdclk(struct device *dev)
 	of_clk_del_provider(dev->of_node);
 }
 
+#ifdef CONFIG_HUAWEI_EMMC_DSM
+void sdhci_dsm_set_host_status(struct sdhci_host *host, u32 error_bits)
+{
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = pltfm_host->priv;
+	sdhci_arasan->cmd_data_status |= error_bits;
+}
+
+#ifdef CONFIG_MMC_CQ_HCI
+void sdhci_cmdq_dsm_set_host_status(struct sdhci_host *host, u32 error_bits)
+{
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = pltfm_host->priv;
+	if (error_bits != -1U)/*lint !e501*/
+		sdhci_arasan->para = ((error_bits << 16) | 0x8000000000000000ULL);/*lint !e647*/
+	else
+		sdhci_arasan->para = 0;	// timeout
+}
+
+void sdhci_cmdq_dsm_work(struct cmdq_host *cq_host, bool dsm)
+{
+	struct mmc_card *card;
+	struct sdhci_host *host = mmc_priv(cq_host->mmc);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = pltfm_host->priv;
+
+	u32 error_bits, opcode;
+	u64 para;
+	unsigned long flags;
+	spin_lock_irqsave(&cq_host->cmdq_lock, flags);
+	para = sdhci_arasan->para;
+	sdhci_arasan->para = 0;
+	spin_unlock_irqrestore(&cq_host->cmdq_lock, flags);
+	if (!dsm)
+		return;
+	card = host->mmc->card;
+	opcode = para & 0x3f;
+	error_bits = ((para >> 16) & 0xffffffff);
+	if (para & 0x8000000000000000ULL) {
+		DSM_EMMC_LOG(card, DSM_EMMC_HOST_ERR, "opcode:%d failed, status:%x\n", opcode, error_bits);
+	} else {
+		DSM_EMMC_LOG(card, DSM_EMMC_RW_TIMEOUT_ERR, "opcode:%d failed, status:%x\n", opcode, error_bits);
+	}
+}
+#endif
+
+static void sdhci_dsm_work(struct work_struct *work)
+{
+	struct mmc_card *card;
+	struct sdhci_arasan_data *sdhci_arasan = container_of(work, struct sdhci_arasan_data, dsm_work);
+	struct sdhci_host *host = (struct sdhci_host *)sdhci_arasan->data;
+	u32 error_bits, opcode;
+	u64 para;
+	unsigned long flags;
+	spin_lock_irqsave(&host->lock, flags);
+	para = sdhci_arasan->para;
+	sdhci_arasan->para = 0;
+	spin_unlock_irqrestore(&host->lock, flags);
+	card = host->mmc->card;
+	opcode = para & 0x3f;
+	error_bits = ((para >> 16) & 0xffffffff);
+	if (para & 0x8000000000000000ULL) {
+		DSM_EMMC_LOG(card, DSM_EMMC_HOST_ERR, "opcode:%d failed, status:%x\n", opcode, error_bits);
+	} else {
+		DSM_EMMC_LOG(card, DSM_EMMC_RW_TIMEOUT_ERR, "opcode:%d failed, status:%x\n", opcode, error_bits);
+	}
+}
+
+static inline void sdhci_dsm_host_error_filter(struct sdhci_host *host, struct mmc_request *mrq, u32 * error_bits)
+{
+	if (mrq->cmd) {
+		if (mrq->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS200)
+			*error_bits = 0;
+		else if (host->mmc->ios.clock <= 400000UL) {
+			if (((mrq->cmd->opcode == SD_IO_RW_DIRECT) || (mrq->cmd->opcode == SD_SEND_IF_COND) || (mrq->cmd->opcode == SD_IO_SEND_OP_COND) || (mrq->cmd->opcode == MMC_APP_CMD)))
+				*error_bits = 0;
+			else if (mrq->cmd->opcode == MMC_SEND_STATUS)
+				*error_bits &= ~SDHCI_INT_CRC;
+		}
+	}
+}
+
+void sdhci_dsm_handle(struct sdhci_host *host, struct mmc_request *mrq)
+{
+	u32 error_bits;
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = pltfm_host->priv;
+	error_bits = sdhci_arasan->cmd_data_status;
+	if (error_bits) {
+		sdhci_arasan->cmd_data_status = 0;
+		sdhci_dsm_host_error_filter(host, mrq, &error_bits);
+		if (error_bits) {
+			sdhci_arasan->para = ((error_bits << 16) | ((mrq->cmd ? mrq->cmd->opcode : 0) & 0x3f) | 0x8000000000000000ULL);/*lint !e647*/
+			queue_work(system_freezable_wq, &sdhci_arasan->dsm_work);
+		}
+	}
+}
+#endif
 static int sdhci_arasan_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -682,7 +793,10 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 		host->mmc_host_ops.start_signal_voltage_switch =
 					sdhci_arasan_voltage_switch;
 	}
-
+#ifdef CONFIG_HUAWEI_EMMC_DSM
+	sdhci_arasan->data = (void *)host;
+	INIT_WORK(&sdhci_arasan->dsm_work, sdhci_dsm_work);
+#endif
 	ret = sdhci_add_host(host);
 	if (ret)
 		goto err_add_host;

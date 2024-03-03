@@ -221,7 +221,16 @@
 #include <linux/usb/composite.h>
 
 #include "configfs.h"
+#ifdef CONFIG_MEDIATEK_SOLUTION
+#include "usb_boost.h"
+#endif
 
+#include <mt-plat/mtk_boot_common.h>
+
+#ifdef CONFIG_HUAWEI_USB
+#include <linux/usb/huawei_usb.h>
+#include <chipset_common/hwusb/hw_usb_rwswitch.h>
+#endif
 
 /*------------------------------------------------------------------------*/
 
@@ -310,8 +319,11 @@ struct fsg_common {
 	void			*private_data;
 
 	char inquiry_string[INQUIRY_STRING_LEN];
+    /* LUN name for sysfs purpose */
+	char name[FSG_MAX_LUNS][LUN_NAME_LEN];
 
 	struct kref		ref;
+	u8 bicr;
 };
 
 struct fsg_dev {
@@ -366,6 +378,9 @@ static void set_bulk_out_req_length(struct fsg_common *common,
 	if (rem > 0)
 		length += common->bulk_out_maxpacket - rem;
 	bh->outreq->length = length;
+
+	/* used by usb20 */
+	bh->outreq->short_not_ok = 1;
 }
 
 
@@ -459,6 +474,16 @@ static void bulk_in_complete(struct usb_ep *ep, struct usb_request *req)
 
 	/* Hold the lock while we update the request and buffer states */
 	smp_wmb();
+	/*
+	 * Disconnect and completion might race each other and driver data
+	 * is set to NULL during ep disable. So, add a check if that is case.
+	 */
+	if (!common) {
+		bh->inreq_busy = 0;
+		bh->state = BUF_STATE_EMPTY;
+		return;
+	}
+
 	spin_lock(&common->lock);
 	bh->inreq_busy = 0;
 	bh->state = BUF_STATE_EMPTY;
@@ -506,8 +531,22 @@ static int fsg_setup(struct usb_function *f,
 	u16			w_value = le16_to_cpu(ctrl->wValue);
 	u16			w_length = le16_to_cpu(ctrl->wLength);
 
-	if (!fsg_is_set(fsg->common))
+	/* modify to adapt for Android */
+#ifdef CONFIG_HUAWEI_USB
+	if(get_boot_mode() == META_BOOT){
+		if (!fsg_is_set(fsg->common)) {
+			return -EOPNOTSUPP;
+		}
+	}else{
+		if (!fsg->common->fsg) {
+			return -EOPNOTSUPP;
+		}
+	}
+#else
+	if (!fsg_is_set(fsg->common)) {
 		return -EOPNOTSUPP;
+	}
+#endif
 
 	++fsg->common->ep0_req_tag;	/* Record arrival of a new request */
 	req->context = NULL;
@@ -540,8 +579,14 @@ static int fsg_setup(struct usb_function *f,
 				w_length != 1)
 			return -EDOM;
 		VDBG(fsg, "get max LUN\n");
+		if (fsg->common->bicr) {
+			/*When enable bicr, only share ONE LUN.*/
+			*(u8 *)req->buf = 0;
+		} else {
 		*(u8 *)req->buf = _fsg_common_get_max_lun(fsg->common);
+		}
 
+		INFO(fsg, "get max LUN = %d\n", *(u8 *)req->buf);
 		/* Respond with data/status */
 		req->length = min((u16)1, w_length);
 		return ep0_queue(fsg->common);
@@ -622,13 +667,18 @@ static int sleep_thread(struct fsg_common *common, bool can_freeze)
 			rc = -EINTR;
 			break;
 		}
-		if (common->thread_wakeup_needed)
+		spin_lock_irq(&common->lock);
+		if (common->thread_wakeup_needed) {
+			spin_unlock_irq(&common->lock);
 			break;
+		}
+		spin_unlock_irq(&common->lock);
 		schedule();
 	}
 	__set_current_state(TASK_RUNNING);
+	spin_lock_irq(&common->lock);
 	common->thread_wakeup_needed = 0;
-
+	spin_unlock_irq(&common->lock);
 	/*
 	 * Ensure the writing of thread_wakeup_needed
 	 * and the reading of bh->state are completed
@@ -693,12 +743,17 @@ static int do_read(struct fsg_common *common)
 			     curlun->file_length - file_offset);
 
 		/* Wait for the next buffer to become available */
+		spin_lock_irq(&common->lock);
 		bh = common->next_buffhd_to_fill;
 		while (bh->state != BUF_STATE_EMPTY) {
+			spin_unlock_irq(&common->lock);
 			rc = sleep_thread(common, false);
 			if (rc)
 				return rc;
+
+			spin_lock_irq(&common->lock);
 		}
+		spin_unlock_irq(&common->lock);
 
 		/*
 		 * If we were asked to read past the end of file,
@@ -710,12 +765,17 @@ static int do_read(struct fsg_common *common)
 			curlun->sense_data_info =
 					file_offset >> curlun->blkbits;
 			curlun->info_valid = 1;
+			spin_lock_irq(&common->lock);
 			bh->inreq->length = 0;
 			bh->state = BUF_STATE_FULL;
+			spin_unlock_irq(&common->lock);
 			break;
 		}
 
 		/* Perform the read */
+#ifdef CONFIG_MEDIATEK_SOLUTION
+		usb_boost();
+#endif
 		file_offset_tmp = file_offset;
 		nread = vfs_read(curlun->filp,
 				 (char __user *)bh->buf,
@@ -742,8 +802,10 @@ static int do_read(struct fsg_common *common)
 		 * equal to the buffer size, which is divisible by the
 		 * bulk-in maxpacket size.
 		 */
+		spin_lock_irq(&common->lock);
 		bh->inreq->length = nread;
 		bh->state = BUF_STATE_FULL;
+		spin_unlock_irq(&common->lock);
 
 		/* If an error occurred, report it and its position */
 		if (nread < amount) {
@@ -877,6 +939,7 @@ static int do_write(struct fsg_common *common)
 			break;			/* We stopped early */
 		if (bh->state == BUF_STATE_FULL) {
 			smp_rmb();
+			/*avoid context switch and race condiction*/
 			common->next_buffhd_to_drain = bh->next;
 			bh->state = BUF_STATE_EMPTY;
 
@@ -909,6 +972,9 @@ static int do_write(struct fsg_common *common)
 				goto empty_write;
 
 			/* Perform the write */
+#ifdef CONFIG_MEDIATEK_SOLUTION
+			usb_boost();
+#endif
 			file_offset_tmp = file_offset;
 			nwritten = vfs_write(curlun->filp,
 					     (char __user *)bh->buf,
@@ -967,7 +1033,8 @@ static int do_synchronize_cache(struct fsg_common *common)
 	int		rc;
 
 	/* We ignore the requested LBA and write out all file's
-	 * dirty data buffers. */
+	 * dirty data buffers.
+	 */
 	rc = fsg_lun_fsync_sub(curlun);
 	if (rc)
 		curlun->sense_data = SS_WRITE_ERROR;
@@ -1213,7 +1280,12 @@ static int do_read_header(struct fsg_common *common, struct fsg_buffhd *bh)
 	return 8;
 }
 
+
+#ifndef CONFIG_HUAWEI_USB
 static int do_read_toc(struct fsg_common *common, struct fsg_buffhd *bh)
+#else
+static int do_read_toc_for_meta(struct fsg_common *common, struct fsg_buffhd *bh)
+#endif
 {
 	struct fsg_lun	*curlun = common->curlun;
 	int		msf = common->cmnd[1] & 0x02;
@@ -1239,6 +1311,234 @@ static int do_read_toc(struct fsg_common *common, struct fsg_buffhd *bh)
 	store_cdrom_address(&buf[16], msf, curlun->num_sectors);
 	return 20;
 }
+
+
+#ifdef CONFIG_HUAWEI_USB
+/* usbsdms_read_toc_data1 rsp packet */
+static u8 usbsdms_read_toc_data1[] = {
+	0x00, 0x0A, 0x01, 0x01,
+	0x00, 0x14, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00
+};
+
+/* usbsdms_read_toc_data1_format0000 rsp packet */
+static u8 usbsdms_read_toc_data1_format0000[] = {
+	0x00, 0x12, 0x01, 0x01,
+	0x00, 0x14, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+	/* the last four bytes:32MB */
+	0x00, 0x14, 0xAA, 0x00, 0x00, 0x00, 0xFF, 0xFF
+};
+
+/* usbsdms_read_toc_data1_format0001 rsp packet */
+static u8 usbsdms_read_toc_data1_format0001[] = {
+	0x00, 0x0A, 0x01, 0x01,
+	0x00, 0x14, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+/* usbsdms_read_toc_data2 rsp packet */
+static u8 usbsdms_read_toc_data2[] = {
+	0x00, 0x2e, 0x01, 0x01,
+	0x01, 0x14, 0x00, 0xa0, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+	0x01, 0x14, 0x00, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+	0x01, 0x14, 0x00, 0xa2, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x3c,
+	/* ^ CDROM size from this byte */
+	0x01, 0x14, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00
+};
+
+/* usbsdms_read_toc_data3 rsp packet */
+static u8 usbsdms_read_toc_data3[] = {
+	0x00, 0x12, 0x01, 0x01,
+	0x00, 0x14, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+
+/* ------------------------------------------------------------
+ * function      : static int do_read_toc(struct fsg_dev *fsg, struct fsg_buffhd *bh)
+ * description   : response for command READ TOC
+ * input         : struct fsg_dev *fsg, struct fsg_buffhd *bh
+ * output        : none
+ * return        : response data length
+ * -------------------------------------------------------------
+ */
+static int do_read_toc(struct fsg_common *common, struct fsg_buffhd *bh)
+{
+	u8    *buf = (u8 *) bh->buf;
+	usbsdms_read_toc_cmd_type *read_toc_cmd = NULL;
+	unsigned long response_length = 0;
+	u8 *response_ptr = NULL;
+
+	/*In META mode, use origen func*/
+	if(get_boot_mode() == META_BOOT){
+		pr_info("Meta mode, use origin do_read_toc.\n");
+		return do_read_toc_for_meta(common,bh);
+	}
+
+	read_toc_cmd = (usbsdms_read_toc_cmd_type *)common->cmnd;
+
+	/* When TIME is set to one, the address fields in some returned
+	 * data formats shall be in TIME form.
+	 * 2 is time form mask.
+	 */
+	if (read_toc_cmd->msf == 2) {
+		response_ptr = usbsdms_read_toc_data2;
+		response_length = sizeof(usbsdms_read_toc_data2);
+	} else if (read_toc_cmd->allocation_length_msb != 0) {
+		response_ptr = usbsdms_read_toc_data3;
+		response_length = sizeof(usbsdms_read_toc_data3);
+	} else {
+		/* When TIME is set to zero, the address fields in some returned
+		 * data formats shall be in LBA form.
+		 */
+		if (read_toc_cmd->format == 0) {
+			/* 0 is mean to valid as a Track Number */
+			response_ptr = usbsdms_read_toc_data1_format0000;
+			response_length = sizeof(usbsdms_read_toc_data1_format0000);
+		} else if (read_toc_cmd->format == 1) {
+			/* 1 is mean to ignored by Logical Unit */
+			response_ptr = usbsdms_read_toc_data1_format0001;
+			response_length = sizeof(usbsdms_read_toc_data1_format0001);
+		} else {
+			/* Valid as a Session Number */
+			response_ptr = usbsdms_read_toc_data1;
+			response_length = sizeof(usbsdms_read_toc_data1);
+		}
+	}
+
+	memcpy(buf, response_ptr, response_length);
+
+	if (response_length < common->data_size_from_cmnd) {
+		common->data_size_from_cmnd = response_length;
+	}
+
+	common->data_size = common->data_size_from_cmnd;
+
+	common->residue = common->usb_amount_left = common->data_size;
+
+	return response_length;
+}
+#endif
+
+#ifdef CONFIG_HUAWEI_USB
+extern struct device *create_function_device(char *name);
+
+static ssize_t mass_storage_inquiry_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct usb_function_instance *fi = dev_get_drvdata(dev);
+	struct fsg_opts *opts = fsg_opts_from_func_inst(fi);
+
+	return snprintf(buf, PAGE_SIZE, "%s\n", opts->common->inquiry_string);
+}
+
+static ssize_t mass_storage_inquiry_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct usb_function_instance *fi = dev_get_drvdata(dev);
+	struct fsg_opts *opts = fsg_opts_from_func_inst(fi);
+	int len;
+
+	len = min(size, sizeof(opts->common->inquiry_string) - 1);
+
+	strncpy(opts->common->inquiry_string, buf, len);
+
+	opts->common->inquiry_string[len] = 0;
+
+	return size;
+}
+
+static DEVICE_ATTR(inquiry_string, (S_IRUGO | S_IWUSR),
+					mass_storage_inquiry_show,
+					mass_storage_inquiry_store);
+
+static struct device_attribute *mass_storage_function_attributes[] = {
+	&dev_attr_inquiry_string,
+	NULL
+};
+
+static int create_mass_storage_device(struct usb_function_instance *fi)
+{
+	struct device *dev;
+	struct device_attribute **attrs;
+	struct device_attribute *attr;
+	int err = 0;
+
+	dev = create_function_device("f_mass_storage");
+	if (IS_ERR(dev)) {
+		return PTR_ERR(dev);
+	}
+
+	attrs = mass_storage_function_attributes;
+	if (attrs) {
+		while ((attr = *attrs++) && !err) {
+			err = device_create_file(dev, attr);
+		}
+		if (err) {
+			device_destroy(dev->class, dev->devt);
+			return -EINVAL;
+		}
+	}
+	dev_set_drvdata(dev, fi);
+	return 0;
+}
+
+/*
+ * huawei mass storage autorun and lun config
+ *
+ */
+
+#define MS_STG_SET_LEN         (32)
+#define FSG_MAX_LUNS_HUAWEI    (2)
+static char autorun[MS_STG_SET_LEN] = "enable";        /* enable/disable autorun function "enable"/"disable" */
+static char luns[MS_STG_SET_LEN]    = "sdcard";        /* "sdcard"/"cdrom,sdcard"/"cdrom"/"sdcard,cdrom" can be used*/
+
+static ssize_t autorun_store(
+	struct device *device, struct device_attribute *attr,
+	const char *buff, size_t size)
+{
+	if(size>MS_STG_SET_LEN || buff==NULL){
+		pr_err("mass_storage: autorun_store buff error\n");
+		return -EINVAL;
+	}
+	if(0!=strcmp(buff, "enable") && 0!=strcmp(buff ,"disable")){
+		pr_err("mass_storage: autorun_store para error '%s'\n", buff);
+		return -EINVAL;
+	}
+	strlcpy(autorun, buff, sizeof(autorun));
+
+	return size;
+}
+
+static ssize_t autorun_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%s\n", autorun);
+}
+
+static DEVICE_ATTR(autorun, S_IWUSR|S_IRUSR, autorun_show, autorun_store);
+
+static ssize_t luns_store(
+	struct device *device, struct device_attribute *attr,
+	const char *buff, size_t size)
+{
+	if(size>MS_STG_SET_LEN || buff==NULL){
+		pr_err("mass_storage: luns_store buff error\n");
+		return -EINVAL;
+	}
+	strlcpy(luns, buff, sizeof(luns));
+
+	return size;
+}
+
+static ssize_t luns_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%s\n", luns);
+}
+
+static DEVICE_ATTR(luns, S_IWUSR|S_IRUSR, luns_show, luns_store);
+
+
+#endif
 
 static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
 {
@@ -1394,7 +1694,7 @@ static int do_prevent_allow(struct fsg_common *common)
 		return -EINVAL;
 	}
 
-	if (curlun->prevent_medium_removal && !prevent)
+	if (!curlun->nofua && curlun->prevent_medium_removal && !prevent)
 		fsg_lun_fsync_sub(curlun);
 	curlun->prevent_medium_removal = prevent;
 	return 0;
@@ -1488,6 +1788,7 @@ static int throw_away_data(struct fsg_common *common)
 		/* Throw away the data in a filled buffer */
 		if (bh->state == BUF_STATE_FULL) {
 			smp_rmb();
+			/* avoid context switch and race condiction */
 			bh->state = BUF_STATE_EMPTY;
 			common->next_buffhd_to_drain = bh->next;
 
@@ -1641,12 +1942,17 @@ static int send_status(struct fsg_common *common)
 	u32			sd, sdinfo = 0;
 
 	/* Wait for the next buffer to become available */
+	spin_lock_irq(&common->lock);
 	bh = common->next_buffhd_to_fill;
 	while (bh->state != BUF_STATE_EMPTY) {
+		spin_unlock_irq(&common->lock);
 		rc = sleep_thread(common, true);
 		if (rc)
 			return rc;
+
+		spin_lock_irq(&common->lock);
 	}
+	spin_unlock_irq(&common->lock);
 
 	if (curlun) {
 		sd = curlun->sense_data;
@@ -1843,13 +2149,19 @@ static int do_scsi_command(struct fsg_common *common)
 	dump_cdb(common);
 
 	/* Wait for the next buffer to become available for data or status */
+	spin_lock_irq(&common->lock);
 	bh = common->next_buffhd_to_fill;
 	common->next_buffhd_to_drain = bh;
 	while (bh->state != BUF_STATE_EMPTY) {
+		spin_unlock_irq(&common->lock);
 		rc = sleep_thread(common, true);
 		if (rc)
 			return rc;
+
+		spin_lock_irq(&common->lock);
 	}
+	spin_unlock_irq(&common->lock);
+
 	common->phase_error = 0;
 	common->short_packet_received = 0;
 
@@ -1971,9 +2283,21 @@ static int do_scsi_command(struct fsg_common *common)
 			goto unknown_cmnd;
 		common->data_size_from_cmnd =
 			get_unaligned_be16(&common->cmnd[7]);
+#ifdef CONFIG_HUAWEI_USB
+		if(get_boot_mode() == META_BOOT){
+			reply = check_command(common, 10, DATA_DIR_TO_HOST,
+					      (7<<6) | (1<<1), 1,
+					      "READ TOC");
+		}else{
+			reply = check_command(common, 10, DATA_DIR_TO_HOST,
+					      (3<<1) | (7<<7), 1,
+					      "READ TOC");
+		}
+#else
 		reply = check_command(common, 10, DATA_DIR_TO_HOST,
 				      (7<<6) | (1<<1), 1,
 				      "READ TOC");
+#endif
 		if (reply == 0)
 			reply = do_read_toc(common, bh);
 		break;
@@ -2067,7 +2391,18 @@ static int do_scsi_command(struct fsg_common *common)
 		if (reply == 0)
 			reply = do_write(common);
 		break;
-
+#ifdef CONFIG_HUAWEI_USB
+	case SC_REWIND:
+	case SC_REWIND_11:
+		if(get_boot_mode() != META_BOOT){
+			pr_err("usb do rewind: cmdsize = %d\n", common->cmnd_size);
+			/* when rework in manufacture, if the phone is in google ports mode,
+			* we need to switch it to multi-ports mode for using the diag.
+			*/
+			hw_usb_port_switch_request(14);
+			break;
+		}
+#endif
 	/*
 	 * Some mandatory commands that we recognize but don't implement.
 	 * They don't mean much in this setting.  It's left as an exercise
@@ -2191,12 +2526,17 @@ static int get_next_command(struct fsg_common *common)
 	int			rc = 0;
 
 	/* Wait for the next buffer to become available */
+	spin_lock_irq(&common->lock);
 	bh = common->next_buffhd_to_fill;
 	while (bh->state != BUF_STATE_EMPTY) {
+		spin_unlock_irq(&common->lock);
 		rc = sleep_thread(common, true);
 		if (rc)
 			return rc;
+
+		spin_lock_irq(&common->lock);
 	}
+	spin_unlock_irq(&common->lock);
 
 	/* Queue a request to read a Bulk-only CBW */
 	set_bulk_out_req_length(common, bh, US_BULK_CB_WRAP_LEN);
@@ -2211,14 +2551,23 @@ static int get_next_command(struct fsg_common *common)
 	 */
 
 	/* Wait for the CBW to arrive */
+	spin_lock_irq(&common->lock);
 	while (bh->state != BUF_STATE_FULL) {
+		spin_unlock_irq(&common->lock);
 		rc = sleep_thread(common, true);
 		if (rc)
 			return rc;
+
+		spin_lock_irq(&common->lock);
 	}
+	spin_unlock_irq(&common->lock);
+
 	smp_rmb();
 	rc = fsg_is_set(common) ? received_cbw(common->fsg, bh) : -EIO;
+
+	spin_lock_irq(&common->lock);
 	bh->state = BUF_STATE_EMPTY;
+	spin_unlock_irq(&common->lock);
 
 	return rc;
 }
@@ -2263,16 +2612,6 @@ reset:
 			}
 		}
 
-		/* Disable the endpoints */
-		if (fsg->bulk_in_enabled) {
-			usb_ep_disable(fsg->bulk_in);
-			fsg->bulk_in_enabled = 0;
-		}
-		if (fsg->bulk_out_enabled) {
-			usb_ep_disable(fsg->bulk_out);
-			fsg->bulk_out_enabled = 0;
-		}
-
 		common->fsg = NULL;
 		wake_up(&common->fsg_wait);
 	}
@@ -2283,28 +2622,6 @@ reset:
 
 	common->fsg = new_fsg;
 	fsg = common->fsg;
-
-	/* Enable the endpoints */
-	rc = config_ep_by_speed(common->gadget, &(fsg->function), fsg->bulk_in);
-	if (rc)
-		goto reset;
-	rc = usb_ep_enable(fsg->bulk_in);
-	if (rc)
-		goto reset;
-	fsg->bulk_in->driver_data = common;
-	fsg->bulk_in_enabled = 1;
-
-	rc = config_ep_by_speed(common->gadget, &(fsg->function),
-				fsg->bulk_out);
-	if (rc)
-		goto reset;
-	rc = usb_ep_enable(fsg->bulk_out);
-	if (rc)
-		goto reset;
-	fsg->bulk_out->driver_data = common;
-	fsg->bulk_out_enabled = 1;
-	common->bulk_out_maxpacket = usb_endpoint_maxp(fsg->bulk_out->desc);
-	clear_bit(IGNORE_BULK_OUT, &fsg->atomic_bitflags);
 
 	/* Allocate the requests */
 	for (i = 0; i < common->fsg_num_buffers; ++i) {
@@ -2336,14 +2653,59 @@ reset:
 static int fsg_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 {
 	struct fsg_dev *fsg = fsg_from_func(f);
+	struct fsg_common *common = fsg->common;
+	int rc;
+
+	/* Enable the endpoints */
+	rc = config_ep_by_speed(common->gadget, &(fsg->function), fsg->bulk_in);
+	if (rc)
+		goto err_exit;
+	rc = usb_ep_enable(fsg->bulk_in);
+	if (rc)
+		goto err_exit;
+	fsg->bulk_in->driver_data = common;
+	fsg->bulk_in_enabled = 1;
+
+	rc = config_ep_by_speed(common->gadget, &(fsg->function),
+				fsg->bulk_out);
+	if (rc)
+		goto reset_bulk_int;
+
+	rc = usb_ep_enable(fsg->bulk_out);
+	if (rc)
+		goto reset_bulk_int;
+
+	fsg->bulk_out->driver_data = common;
+	fsg->bulk_out_enabled = 1;
+	common->bulk_out_maxpacket = usb_endpoint_maxp(fsg->bulk_out->desc);
+	clear_bit(IGNORE_BULK_OUT, &fsg->atomic_bitflags);
 	fsg->common->new_fsg = fsg;
 	raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
 	return USB_GADGET_DELAYED_STATUS;
+reset_bulk_int:
+	usb_ep_disable(fsg->bulk_in);
+	fsg->bulk_in_enabled = 0;
+err_exit:
+	return rc;
 }
 
 static void fsg_disable(struct usb_function *f)
 {
 	struct fsg_dev *fsg = fsg_from_func(f);
+
+	/* Disable the endpoints */
+	if (fsg->bulk_in_enabled) {
+		usb_ep_disable(fsg->bulk_in);
+		fsg->bulk_in->driver_data = NULL;
+		fsg->bulk_in_enabled = 0;
+	}
+
+	if (fsg->bulk_out_enabled) {
+		usb_ep_disable(fsg->bulk_out);
+		fsg->bulk_out->driver_data = NULL;
+		fsg->bulk_out_enabled = 0;
+	}
+
 	fsg->common->new_fsg = NULL;
 	raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
 }
@@ -2358,6 +2720,7 @@ static void handle_exception(struct fsg_common *common)
 	enum fsg_state		old_state;
 	struct fsg_lun		*curlun;
 	unsigned int		exception_req_tag;
+	unsigned long		flags;
 
 	/*
 	 * Clear the existing signals.  Anything but SIGUSR1 is converted
@@ -2370,6 +2733,10 @@ static void handle_exception(struct fsg_common *common)
 		if (sig != SIGUSR1) {
 			if (common->state < FSG_STATE_EXIT)
 				DBG(common, "Main thread exiting on signal\n");
+
+			WARN_ON(1);
+			pr_info("%s: signal(%d) received\n",
+					__func__, sig);
 			raise_exception(common, FSG_STATE_EXIT);
 		}
 	}
@@ -2388,10 +2755,13 @@ static void handle_exception(struct fsg_common *common)
 		/* Wait until everything is idle */
 		for (;;) {
 			int num_active = 0;
+			spin_lock_irq(&common->lock);
 			for (i = 0; i < common->fsg_num_buffers; ++i) {
 				bh = &common->buffhds[i];
 				num_active += bh->inreq_busy + bh->outreq_busy;
 			}
+			spin_unlock_irq(&common->lock);
+
 			if (num_active == 0)
 				break;
 			if (sleep_thread(common, true))
@@ -2409,7 +2779,7 @@ static void handle_exception(struct fsg_common *common)
 	 * Reset the I/O buffer states and pointers, the SCSI
 	 * state, and the exception.  Then invoke the handler.
 	 */
-	spin_lock_irq(&common->lock);
+	spin_lock_irqsave(&common->lock, flags);
 
 	for (i = 0; i < common->fsg_num_buffers; ++i) {
 		bh = &common->buffhds[i];
@@ -2435,7 +2805,7 @@ static void handle_exception(struct fsg_common *common)
 		}
 		common->state = FSG_STATE_IDLE;
 	}
-	spin_unlock_irq(&common->lock);
+	spin_unlock_irqrestore(&common->lock, flags);
 
 	/* Carry out any extra actions required for the exception */
 	switch (old_state) {
@@ -2659,6 +3029,18 @@ void fsg_common_put(struct fsg_common *common)
 }
 EXPORT_SYMBOL_GPL(fsg_common_put);
 
+/* check if fsg_num_buffers is within a valid range */
+static inline int fsg_num_buffers_validate(unsigned int fsg_num_buffers)
+{
+#define FSG_MAX_NUM_BUFFERS	32
+
+	if (fsg_num_buffers >= 2 && fsg_num_buffers <= FSG_MAX_NUM_BUFFERS)
+		return 0;
+	pr_info("fsg_num_buffers %u is out of range (%d to %d)\n",
+	       fsg_num_buffers, 2, FSG_MAX_NUM_BUFFERS);
+	return -EINVAL;
+}
+
 static struct fsg_common *fsg_common_setup(struct fsg_common *common)
 {
 	if (!common) {
@@ -2701,7 +3083,11 @@ static void _fsg_common_free_buffers(struct fsg_buffhd *buffhds, unsigned n)
 int fsg_common_set_num_buffers(struct fsg_common *common, unsigned int n)
 {
 	struct fsg_buffhd *bh, *buffhds;
-	int i;
+	int i, rc;
+
+	rc = fsg_num_buffers_validate(n);
+	if (rc != 0)
+		return rc;
 
 	buffhds = kcalloc(n, sizeof(*buffhds), GFP_KERNEL);
 	if (!buffhds)
@@ -2715,7 +3101,11 @@ int fsg_common_set_num_buffers(struct fsg_common *common, unsigned int n)
 		bh->next = bh + 1;
 		++bh;
 buffhds_first_it:
+#if defined(CONFIG_64BIT) && defined(CONFIG_MTK_LM_MODE)
+		bh->buf = kmalloc(FSG_BUFLEN, GFP_KERNEL | GFP_DMA);
+#else
 		bh->buf = kmalloc(FSG_BUFLEN, GFP_KERNEL);
+#endif
 		if (unlikely(!bh->buf))
 			goto error_release;
 	} while (--i);
@@ -2780,6 +3170,7 @@ int fsg_common_set_cdev(struct fsg_common *common,
 	common->ep0 = cdev->gadget->ep0;
 	common->ep0req = cdev->req;
 	common->cdev = cdev;
+	common->bicr = 0;
 
 	us = usb_gstrings_attach(cdev, fsg_strings_array,
 				 ARRAY_SIZE(fsg_strings));
@@ -2804,6 +3195,17 @@ static struct attribute *fsg_lun_dev_attrs[] = {
 	&dev_attr_ro.attr,
 	&dev_attr_file.attr,
 	&dev_attr_nofua.attr,
+#ifdef CONFIG_HUAWEI_USB
+	&dev_attr_autorun.attr,
+	&dev_attr_luns.attr,
+#endif
+	NULL
+};
+
+static struct attribute *fsg_lun_dev_attrs_for_meta[] = {
+	&dev_attr_ro.attr,
+	&dev_attr_file.attr,
+	&dev_attr_nofua.attr,
 	NULL
 };
 
@@ -2825,8 +3227,18 @@ static const struct attribute_group fsg_lun_dev_group = {
 	.is_visible = fsg_lun_dev_is_visible,
 };
 
+static const struct attribute_group fsg_lun_dev_group_for_meta = {
+	.attrs = fsg_lun_dev_attrs_for_meta,
+	.is_visible = fsg_lun_dev_is_visible,
+};
+
 static const struct attribute_group *fsg_lun_dev_groups[] = {
 	&fsg_lun_dev_group,
+	NULL
+};
+
+static const struct attribute_group *fsg_lun_dev_groups_for_meta[] = {
+	&fsg_lun_dev_group_for_meta,
 	NULL
 };
 
@@ -2866,7 +3278,11 @@ int fsg_common_create_lun(struct fsg_common *common, struct fsg_lun_config *cfg,
 	} else {
 		lun->dev.release = fsg_lun_release;
 		lun->dev.parent = &common->gadget->dev;
-		lun->dev.groups = fsg_lun_dev_groups;
+		if(get_boot_mode() != META_BOOT){
+			lun->dev.groups = fsg_lun_dev_groups;
+		}else{
+			lun->dev.groups = fsg_lun_dev_groups_for_meta;
+		}
 		dev_set_drvdata(&lun->dev, &common->filesem);
 		dev_set_name(&lun->dev, "%s", name);
 		lun->name = dev_name(&lun->dev);
@@ -2985,6 +3401,45 @@ static void fsg_common_release(struct kref *ref)
 		kfree(common);
 }
 
+ssize_t fsg_inquiry_show(struct fsg_common *common, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%s\n", common->inquiry_string);
+}
+ssize_t fsg_inquiry_store(struct fsg_common *common, const char *buf,
+				size_t size)
+{
+	if (size >= sizeof(common->inquiry_string))
+		return -EINVAL;
+
+	if (sscanf(buf, "%28s", common->inquiry_string) != 1)
+		return -EINVAL;
+	return size;
+}
+
+ssize_t fsg_bicr_show(struct fsg_common *common, char *buf)
+{
+	return sprintf(buf, "%d\n", common->bicr);
+}
+ssize_t fsg_bicr_store(struct fsg_common *common, const char *buf, size_t size)
+{
+	int ret;
+
+	ret = kstrtou8(buf, 10, &common->bicr);
+	if (ret)
+		return -EINVAL;
+
+	/* Set Lun[0] is a CDROM when enable bicr.*/
+	if (!strcmp(buf, "1"))
+		common->luns[0]->cdrom = 1;
+	else {
+		common->luns[0]->cdrom = 0;
+		common->luns[0]->blkbits = 0;
+		common->luns[0]->blksize = 0;
+		common->luns[0]->num_sectors = 0;
+	}
+
+	return size;
+}
 
 /*-------------------------------------------------------------------------*/
 
@@ -3341,6 +3796,45 @@ static ssize_t fsg_opts_stall_show(struct config_item *item, char *page)
 	return result;
 }
 
+int fsg_sysfs_update(struct fsg_common *common, struct device *dev, bool create)
+{
+	int ret = 0, i, nluns;
+
+	nluns = _fsg_common_get_max_lun(common) + 1;
+
+	pr_info("%s(): nluns:%d\n", __func__, nluns);
+	if (create) {
+		for (i = 0; i < nluns; i++) {
+			if (i == 0)
+				snprintf(common->name[i], 8, "lun");
+			else
+				snprintf(common->name[i], 8, "lun%d", i-1);
+			ret = sysfs_create_link(&dev->kobj,
+					&common->luns[i]->dev.kobj,
+					common->name[i]);
+			if (ret) {
+				pr_info("%s(): failed creating sysfs:%d %s)\n",
+						__func__, i, common->name[i]);
+				goto remove_sysfs;
+			}
+		}
+	} else {
+		i = nluns;
+		goto remove_sysfs;
+	}
+
+	return 0;
+
+remove_sysfs:
+	for (; i > 0; i--) {
+		pr_info("%s(): delete sysfs for lun(id:%d)(name:%s)\n",
+					__func__, i, common->name[i-1]);
+		sysfs_remove_link(&dev->kobj, common->name[i-1]);
+	}
+
+	return ret;
+}
+
 static ssize_t fsg_opts_stall_store(struct config_item *item, const char *page,
 				    size_t len)
 {
@@ -3394,6 +3888,10 @@ static ssize_t fsg_opts_num_buffers_store(struct config_item *item,
 		goto end;
 	}
 	ret = kstrtou8(page, 0, &num);
+	if (ret)
+		goto end;
+
+	ret = fsg_num_buffers_validate(num);
 	if (ret)
 		goto end;
 
@@ -3468,6 +3966,15 @@ static struct usb_function_instance *fsg_alloc_inst(void)
 	if (rc)
 		goto release_buffers;
 
+#ifdef CONFIG_HUAWEI_USB
+	if(get_boot_mode() != META_BOOT){
+		if (create_mass_storage_device(&opts->func_inst)) {
+				rc = -ENODEV;
+				goto remove_luns;
+		}
+	}
+#endif
+
 	opts->lun0.lun = opts->common->luns[0];
 	opts->lun0.lun_id = 0;
 
@@ -3478,6 +3985,10 @@ static struct usb_function_instance *fsg_alloc_inst(void)
 
 	return &opts->func_inst;
 
+#ifdef CONFIG_HUAWEI_USB
+remove_luns:
+	fsg_common_remove_luns(opts->common);
+#endif
 release_buffers:
 	fsg_common_free_buffers(opts->common);
 release_opts:
@@ -3549,6 +4060,8 @@ void fsg_config_from_params(struct fsg_config *cfg,
 		lun->ro = !!params->ro[i];
 		lun->cdrom = !!params->cdrom[i];
 		lun->removable = !!params->removable[i];
+		/* add nofua flag support */
+		lun->nofua = !!params->nofua[i];
 		lun->filename =
 			params->file_count > i && params->file[i][0]
 			? params->file[i]

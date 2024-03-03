@@ -45,19 +45,20 @@ static ssize_t power_supply_show_property(struct device *dev,
 					  char *buf) {
 	static char *type_text[] = {
 		"Unknown", "Battery", "UPS", "Mains", "USB",
-		"USB_DCP", "USB_CDP", "USB_ACA", "USB_C",
-		"USB_PD", "USB_PD_DRP"
+		"USB_DCP", "USB_CDP", "USB_ACA", "Wireless", "USB_C",
+		"USB_PD", "USB_PD_DRP", "HWBATT",
 	};
 	static char *status_text[] = {
-		"Unknown", "Charging", "Discharging", "Not charging", "Full"
+		"Unknown", "Charging", "Discharging", "Not charging", "Full",
+		"Cmd discharging"
 	};
 	static char *charge_type[] = {
-		"Unknown", "N/A", "Trickle", "Fast"
+		"Unknown", "N/A", "Trickle", "Fast", "Taper"
 	};
 	static char *health_text[] = {
 		"Unknown", "Good", "Overheat", "Dead", "Over voltage",
 		"Unspecified failure", "Cold", "Watchdog timer expire",
-		"Safety timer expire"
+		"Safety timer expire", "Warm", "Cool", "Hot"
 	};
 	static char *technology_text[] = {
 		"Unknown", "NiMH", "Li-ion", "Li-poly", "LiFe", "NiCd",
@@ -205,12 +206,30 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(usb_hc),
 	POWER_SUPPLY_ATTR(usb_otg),
 	POWER_SUPPLY_ATTR(charge_enabled),
+#ifdef CONFIG_HUAWEI_CHARGER
+	POWER_SUPPLY_ATTR(input_current_now),
+	POWER_SUPPLY_ATTR(charge_voltage_now),
+	POWER_SUPPLY_ATTR(charge_current_now),
+	POWER_SUPPLY_ATTR(charging_enabled),
+	POWER_SUPPLY_ATTR(in_thermal),
+	POWER_SUPPLY_ATTR(input_current_max),
+	POWER_SUPPLY_ATTR(hiz_mode),
+	POWER_SUPPLY_ATTR(factory_diag),
+#endif/*CONFIG_HUAWEI_CHARGER*/
+	POWER_SUPPLY_ATTR(resistance),
+	POWER_SUPPLY_ATTR(chg_iterm),
+	POWER_SUPPLY_ATTR(reset_learned_cc),
 	/* Local extensions of type int64_t */
 	POWER_SUPPLY_ATTR(charge_counter_ext),
 	/* Properties of type `const char *' */
 	POWER_SUPPLY_ATTR(model_name),
 	POWER_SUPPLY_ATTR(manufacturer),
 	POWER_SUPPLY_ATTR(serial_number),
+#ifdef CONFIG_HUAWEI_CHARGER
+	POWER_SUPPLY_ATTR(battery_type),
+	POWER_SUPPLY_ATTR(register_head),
+	POWER_SUPPLY_ATTR(dump_register),
+#endif/*CONFIG_HUAWEI_CHARGER*/
 };
 
 static struct attribute *

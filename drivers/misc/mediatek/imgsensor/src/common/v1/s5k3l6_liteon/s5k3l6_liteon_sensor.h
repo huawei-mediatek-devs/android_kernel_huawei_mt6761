@@ -1,0 +1,648 @@
+/*****************************************************************************
+ *
+ * Filename:
+ * ---------
+ *   s5k3l6_liteon_sensor.h
+ *
+ * Project:
+ * --------
+ *   ALPS
+ * Description:
+ * ------------
+ *   CMOS sensor header file.
+ *
+ ****************************************************************************/
+#ifndef _S5K3L6_LITEON_SENSOR_H
+#define _S5K3L6_LITEON_SENSOR_H
+
+#define REG_GAIN_1X 0x20
+
+#define SENSOR_FRM_LENGHT_LINE_REG_H  0x0340
+#define SENSOR_FRM_LENGHT_LINE_REG_L  0x0341
+#define SENSOR_LINE_LENGHT_PCK_REG_H  0x0342
+#define SENSOR_LINE_LENGHT_PCK_REG_L  0x0343
+#define SENSOR_COARSE_INT_TIME_REG_H  0x0202
+#define SENSOR_COARSE_INT_TIME_REG_L  0x0203
+#define SENSOR_ANA_GAIN_REG_H         0x0204
+#define SENSOR_ANA_GAIN_REG_L         0x0205
+
+#define SENSOR_FRM_CNT_REG            0x0005
+
+#define SENSOR_LONG_SHUTTER_LINELENGTH (0x16F0 * 10)
+#define SENSOR_MAX_LONG_SHUTTER_TIME  8000 //ms
+//#define SENSOR_NORMAL_SHUTTER_LINELENGTH 0x1320
+
+static struct imgsensor_i2c_reg stream_on[] = {
+	{0x3C1E, 0x01, 0x00},
+	{0x0100, 0x01, 0x00},
+	{0x0101, 0x03, 0x00},
+	{0x3C1E, 0x00, 0x00},
+};
+
+static struct imgsensor_i2c_reg stream_off[] = {
+	{0x0100, 0x00, 0x00},//delay 3ms after stream off
+};
+
+static struct imgsensor_i2c_reg init_setting[] = {
+	{0x0100, 0x0000, 0x00},
+	{0x0000, 0x0040, 0x00},
+	{0x0000, 0x30C6, 0x03},//delay 3ms after stream off
+
+	{0x3084, 0x1314, 0x00},
+	{0x3266, 0x0001, 0x00},
+	{0x3242, 0x2020, 0x00},
+	{0x306A, 0x2F4C, 0x00},
+	{0x306C, 0xCA01, 0x00},
+	{0x307A, 0x0D20, 0x00},
+	{0x309E, 0x002D, 0x00},
+	{0x3072, 0x0013, 0x00},
+	{0x3074, 0x0977, 0x00},
+	{0x3076, 0x9411, 0x00},
+	{0x3024, 0x0016, 0x00},
+	{0x3070, 0x3D00, 0x00},
+	{0x3002, 0x0E00, 0x00},
+	{0x3006, 0x1000, 0x00},
+	{0x300A, 0x0C00, 0x00},
+	{0x3010, 0x0400, 0x00},
+	{0x3018, 0xC500, 0x00},
+	{0x303A, 0x0204, 0x00},
+	{0x3452, 0x0001, 0x00},
+	{0x3454, 0x0001, 0x00},
+	{0x3456, 0x0001, 0x00},
+	{0x3458, 0x0001, 0x00},
+	{0x345a, 0x0002, 0x00},
+	{0x345C, 0x0014, 0x00},
+	{0x345E, 0x0002, 0x00},
+	{0x3460, 0x0014, 0x00},
+	{0x3464, 0x0006, 0x00},
+	{0x3466, 0x0012, 0x00},
+	{0x3468, 0x0012, 0x00},
+	{0x346A, 0x0012, 0x00},
+	{0x346C, 0x0012, 0x00},
+	{0x346E, 0x0012, 0x00},
+	{0x3470, 0x0012, 0x00},
+	{0x3472, 0x0008, 0x00},
+	{0x3474, 0x0004, 0x00},
+	{0x3476, 0x0044, 0x00},
+	{0x3478, 0x0004, 0x00},
+	{0x347A, 0x0044, 0x00},
+	{0x347E, 0x0006, 0x00},
+	{0x3480, 0x0010, 0x00},
+	{0x3482, 0x0010, 0x00},
+	{0x3484, 0x0010, 0x00},
+	{0x3486, 0x0010, 0x00},
+	{0x3488, 0x0010, 0x00},
+	{0x348A, 0x0010, 0x00},
+	{0x348E, 0x000C, 0x00},
+	{0x3490, 0x004C, 0x00},
+	{0x3492, 0x000C, 0x00},
+	{0x3494, 0x004C, 0x00},
+	{0x3496, 0x0020, 0x00},
+	{0x3498, 0x0006, 0x00},
+	{0x349A, 0x0008, 0x00},
+	{0x349C, 0x0008, 0x00},
+	{0x349E, 0x0008, 0x00},
+	{0x34A0, 0x0008, 0x00},
+	{0x34A2, 0x0008, 0x00},
+	{0x34A4, 0x0008, 0x00},
+	{0x34A8, 0x001A, 0x00},
+	{0x34AA, 0x002A, 0x00},
+	{0x34AC, 0x001A, 0x00},
+	{0x34AE, 0x002A, 0x00},
+	{0x34B0, 0x0080, 0x00},
+	{0x34B2, 0x0006, 0x00},
+	{0x32A2, 0x0000, 0x00},
+	{0x32A4, 0x0000, 0x00},
+	{0x32A6, 0x0000, 0x00},
+	{0x32A8, 0x0000, 0x00},
+	{0x3066, 0x7E00, 0x00},
+	{0x3004, 0x0800, 0x00},
+	{0x0A02, 0x3400, 0x00},
+};
+
+static struct imgsensor_i2c_reg preview_setting[] = {
+	{0x0344, 0x0008, 0x00},
+	{0x0346, 0x0008, 0x00},
+	{0x0348, 0x1077, 0x00},
+	{0x034A, 0x0C37, 0x00},
+	{0x034C, 0x0838, 0x00},
+	{0x034E, 0x0618, 0x00},
+	{0x0900, 0x0122, 0x00},
+	{0x0380, 0x0001, 0x00},
+	{0x0382, 0x0001, 0x00},
+	{0x0384, 0x0001, 0x00},
+	{0x0386, 0x0003, 0x00},
+	{0x0114, 0x0330, 0x00},
+	{0x0110, 0x0002, 0x00},
+	{0x0136, 0x1800, 0x00},
+	{0x0304, 0x0004, 0x00},
+	{0x0306, 0x0078, 0x00},
+	{0x3C1E, 0x0000, 0x00},
+	{0x030C, 0x0003, 0x00},
+	{0x030E, 0x0047, 0x00},
+	{0x3C16, 0x0001, 0x00},
+	{0x0300, 0x0006, 0x00},
+	{0x0342, 0x1320, 0x00},
+	{0x0340, 0x0CA4, 0x00},
+	{0x38C4, 0x0004, 0x00},
+	{0x38D8, 0x0011, 0x00},
+	{0x38DA, 0x0005, 0x00},
+	{0x38DC, 0x0005, 0x00},
+	{0x38C2, 0x0005, 0x00},
+	{0x38C0, 0x0004, 0x00},
+	{0x38D6, 0x0004, 0x00},
+	{0x38D4, 0x0004, 0x00},
+	{0x38B0, 0x0007, 0x00},
+	{0x3932, 0x1000, 0x00},
+	{0x3938, 0x000C, 0x00},
+	{0x0820, 0x0238, 0x00},
+	{0x380C, 0x0049, 0x00},
+	{0x3064, 0xFFCF, 0x00},
+	{0x309C, 0x0640, 0x00},
+	{0x3090, 0x8000, 0x00},
+	{0x3238, 0x000B, 0x00},
+	{0x314A, 0x5F02, 0x00},
+	{0x3300, 0x0000, 0x00},
+	{0x3400, 0x0000, 0x00},
+	{0x3402, 0x4E46, 0x00},
+	{0x32B2, 0x0008, 0x00},
+	{0x32B4, 0x0008, 0x00},
+	{0x32B6, 0x0008, 0x00},
+	{0x32B8, 0x0008, 0x00},
+	{0x3C34, 0x0048, 0x00},
+	{0x3C36, 0x3000, 0x00},
+	{0x3C38, 0x0020, 0x00},
+	{0x393E, 0x4000, 0x00},
+	{0x303A, 0x0204, 0x00},
+	{0x3034, 0x4B01, 0x00},
+	{0x3036, 0x0029, 0x00},
+	{0x3032, 0x4800, 0x00},
+	{0x320E, 0x049E, 0x00},
+};
+
+static struct imgsensor_i2c_reg capture_setting[] = {
+	{0x0344, 0x0008, 0x00},
+	{0x0346, 0x0008, 0x00},
+	{0x0348, 0x1077, 0x00},
+	{0x034A, 0x0C37, 0x00},
+	{0x034C, 0x1070, 0x00},
+	{0x034E, 0x0C30, 0x00},
+	{0x0900, 0x0000, 0x00},
+	{0x0380, 0x0001, 0x00},
+	{0x0382, 0x0001, 0x00},
+	{0x0384, 0x0001, 0x00},
+	{0x0386, 0x0001, 0x00},
+	{0x0114, 0x0330, 0x00},
+	{0x0110, 0x0002, 0x00},
+	{0x0136, 0x1800, 0x00},
+	{0x0304, 0x0004, 0x00},
+	{0x0306, 0x0078, 0x00},
+	{0x3C1E, 0x0000, 0x00},
+	{0x030C, 0x0003, 0x00},
+	{0x030E, 0x004B, 0x00},
+	{0x3C16, 0x0000, 0x00},
+	{0x0300, 0x0006, 0x00},
+	{0x0342, 0x1320, 0x00},
+	{0x0340, 0x0CA4, 0x00},
+	{0x38C4, 0x0009, 0x00},
+	{0x38D8, 0x002A, 0x00},
+	{0x38DA, 0x000A, 0x00},
+	{0x38DC, 0x000B, 0x00},
+	{0x38C2, 0x000A, 0x00},
+	{0x38C0, 0x000F, 0x00},
+	{0x38D6, 0x000A, 0x00},
+	{0x38D4, 0x0009, 0x00},
+	{0x38B0, 0x000F, 0x00},
+	{0x3932, 0x1800, 0x00},
+	{0x3938, 0x000C, 0x00},
+	{0x0820, 0x04b0, 0x00},
+	{0x380C, 0x0090, 0x00},
+	{0x3064, 0xFFCF, 0x00},
+	{0x309C, 0x0640, 0x00},
+	{0x3090, 0x8800, 0x00},
+	{0x3238, 0x000C, 0x00},
+	{0x314A, 0x5F00, 0x00},
+	{0x3300, 0x0000, 0x00},
+	{0x3400, 0x0000, 0x00},
+	{0x3402, 0x4E42, 0x00},
+	{0x32B2, 0x0006, 0x00},
+	{0x32B4, 0x0006, 0x00},
+	{0x32B6, 0x0006, 0x00},
+	{0x32B8, 0x0006, 0x00},
+	{0x3C34, 0x0048, 0x00},
+	{0x3C36, 0x3000, 0x00},
+	{0x3C38, 0x0020, 0x00},
+	{0x393E, 0x4000, 0x00},
+	{0x303A, 0x0204, 0x00},
+	{0x3034, 0x4B01, 0x00},
+	{0x3036, 0x0029, 0x00},
+	{0x3032, 0x4800, 0x00},
+	{0x320E, 0x049E, 0x00},
+};
+
+static struct imgsensor_i2c_reg video_setting[] = {
+	{0x0344, 0x0008, 0x00},
+	{0x0346, 0x0008, 0x00},
+	{0x0348, 0x1077, 0x00},
+	{0x034A, 0x0C37, 0x00},
+	{0x034C, 0x1070, 0x00},
+	{0x034E, 0x0C30, 0x00},
+	{0x0900, 0x0000, 0x00},
+	{0x0380, 0x0001, 0x00},
+	{0x0382, 0x0001, 0x00},
+	{0x0384, 0x0001, 0x00},
+	{0x0386, 0x0001, 0x00},
+	{0x0114, 0x0330, 0x00},
+	{0x0110, 0x0002, 0x00},
+	{0x0136, 0x1800, 0x00},
+	{0x0304, 0x0004, 0x00},
+	{0x0306, 0x0078, 0x00},
+	{0x3C1E, 0x0000, 0x00},
+	{0x030C, 0x0003, 0x00},
+	{0x030E, 0x004B, 0x00},
+	{0x3C16, 0x0000, 0x00},
+	{0x0300, 0x0006, 0x00},
+	{0x0342, 0x1320, 0x00},
+	{0x0340, 0x0CA4, 0x00},
+	{0x38C4, 0x0009, 0x00},
+	{0x38D8, 0x002A, 0x00},
+	{0x38DA, 0x000A, 0x00},
+	{0x38DC, 0x000B, 0x00},
+	{0x38C2, 0x000A, 0x00},
+	{0x38C0, 0x000F, 0x00},
+	{0x38D6, 0x000A, 0x00},
+	{0x38D4, 0x0009, 0x00},
+	{0x38B0, 0x000F, 0x00},
+	{0x3932, 0x1800, 0x00},
+	{0x3938, 0x000C, 0x00},
+	{0x0820, 0x04b0, 0x00},
+	{0x380C, 0x0090, 0x00},
+	{0x3064, 0xFFCF, 0x00},
+	{0x309C, 0x0640, 0x00},
+	{0x3090, 0x8800, 0x00},
+	{0x3238, 0x000C, 0x00},
+	{0x314A, 0x5F00, 0x00},
+	{0x3300, 0x0000, 0x00},
+	{0x3400, 0x0000, 0x00},
+	{0x3402, 0x4E42, 0x00},
+	{0x32B2, 0x0006, 0x00},
+	{0x32B4, 0x0006, 0x00},
+	{0x32B6, 0x0006, 0x00},
+	{0x32B8, 0x0006, 0x00},
+	{0x3C34, 0x0048, 0x00},
+	{0x3C36, 0x3000, 0x00},
+	{0x3C38, 0x0020, 0x00},
+	{0x393E, 0x4000, 0x00},
+	{0x303A, 0x0204, 0x00},
+	{0x3034, 0x4B01, 0x00},
+	{0x3036, 0x0029, 0x00},
+	{0x3032, 0x4800, 0x00},
+	{0x320E, 0x049E, 0x00},
+};
+
+static struct imgsensor_i2c_reg normal2long_setting[] = {
+	{0x0307, 0x60, 0x00},
+	{0x3C1F, 0x03, 0x00},
+	{0x030D, 0x03, 0x00},
+	{0x030E, 0x00, 0x00},
+	{0x030F, 0x78, 0x00},
+	{0x3C17, 0x04, 0x00},
+	{0x0820, 0x00, 0x00},
+	{0x0821, 0x78, 0x00},
+	{0x38C5, 0x03, 0x00},
+	{0x38D9, 0x00, 0x00},
+	{0x38DB, 0x08, 0x00},
+	{0x38DD, 0x13, 0x00},
+	{0x38C3, 0x06, 0x00},
+	{0x38C1, 0x00, 0x00},
+	{0x38D7, 0x0F, 0x00},
+	{0x38D5, 0x03, 0x00},
+	{0x38B1, 0x01, 0x00},
+	{0x3932, 0x20, 0x00},
+	{0x3938, 0x20, 0x00},
+	{0x0342, 0x16, 0x00},
+	{0x0343, 0xF0, 0x00},
+};
+
+
+static struct imgsensor_i2c_reg long2normal_setting[] = {
+	{0x0307, 0x78, 0x00},
+	{0x3C1F, 0x00, 0x00},
+	{0x030D, 0x03, 0x00},
+	{0x030E, 0x00, 0x00},
+	{0x030F, 0x4B, 0x00},
+	{0x3C17, 0x00, 0x00},
+	{0x0820, 0x04, 0x00},
+	{0x0821, 0xB0, 0x00},
+	{0x38C5, 0x09, 0x00},
+	{0x38D9, 0x2A, 0x00},
+	{0x38DB, 0x0A, 0x00},
+	{0x38DD, 0x0B, 0x00},
+	{0x38C3, 0x0A, 0x00},
+	{0x38C1, 0x0F, 0x00},
+	{0x38D7, 0x0A, 0x00},
+	{0x38D5, 0x09, 0x00},
+	{0x38B1, 0x0F, 0x00},
+	{0x3932, 0x18, 0x00},
+	{0x3938, 0x00, 0x00},
+	{0x0342, 0x13, 0x00},
+	{0x0343, 0x20, 0x00},
+};
+
+
+static imgsensor_i2c_reg_setting_t normal2long_setting_array = {
+		.setting = normal2long_setting,
+		.size = IMGSENSOR_ARRAY_SIZE(normal2long_setting),
+		.addr_type = IMGSENSOR_I2C_WORD_ADDR,
+		.data_type = IMGSENSOR_I2C_BYTE_DATA,
+		.delay = 0,
+};
+
+static imgsensor_i2c_reg_setting_t long2normal_setting_array = {
+		.setting = long2normal_setting,
+		.size = IMGSENSOR_ARRAY_SIZE(long2normal_setting),
+		.addr_type = IMGSENSOR_I2C_WORD_ADDR,
+		.data_type = IMGSENSOR_I2C_BYTE_DATA,
+		.delay = 0,
+};
+
+static struct imgsensor_i2c_reg test_partern_on[] = {
+	{0x3202, 0x0080, 0x00},
+	{0x3204, 0x0080, 0x00},
+	{0x3206, 0x0080, 0x00},
+	{0x3208, 0x0080, 0x00},
+	{0x3232, 0x0000, 0x00},
+	{0x3234, 0x0000, 0x00},
+	{0x32A0, 0x0100, 0x00},
+	{0x3300, 0x0001, 0x00},
+	{0x3400, 0x0001, 0x00},
+	{0x3402, 0x4E00, 0x00},
+	{0x3268, 0x0000, 0x00},
+	{0x0600, 0x0002, 0x00},
+};
+
+static struct imgsensor_i2c_reg  test_partern_off[] = {
+	{0x6028, 0x2000, 0x00},
+	{0x602A, 0x1082, 0x00},
+	{0x6F12, 0x8010, 0x00},
+	{0x3734, 0x0010, 0x00},
+	{0x0600, 0x0300, 0x00},
+};
+
+static struct imgsensor_i2c_reg_table dump_setting[] = {
+	{0x0100, 0x0100, IMGSENSOR_I2C_WORD_DATA, IMGSENSOR_I2C_READ, 0},
+	{0x0005, 0x0000, IMGSENSOR_I2C_WORD_DATA, IMGSENSOR_I2C_READ, 0},
+	{0x0340, 0x0000, IMGSENSOR_I2C_WORD_DATA, IMGSENSOR_I2C_READ, 0},
+	{0x0342, 0x0000, IMGSENSOR_I2C_WORD_DATA, IMGSENSOR_I2C_READ, 0},
+	{0x0101, 0x0300, IMGSENSOR_I2C_WORD_DATA, IMGSENSOR_I2C_READ, 0},
+};
+
+static imgsensor_info_t imgsensor_info = {
+	.sensor_id_reg = 0x0000,
+	.sensor_id = S5K3L6_LITEON_SENSOR_ID,      //Sensor ID Value: 0x30C8//record sensor id defined in Kd_imgsensor.h
+	.checksum_value = 0x143d0c73,       //checksum value for Camera Auto Test
+
+	.pre = {
+		.pclk = 480000000,              //record different mode's pclk
+		.linelength  = 4896,            //record different mode's linelength
+		.framelength = 3236,            //record different mode's framelength
+		.startx= 0,                     //record different mode's startx of grabwindow
+		.starty = 0,                    //record different mode's starty of grabwindow
+		.grabwindow_width  = 2104,      //record different mode's width of grabwindow
+		.grabwindow_height = 1560,      //record different mode's height of grabwindow
+		/*following for MIPIDataLowPwr2HighSpeedSettleDelayCount by different scenario*/
+		.mipi_data_lp2hs_settle_dc = 85,
+		/*following for GetDefaultFramerateByScenario()*/
+		.max_framerate = 303,
+		.mipi_pixel_rate = 227200000,
+	},
+
+	.cap = {
+		.pclk = 480000000,              //record different mode's pclk
+		.linelength  = 4896,            //record different mode's linelength
+		.framelength = 3236,            //record different mode's framelength
+		.startx = 0,                    //record different mode's startx of grabwindow
+		.starty = 0,                    //record different mode's starty of grabwindow
+		.grabwindow_width  = 4208,      //record different mode's width of grabwindow
+		.grabwindow_height = 3120,      //record different mode's height of grabwindow
+		/*following for MIPIDataLowPwr2HighSpeedSettleDelayCount by different scenario*/
+		.mipi_data_lp2hs_settle_dc = 85,
+		/*following for GetDefaultFramerateByScenario()*/
+		.max_framerate = 303,
+		.mipi_pixel_rate = 480000000,
+		.mipi_trail_val = 0x6F,
+	},
+
+	.normal_video = {
+		.pclk = 480000000,              //record different mode's pclk
+		.linelength  = 4896,            //record different mode's linelength
+		.framelength = 3236,            //record different mode's framelength
+		.startx = 0,                    //record different mode's startx of grabwindow
+		.starty = 0,                    //record different mode's starty of grabwindow
+		.grabwindow_width  = 4208,      //record different mode's width of grabwindow
+		.grabwindow_height = 3120,      //record different mode's height of grabwindow
+		/*following for MIPIDataLowPwr2HighSpeedSettleDelayCount by different scenario*/
+		.mipi_data_lp2hs_settle_dc = 85,
+		/*following for GetDefaultFramerateByScenario()*/
+		.max_framerate = 303,
+		.mipi_pixel_rate = 480000000,
+		.mipi_trail_val = 0x6F,
+	},
+
+	.init_setting = {
+		.setting = init_setting,
+		.size = IMGSENSOR_ARRAY_SIZE(init_setting),
+		.addr_type = IMGSENSOR_I2C_WORD_ADDR,
+		.data_type = IMGSENSOR_I2C_WORD_DATA,
+		.delay = 0,
+	},
+	.pre_setting = {
+		.setting = preview_setting,
+		.size = IMGSENSOR_ARRAY_SIZE(preview_setting),
+		.addr_type = IMGSENSOR_I2C_WORD_ADDR,
+		.data_type = IMGSENSOR_I2C_WORD_DATA,
+		.delay = 0,
+	},
+	.cap_setting = {
+		.setting = capture_setting,
+		.size = IMGSENSOR_ARRAY_SIZE(capture_setting),
+		.addr_type = IMGSENSOR_I2C_WORD_ADDR,
+		.data_type = IMGSENSOR_I2C_WORD_DATA,
+		.delay = 0,
+	},
+	.normal_video_setting = {
+		.setting = video_setting,
+		.size = IMGSENSOR_ARRAY_SIZE(video_setting),
+		.addr_type = IMGSENSOR_I2C_WORD_ADDR,
+		.data_type = IMGSENSOR_I2C_WORD_DATA,
+		.delay = 0,
+	},
+	.streamon_setting = {
+		.setting = stream_on,
+		.size = IMGSENSOR_ARRAY_SIZE(stream_on),
+		.addr_type = IMGSENSOR_I2C_WORD_ADDR,
+		.data_type = IMGSENSOR_I2C_BYTE_DATA,
+		.delay = 0,
+	},
+
+	.streamoff_setting = {
+		.setting = stream_off,
+		.size = IMGSENSOR_ARRAY_SIZE(stream_off),
+		.addr_type = IMGSENSOR_I2C_WORD_ADDR,
+		.data_type = IMGSENSOR_I2C_BYTE_DATA,
+		.delay = 0,
+	},
+
+	.test_pattern_on_setting = {
+		.setting = test_partern_on,
+		.size = IMGSENSOR_ARRAY_SIZE(test_partern_on),
+		.addr_type = IMGSENSOR_I2C_WORD_ADDR,
+		.data_type = IMGSENSOR_I2C_WORD_DATA,
+		.delay = 0,
+	},
+
+	.test_pattern_on_setting = {
+		.setting = test_partern_off,
+		.size = IMGSENSOR_ARRAY_SIZE(test_partern_off),
+		.addr_type = IMGSENSOR_I2C_WORD_ADDR,
+		.data_type = IMGSENSOR_I2C_WORD_DATA,
+		.delay = 0,
+	},
+
+	.dump_info = {
+		.setting = dump_setting,
+		.size = IMGSENSOR_ARRAY_SIZE(dump_setting),
+	},
+
+	.margin = 5,                 //sensor framelength & shutter margin
+	.min_shutter = 4,            //min shutter
+	.max_frame_length = 0xFFFF,  //REG0x0202 <=REG0x0340-5//max framelength by sensor register's limitation
+	.ae_shut_delay_frame = 0,    //shutter delay frame for AE cycle, 2 frame with ispGain_delay-shut_delay=2-0=2
+	.ae_sensor_gain_delay_frame = 0,//sensor gain delay frame for AE cycle,2 frame with ispGain_delay-sensor_gain_delay=2-0=2
+	.ae_ispGain_delay_frame = 2,    //isp gain delay frame for AE cycle
+	.ihdr_support = 0,              //1, support; 0,not support
+	.ihdr_le_firstline = 0,         //1,le first ; 0, se first
+	.sensor_mode_num = 3,           //support sensor mode num ,don't support Slow motion
+
+	.cap_delay_frame = 3,       //enter capture delay frame num
+	.pre_delay_frame = 3,       //enter preview delay frame num
+	.video_delay_frame = 3,     //enter video delay frame num
+	.hs_video_delay_frame = 0,  //enter high speed video  delay frame num
+	.slim_video_delay_frame = 0,//enter slim video delay frame num
+
+	.isp_driving_current = ISP_DRIVING_4MA, //mclk driving current
+	.sensor_interface_type = SENSOR_INTERFACE_TYPE_MIPI,//sensor_interface_type
+	.mipi_sensor_type = MIPI_OPHY_NCSI2, //0,MIPI_OPHY_NCSI2;  1,MIPI_OPHY_CSI2
+	.mipi_settle_delay_mode = 0,//0,MIPI_SETTLEDELAY_AUTO; 1,MIPI_SETTLEDELAY_MANNUAL
+	.sensor_output_dataformat = SENSOR_OUTPUT_FORMAT_RAW_Gb,//sensor output first pixel color
+	.mclk = 24,//mclk value, suggest 24 or 26 for 24Mhz or 26Mhz
+	.mipi_lane_num = SENSOR_MIPI_4_LANE,//mipi lane num
+	.i2c_addr_table = {0x20,0xff},//record sensor support all write id addr, only supprt 4must end with 0xff
+	.i2c_speed = 400, // i2c read/write speed
+	.addr_type = IMGSENSOR_I2C_WORD_ADDR,
+};
+
+
+static imgsensor_t imgsensor = {
+	.mirror = IMAGE_NORMAL,             //mirrorflip information
+	.sensor_mode = IMGSENSOR_MODE_INIT, //IMGSENSOR_MODE enum value,record current sensor mode,such as: INIT, Preview, Capture, Video,High Speed Video, Slim Video
+	.shutter = 0x0200,                  //current shutter
+	.gain =   0x0100,                   //current gain
+	.dummy_pixel = 0,                   //current dummypixel
+	.dummy_line = 0,                    //current dummyline
+	.current_fps = 0,  //full size current fps : 24fps for PIP, 30fps for Normal or ZSD
+	.autoflicker_en = KAL_FALSE,  //auto flicker enable: KAL_FALSE for disable auto flicker, KAL_TRUE for enable auto flicker
+	.test_pattern = KAL_FALSE,      //test pattern mode or not. KAL_FALSE for in test pattern mode, KAL_TRUE for normal output
+	.current_scenario_id = MSDK_SCENARIO_ID_CAMERA_PREVIEW,//current scenario id
+	.ihdr_en = KAL_FALSE, //sensor need support LE, SE with HDR feature
+	.i2c_write_id = 0x20,//record current sensor's i2c write id
+};
+
+
+/* Sensor output window information*/
+static struct SENSOR_WINSIZE_INFO_STRUCT imgsensor_winsize_info[] = {
+	/*preview*/
+	{
+		.full_w = 4208,
+		.full_h = 3120,
+		.x0_offset = 0,
+		.y0_offset = 0,
+		.w0_size = 4208,
+		.h0_size = 3120,
+		.scale_w = 2104,
+		.scale_h = 1560,
+		.x1_offset = 0,
+		.y1_offset = 0,
+		.w1_size = 2104,
+		.h1_size = 1560,
+		.x2_tg_offset = 0,
+		.y2_tg_offset = 0,
+		.w2_tg_size = 2104,
+		.h2_tg_size = 1560,
+	},
+	/*capture*/
+	{
+		.full_w = 4208,
+		.full_h = 3120,
+		.x0_offset = 0,
+		.y0_offset = 0,
+		.w0_size = 4208,
+		.h0_size = 3120,
+		.scale_w = 4208,
+		.scale_h = 3120,
+		.x1_offset = 0,
+		.y1_offset = 0,
+		.w1_size = 4208,
+		.h1_size = 3120,
+		.x2_tg_offset = 0,
+		.y2_tg_offset = 0,
+		.w2_tg_size = 4208,
+		.h2_tg_size = 3120,
+	},
+	/*video*/
+	{
+		.full_w = 4208,
+		.full_h = 3120,
+		.x0_offset = 0,
+		.y0_offset = 0,
+		.w0_size = 4208,
+		.h0_size = 3120,
+		.scale_w = 4208,
+		.scale_h = 3120,
+		.x1_offset = 0,
+		.y1_offset = 0,
+		.w1_size = 4208,
+		.h1_size = 3120,
+		.x2_tg_offset = 0,
+		.y2_tg_offset = 0,
+		.w2_tg_size = 4208,
+		.h2_tg_size = 3120,
+	},
+};
+
+static struct SET_PD_BLOCK_INFO_T imgsensor_pd_info =
+{
+	.i4OffsetX	= 31,
+	.i4OffsetY	= 24,
+	.i4PitchX	= 64,
+	.i4PitchY	= 64,
+	.i4PairNum	= 16,
+	.i4SubBlkW	= 16,
+	.i4SubBlkH	= 16,
+	.i4PosR =	{
+				 {31,24}, {83,24}, {47,28}, {67,28},
+				 {35,44}, {79,44}, {51,48}, {63,48},
+				 {51,56}, {63,56}, {35,60}, {79,60},
+				 {47,76}, {67,76}, {31,80}, {83,80},
+				},
+	.i4PosL =	{
+				 {31,28}, {83,28}, {47,32}, {67,32},
+				 {35,40}, {79,40}, {51,44}, {63,44},
+				 {51,60}, {63,60}, {35,64}, {79,64},
+				 {47,72}, {67,72}, {31,76}, {83,76}
+				},
+	.i4BlockNumX = 65,
+	.i4BlockNumY = 48,
+	.iMirrorFlip = 0, ///* 0:IMAGE_NORMAL,1:IMAGE_H_MIRROR,2:IMAGE_V_MIRROR,3:IMAGE_HV_MIRROR*/
+};
+#endif

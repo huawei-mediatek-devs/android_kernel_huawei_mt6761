@@ -15,7 +15,9 @@
 #include <linux/usb/composite.h>
 #include <linux/usb/cdc.h>
 
-#define MAX_U_SERIAL_PORTS	4
+#define MAX_U_SERIAL_PORTS	8
+#define USB_CDC_SET_COMM_FEATURE 0x02
+#define USB_CDC_SEND_PORT_STATUS 0xa3
 
 struct f_serial_opts {
 	struct usb_function_instance func_inst;

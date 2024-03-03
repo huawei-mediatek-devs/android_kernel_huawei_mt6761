@@ -1,0 +1,8 @@
+#
+# factory cmdline pares
+#
+
+
+config FACTORY_CMDLINE_PARSE
+       bool "cmdline parse"
+       default y
