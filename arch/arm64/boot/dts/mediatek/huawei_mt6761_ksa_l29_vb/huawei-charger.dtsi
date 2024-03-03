@@ -1,0 +1,76 @@
+&i2c5 {
+	eta6937@6A {
+		status = "okay";
+		compatible = "eta,eta6937";
+		reg = <0x6A>;
+
+		/*ti,charging-disabled;*/
+		ti,eta6937,enable-term;
+
+		ti,eta6937,current-sensor-mohm = <56>;
+		ti,eta6937,charge-voltage = <4400>;
+		ti,eta6937,charge-current = <500>;
+		ti,eta6937,input-current-limit = <500>;/*iin-lim, 0 means no limit*/
+		ti,eta6937,input-voltage-limit = <4500>;/*vindpm threshold*/
+		ti,eta6937,vbatlow-volt = <3500>;
+		ti,eta6937,term-current = <185>;
+		ti,eta6937,safety-max-charge-current = <1550>;
+		ti,eta6937,safety-max-charge-voltage = <4400>;
+	};
+};
+
+&charger {
+	ac_charger_current = <1550000>;
+	ac_charger_input_current = <1550000>;
+	non_std_ac_charger_current = <1200000>;
+        power_path_disable;
+	dpm_enable;
+	vdpm_buf_limit = <100>;
+	vdpm_para =
+			"-32767", "4000", "4200", "50",
+			"4000", "4200", "4440", "50",
+			"4200", "32767", "4600", "50";
+};
+
+&huawei_charger {
+	compatible = "huawei,charger";
+	powerdown_yellow_led = "0";
+	status = "okay";
+};
+
+&auxadc {
+	adc_channel@ {
+		mediatek,usb_id_adc = <3>;
+	};
+};
+
+&bat_gm30 {
+	batt_id_volt_by_adc;
+	vbus_r_charger_1 = <300>;
+	rbat_pull_up_r = <16900>;
+	dlpt_optimization;
+};
+
+&lk_charger{
+	ac_charger_current = <1050000>;
+	ac_charger_input_current = <1050000>;
+	non_std_ac_charger_current = <1050000>;
+        power_path_disable;
+	r_charger_1 = <300>;
+	chr_cust_data.led_mode = <1>;
+};
+
+&mt6370_pmu{
+    charger {
+	    status = "disabled";
+    };
+};
+
+&dev_detect {
+	charge = <1>;
+};
+
+&otg_iddig {
+	id_adc_detect_channel3;
+	usb_eye_pattern;
+};

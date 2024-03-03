@@ -1,0 +1,80 @@
+&odm {
+	led0:led@0 {
+		compatible = "mediatek,red";
+		led_mode = <3>;
+		data = <1>;
+		pwm_config = <0 0 0 0 0>;
+	};
+	led1:led@1 {
+		compatible = "mediatek,green";
+		led_mode = <3>;
+		data = <2>;
+		pwm_config = <0 0 0 0 0>;
+	};
+	led2:led@2 {
+		compatible = "mediatek,blue";
+		led_mode = <3>;
+		data = <3>;
+		pwm_config = <0 0 0 0 0>;
+	};
+	led3:led@3 {
+		compatible = "mediatek,jogball-backlight";
+		led_mode = <0>;
+		data = <1>;
+		pwm_config = <0 0 0 0 0>;
+	};
+	led4:led@4 {
+		compatible = "mediatek,keyboard-backlight";
+		led_mode = <0>;
+		data = <1>;
+		pwm_config = <0 0 0 0 0>;
+	};
+	led5:led@5 {
+		compatible = "mediatek,button-backlight";
+		led_mode = <0>;
+		data = <1>;
+		pwm_config = <0 0 0 0 0>;
+	};
+	led6:led@6 {
+		compatible = "mediatek,lcd-backlight";
+		led_mode = <5>;
+		data = <1>;
+		pwm_config = <0 0 0 0 0>;
+	};
+	vibrator0:vibrator@0 {
+		compatible = "mediatek,vibrator";
+		vib_timer = <25>;
+		vib_limit = <9>;
+		vib_vol= <11>;
+	};
+};
+
+
+&led_contrl {
+	pinctrl-names = "red_en_default", "red_en_low", "red_en_high";
+	pinctrl-0 = <&gpio_red_en_default>;
+	pinctrl-1 = <&gpio_red_en_low>;
+	pinctrl-2 = <&gpio_red_en_high>;
+	status = "okay";
+};
+
+&pio {
+	/* IRTX GPIO Settings -Start */
+	/* default: GPIO0, output, high */
+	gpio_red_en_default: r_en_default {
+	};
+	gpio_red_en_low: r_en_low@0{
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO159__FUNC_GPIO159>;
+			slew-rate = <1>;
+			output-low;
+		};
+	};
+	gpio_red_en_high: r_en_high@1 {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO159__FUNC_GPIO159>;
+			slew-rate = <1>;
+			output-high;
+		};
+	};
+};

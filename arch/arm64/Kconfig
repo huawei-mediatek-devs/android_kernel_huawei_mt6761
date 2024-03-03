@@ -111,6 +111,7 @@ config ARM64
 	select SPARSE_IRQ
 	select SYSCTL_EXCEPTION_TRACE
 	select THREAD_INFO_IN_TASK
+	select HAVE_LIVEPATCH
 	help
 	  ARM 64-bit (AArch64) Linux support.
 
@@ -243,6 +244,8 @@ config PGTABLE_LEVELS
 source "init/Kconfig"
 
 source "kernel/Kconfig.freezer"
+
+source "kernel/livepatch/Kconfig"
 
 source "arch/arm64/Kconfig.platforms"
 
@@ -429,17 +432,14 @@ config ARM64_ERRATUM_843419
 
 	  If unsure, say Y.
 
-config ARM64_ERRATUM_1024718
-	bool "Cortex-A55: 1024718: Update of DBM/AP bits without break before make might result in incorrect update"
+config ARM64_ERRATUM_855873
+	bool "Cortex-A53: 855873: An eviction might overtake a cache clean operation"
 	default y
 	help
-	  This option adds work around for Arm Cortex-A55 Erratum 1024718.
-
-	  Affected Cortex-A55 cores (r0p0, r0p1, r1p0) could cause incorrect
-	  update of the hardware dirty bit when the DBM/AP bits are updated
-	  without a break-before-make. The work around is to disable the usage
-	  of hardware DBM locally on the affected cores. CPUs not affected by
-	  erratum will continue to use the feature.
+	  This option adds an alternative code sequence to work around ARM
+	  erratum 855873 on Cortex-A53 parts up to r0p4.
+	  Because of this erratum, the processor might issue an eviction and
+	  an L2 cache clean operation to the interconnect in the wrong order.
 
 	  If unsure, say Y.
 
@@ -751,7 +751,7 @@ config FORCE_MAX_ZONEORDER
 
 config UNMAP_KERNEL_AT_EL0
 	bool "Unmap kernel when running in userspace (aka \"KAISER\")" if EXPERT
-	default y
+	default n
 	help
 	  Speculation attacks against some high-performance processors can
 	  be used to bypass MMU permission checks and leak kernel data to
@@ -909,7 +909,7 @@ config ARM64_LSE_ATOMICS
 
 config ARM64_VHE
 	bool "Enable support for Virtualization Host Extensions (VHE)"
-	default y
+	default n
 	help
 	  Virtualization Host Extensions (VHE) allow the kernel to run
 	  directly at EL2 (instead of EL1) on processors that support
@@ -1067,6 +1067,12 @@ config EFI
 	  allow the kernel to be booted as an EFI application. This
 	  is only useful on systems that have UEFI firmware.
 
+config FINAL_RELEASE
+	bool "enables final_release macro"
+	default n
+	help
+	  This enables final_release macro
+
 config DMI
 	bool "Enable support for SMBIOS (DMI) tables"
 	depends on EFI
@@ -1085,6 +1091,15 @@ config BUILD_ARM64_APPENDED_DTB_IMAGE
 	  Enabling this option will cause a concatenated Image.gz and list of
 	  DTBs to be built by default (instead of a standalone Image.gz.)
 	  The image will built in arch/arm64/boot/Image.gz-dtb
+
+config BUILD_ARM64_DTB_OVERLAY_IMAGE
+	bool "Build a device tree overlay image"
+	depends on OF
+	help
+	  Enabling this option will casue overlay device tree
+	  to be built by default.
+	  Overlay DT contains device-specific configurations.
+	  Please be aware that bootloader supports DT merging.
 
 choice
 	prompt "Appended DTB Kernel Image name"
@@ -1113,6 +1128,12 @@ config BUILD_ARM64_APPENDED_DTB_IMAGE_NAMES
 	  Space separated list of names of dtbs to append when
 	  building a concatenated Image.gz-dtb.
 
+config BUILD_ARM64_DTB_OVERLAY_IMAGE_NAMES
+	string "Default dtb overlay names"
+	depends on BUILD_ARM64_DTB_OVERLAY_IMAGE
+	help
+	  Space separated list of names of dtbs to append when
+	  building a concatenated overlay image
 endmenu
 
 menu "Userspace binary formats"
@@ -1189,5 +1210,18 @@ source "crypto/Kconfig"
 if CRYPTO
 source "arch/arm64/crypto/Kconfig"
 endif
+
+config HUAWEI_KERNEL
+        bool "Use huawei code"
+        default n
+        help
+          use huawei code
+
+config HUAWEI_KERNEL_DEBUG
+        bool "Use Huawei kernel debug mode"
+        depends on HUAWEI_KERNEL
+        default n
+        help
+          Enable sysrq, dump mode and some debug masks by default.
 
 source "lib/Kconfig"

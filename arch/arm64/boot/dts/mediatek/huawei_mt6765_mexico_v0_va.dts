@@ -1,0 +1,15 @@
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/pinctrl/mt6765-pinfunc.h>
+#include <dt-bindings/clock/mt6765-clk.h>
+/dts-v1/;
+/plugin/;
+
+#include "huawei_common/huawei_common.dtsi"
+#include "huawei_mt6765_mexico_v0_va/huawei.dtsi"
+#include "huawei_audio/huawei_mt6735_accdet.dtsi"
+#include "huawei_audio/huawei_mt676x_audio_gpio.dtsi"
+
+#include <k62v1_64_mexico/cust.dtsi>
+/*End of this file, DO NOT ADD ANYTHING HERE*/
+

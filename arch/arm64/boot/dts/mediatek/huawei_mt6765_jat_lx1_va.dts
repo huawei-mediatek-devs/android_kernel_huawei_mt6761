@@ -1,0 +1,43 @@
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/pinctrl/mt6765-pinfunc.h>
+#include <dt-bindings/clock/mt6765-clk.h>
+/dts-v1/;
+/plugin/;
+
+#include "huawei_common/huawei_common.dtsi"
+#include "huawei_mt6765_jat_lx1_va/huawei.dtsi"
+#include "huawei_audio/huawei_mt6735_accdet.dtsi"
+#include "huawei_audio/huawei_mt676x_audio_gpio.dtsi"
+
+&rootparam {
+    mtk,boardid = <4 0 0 5>;
+    mtk,board_name = "JAT_LX1_VA";
+    mtk,product_name = "JAT-LX1";
+};
+&i2c6{
+  tas2557@4c {
+       #sound-dai-cells = <1>;
+        compatible = "ti,tas2557";
+        reg = <0x4c>;
+        ti,cdc-reset-gpio = <&pio 173 0>;
+        ti,irq-gpio = <&pio 7 0>;
+        ti,i2s-bits = <32>;   /* support 16, 24, 32 */
+        ti,bypass-tmax = <1>;   /* 0, not bypass; 1, bypass */
+        status = "okay";
+ };
+};
+
+&dev_detect{
+    nfc = <1>;
+};
+
+
+&antenna_boardid_detect {
+    expect_value = <2001>;
+};
+
+#include <k62v1_64_mexico/cust.dtsi>
+#include "huawei_mt6765_jat_lx1_va/huawei-camera.dtsi"
+/*End of this file, DO NOT ADD ANYTHING HERE*/
+

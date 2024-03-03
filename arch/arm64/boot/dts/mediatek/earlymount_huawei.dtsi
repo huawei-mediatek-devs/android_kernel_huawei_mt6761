@@ -1,0 +1,42 @@
+/{
+	firmware {
+		huawei {
+			compatible = "huawei,firmware";
+			fstab {
+				compatible = "huawei,fstab";
+
+				product {
+					compatible = "huawei,product";
+					dev = "/dev/block/platform/bootdevice/by-name/product";
+					type = "erofs";
+					mnt_flags = "ro";
+					fsmgr_flags = "wait,avb";
+				};
+
+				cust {
+					compatible = "huawei,cust";
+					dev = "/dev/block/platform/bootdevice/by-name/cust";
+					type = "erofs";
+					mnt_flags = "ro";
+					fsmgr_flags = "wait,avb";
+				};
+
+
+				version {
+					compatible = "huawei,version";
+					dev = "/dev/block/platform/bootdevice/by-name/version";
+					type = "erofs";
+					mnt_flags = "ro";
+					fsmgr_flags = "wait,avb";
+				};
+				preload {
+					compatible = "huawei,preload";
+					dev = "/dev/block/platform/bootdevice/by-name/preload";
+					type = "erofs";
+					mnt_flags = "ro";
+					fsmgr_flags = "wait,avb";
+				};
+			};
+		};
+	};
+};

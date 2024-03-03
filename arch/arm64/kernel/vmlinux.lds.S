@@ -60,6 +60,7 @@ jiffies = jiffies_64;
 #define TRAMP_TEXT					\
 	. = ALIGN(PAGE_SIZE);				\
 	VMLINUX_SYMBOL(__entry_tramp_text_start) = .;	\
+	*(.entry.tramp.text)				\
 	KEEP(*(.entry.tramp.text))			\
 	. = ALIGN(PAGE_SIZE);				\
 	VMLINUX_SYMBOL(__entry_tramp_text_end) = .;
@@ -145,6 +146,14 @@ SECTIONS
 		. = ALIGN(16);
 		*(.got)			/* Global offset table		*/
 	}
+
+	. = ALIGN(32);
+	__start_hwlog_tag = .;
+	__start_hwlog_tag : {
+		*(__hwlog_tag)
+	}
+	. = ALIGN(SEGMENT_ALIGN);
+	__stop_hwlog_tag = .;
 
 	. = ALIGN(SEGMENT_ALIGN);
 	_etext = .;			/* End of text section */
