@@ -327,7 +327,7 @@ u32 __spm_get_wake_period(int pwake_time, unsigned int last_wr)
     if(mtk_disable_rtc)
         period= 24 * 3600;
 
-	return period;
+    return period;
 }
 
 
