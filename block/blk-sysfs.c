@@ -10,6 +10,7 @@
 #include <linux/blktrace_api.h>
 #include <linux/blk-mq.h>
 #include <linux/blk-cgroup.h>
+#include <linux/wbt.h>
 
 #include "blk.h"
 #include "blk-mq.h"
@@ -23,7 +24,9 @@ struct queue_sysfs_entry {
 static ssize_t
 queue_var_show(unsigned long var, char *page)
 {
+	/*lint -save -e421*/
 	return sprintf(page, "%lu\n", var);
+	/*lint -restore*/
 }
 
 static ssize_t
@@ -40,6 +43,21 @@ queue_var_store(unsigned long *var, const char *page, size_t count)
 
 	return count;
 }
+
+#ifdef CONFIG_WBT
+static ssize_t queue_var_store64(u64 *var, const char *page)
+{
+	int err;
+	u64 v;
+
+	err = kstrtou64(page, 10, &v);
+	if (err < 0)
+		return err;
+
+	*var = v;
+	return 0;
+}
+#endif
 
 static ssize_t queue_requests_show(struct request_queue *q, char *page)
 {
@@ -75,7 +93,7 @@ queue_requests_store(struct request_queue *q, const char *page, size_t count)
 
 static ssize_t queue_ra_show(struct request_queue *q, char *page)
 {
-	unsigned long ra_kb = q->backing_dev_info.ra_pages <<
+	unsigned long ra_kb = q->backing_dev_info->ra_pages <<
 					(PAGE_SHIFT - 10);
 
 	return queue_var_show(ra_kb, (page));
@@ -90,7 +108,7 @@ queue_ra_store(struct request_queue *q, const char *page, size_t count)
 	if (ret < 0)
 		return ret;
 
-	q->backing_dev_info.ra_pages = ra_kb >> (PAGE_SHIFT - 10);
+	q->backing_dev_info->ra_pages = ra_kb >> (PAGE_SHIFT - 10);
 
 	return ret;
 }
@@ -148,14 +166,18 @@ static ssize_t queue_discard_granularity_show(struct request_queue *q, char *pag
 static ssize_t queue_discard_max_hw_show(struct request_queue *q, char *page)
 {
 
+	/*lint -save -e421*/
 	return sprintf(page, "%llu\n",
 		(unsigned long long)q->limits.max_hw_discard_sectors << 9);
+	/*lint -restore*/
 }
 
 static ssize_t queue_discard_max_show(struct request_queue *q, char *page)
 {
+	/*lint -save -e421*/
 	return sprintf(page, "%llu\n",
 		       (unsigned long long)q->limits.max_discard_sectors << 9);
+	/*lint -restore*/
 }
 
 static ssize_t queue_discard_max_store(struct request_queue *q,
@@ -188,8 +210,10 @@ static ssize_t queue_discard_zeroes_data_show(struct request_queue *q, char *pag
 
 static ssize_t queue_write_same_max_show(struct request_queue *q, char *page)
 {
+	/*lint -save -e421*/
 	return sprintf(page, "%llu\n",
 		(unsigned long long)q->limits.max_write_same_sectors << 9);
+	/*lint -restore*/
 }
 
 
@@ -349,10 +373,12 @@ static ssize_t queue_poll_store(struct request_queue *q, const char *page,
 
 static ssize_t queue_wc_show(struct request_queue *q, char *page)
 {
+	/*lint -save -e421*/
 	if (test_bit(QUEUE_FLAG_WC, &q->queue_flags))
 		return sprintf(page, "write back\n");
 
 	return sprintf(page, "write through\n");
+	/*lint -restore*/
 }
 
 static ssize_t queue_wc_store(struct request_queue *q, const char *page,
@@ -360,11 +386,13 @@ static ssize_t queue_wc_store(struct request_queue *q, const char *page,
 {
 	int set = -1;
 
+	/*lint -save -e421*/
 	if (!strncmp(page, "write back", 10))
 		set = 1;
 	else if (!strncmp(page, "write through", 13) ||
 		 !strncmp(page, "none", 4))
 		set = 0;
+	/*lint -restore*/
 
 	if (set == -1)
 		return -EINVAL;
@@ -382,6 +410,158 @@ static ssize_t queue_wc_store(struct request_queue *q, const char *page,
 static ssize_t queue_dax_show(struct request_queue *q, char *page)
 {
 	return queue_var_show(blk_queue_dax(q), page);
+}
+
+#ifdef CONFIG_WBT
+static ssize_t queue_wb_win_show(struct request_queue *q, char *page)
+{
+	if (!q->rq_wb)
+		return -EINVAL;
+	/*lint -save -e421*/
+	return sprintf(page, "%llu\n", div_u64(q->rq_wb->win_nsec, 1000));
+	/*lint -restore*/
+}
+
+static ssize_t queue_wb_win_store(struct request_queue *q, const char *page,
+				  size_t count)
+{
+	ssize_t ret;
+	u64 val;
+
+	if (!q->rq_wb)
+		return -EINVAL;
+
+	ret = queue_var_store64(&val, page);
+	if (ret < 0)
+		return ret;
+
+	q->rq_wb->win_nsec = val * 1000ULL;
+	wbt_update_limits(q->rq_wb);
+	return (ssize_t)count;
+}
+
+static ssize_t queue_wb_lat_show(struct request_queue *q, char *page)
+{
+	if (!q->rq_wb)
+		return -EINVAL;
+	/*lint -save -e421*/
+	return sprintf(page, "%llu\n", div_u64(q->rq_wb->min_lat_nsec, 1000));
+	/*lint -restore*/
+}
+
+static ssize_t queue_wb_lat_store(struct request_queue *q, const char *page,
+				  size_t count)
+{
+	ssize_t ret;
+	u64 val;
+
+	if (!q->rq_wb)
+		return -EINVAL;
+
+	ret = queue_var_store64(&val, page);
+	if (ret < 0)
+		return ret;
+
+	q->rq_wb->min_lat_nsec = val * 1000ULL;
+	wbt_update_limits(q->rq_wb);
+	return (ssize_t)count;
+}
+
+static ssize_t print_stat(char *page, struct blk_rq_stat *stat, const char *pre)
+{
+	/*lint -save -e421*/
+	return sprintf(page, "%s samples=%llu, mean=%lld, min=%lld, max=%lld\n",
+			pre, (long long) stat->nr_samples,
+			(long long) stat->mean, (long long) stat->min,
+			(long long) stat->max);
+	/*lint -restore*/
+}
+
+static ssize_t queue_stats_show(struct request_queue *q, char *page)
+{
+	struct blk_rq_stat stat[4];
+	ssize_t ret;
+
+	blk_queue_stat_get(q, stat);
+
+	ret = print_stat(page, &stat[0], "read :");
+	ret += print_stat(page + ret, &stat[1], "write:");
+	ret += print_stat(page + ret, &stat[2], "fg-read:");
+	ret += print_stat(page + ret, &stat[3], "fg-write:");
+	return ret;
+}
+
+static ssize_t queue_wb_ok_cnt_show(struct request_queue *q, char *page)
+{
+	if (!q->rq_wb)
+		return -EINVAL;
+	/*lint -save -e421*/
+	return sprintf(page, "%lu\n", q->rq_wb->ok_cnt_set);
+	/*lint -save -e421*/
+}
+
+static ssize_t queue_wb_ok_cnt_store(struct request_queue *q, const char *page,
+				     size_t count)
+{
+	ssize_t ret;
+	unsigned long val;
+
+	if (!q->rq_wb)
+		return -EINVAL;
+
+	ret = queue_var_store(&val, page, count);
+	if (ret < 0)
+		return ret;
+
+	if (val > 20)
+		return -EINVAL;
+
+	q->rq_wb->ok_cnt_set = val;
+	return (ssize_t)count;
+}
+
+static ssize_t queue_wb_mode_show(struct request_queue *q, char *page)
+{
+	if (!q->rq_wb)
+		return -EINVAL;
+
+	return sprintf(page, "%s\n", q->rq_wb->mode ? "blk" : "fs");
+}
+
+static ssize_t queue_wb_mode_store(struct request_queue *q, const char *page,
+				     size_t count)
+{
+	char buf[8];
+	int ret = 0;
+
+	if (!q->rq_wb)
+		return -EINVAL;
+
+	if (sscanf(page, "%7s", buf) != 1)
+		return -EINVAL;
+
+	if (strnlen(buf, (size_t)7) == 2 &&
+	    !strncmp(buf, "fs", (size_t)2))
+		q->rq_wb->mode = WBT_FS;
+	else if (strnlen(buf, (size_t)7) == 3 &&
+	    !strncmp(buf, "blk", (size_t)3))
+		q->rq_wb->mode = WBT_BLK;
+	else
+		ret = -EINVAL;
+
+	if (!ret)
+		wake_up_all(&q->rq_wb->wait);
+	return (ret < 0) ? ret : (ssize_t)count;
+}
+#endif
+
+static ssize_t queue_avg_perf_show(struct request_queue *q, char *page)
+{
+	/*lint -save -e421*/
+	return sprintf(page, "%llu %llu\n",
+		       (unsigned long long)q->disk_bw * 512,
+		       (unsigned long long)q->disk_iops);
+	/*lint -restore*/
 }
 
 static struct queue_sysfs_entry queue_requests_entry = {
@@ -526,6 +706,47 @@ static struct queue_sysfs_entry queue_dax_entry = {
 	.show = queue_dax_show,
 };
 
+/*lint -save -e785*/
+static struct queue_sysfs_entry queue_avg_perf_entry = {
+	.attr = {.name = "average_perf", .mode = S_IRUGO },
+	.show = queue_avg_perf_show,
+};
+/*lint restore*/
+
+#ifdef CONFIG_WBT
+
+/*lint -save -e785*/
+static struct queue_sysfs_entry queue_stats_entry = {
+	.attr = {.name = "stats", .mode = S_IRUGO },
+	.show = queue_stats_show,
+};
+/*lint -restore*/
+
+static struct queue_sysfs_entry queue_wb_lat_entry = {
+	.attr = {.name = "wb_lat_usec", .mode = S_IRUGO | S_IWUSR },
+	.show = queue_wb_lat_show,
+	.store = queue_wb_lat_store,
+};
+
+static struct queue_sysfs_entry queue_wb_win_entry = {
+	.attr = {.name = "wb_win_usec", .mode = S_IRUGO | S_IWUSR },
+	.show = queue_wb_win_show,
+	.store = queue_wb_win_store,
+};
+
+static struct queue_sysfs_entry queue_wb_ok_cnt_entry = {
+	.attr = {.name = "wb_ok_cnt", .mode = S_IRUGO | S_IWUSR },
+	.show = queue_wb_ok_cnt_show,
+	.store = queue_wb_ok_cnt_store,
+};
+
+static struct queue_sysfs_entry queue_wb_mode_entry = {
+	.attr = {.name = "wb_mode", .mode = S_IRUGO | S_IWUSR },
+	.show = queue_wb_mode_show,
+	.store = queue_wb_mode_store,
+};
+#endif
+
 static struct attribute *default_attrs[] = {
 	&queue_requests_entry.attr,
 	&queue_ra_entry.attr,
@@ -553,6 +774,14 @@ static struct attribute *default_attrs[] = {
 	&queue_poll_entry.attr,
 	&queue_wc_entry.attr,
 	&queue_dax_entry.attr,
+#ifdef CONFIG_WBT
+	&queue_stats_entry.attr,
+	&queue_wb_lat_entry.attr,
+	&queue_wb_win_entry.attr,
+	&queue_wb_ok_cnt_entry.attr,
+	&queue_wb_mode_entry.attr,
+#endif
+	&queue_avg_perf_entry.attr,
 	NULL,
 };
 
@@ -627,7 +856,7 @@ static void blk_release_queue(struct kobject *kobj)
 	struct request_queue *q =
 		container_of(kobj, struct request_queue, kobj);
 
-	bdi_exit(&q->backing_dev_info);
+	bdi_put(q->backing_dev_info);
 	blkcg_exit_queue(q);
 
 	if (q->elevator) {
@@ -667,6 +896,44 @@ struct kobj_type blk_queue_ktype = {
 	.release	= blk_release_queue,
 };
 
+#ifdef CONFIG_WBT
+static void blk_wb_stat_get(void *data, struct blk_rq_stat *stat)
+{
+	blk_queue_stat_get(data, stat);
+}
+
+static void blk_wb_stat_clear(void *data)
+{
+	blk_stat_clear(data);
+}
+
+static struct wb_stat_ops wb_stat_ops = {
+	.get	= blk_wb_stat_get,
+	.clear	= blk_wb_stat_clear,
+};
+
+static void blk_wb_init(struct request_queue *q)
+{
+	struct rq_wb *rwb;
+
+	rwb = wbt_init(q->backing_dev_info, &wb_stat_ops, q);
+
+	/*
+	 * If this fails, we don't get throttling
+	 */
+	if (IS_ERR(rwb))
+		return;
+
+	rwb->min_lat_nsec = 0ULL;
+	rwb->ok_cnt_set = 5;
+	wbt_set_queue_depth(rwb, blk_queue_depth(q));
+	/*lint -save -e747*/
+	wbt_set_write_cache(rwb, test_bit(QUEUE_FLAG_WC, &q->queue_flags));
+	/*lint -restore*/
+	q->rq_wb = rwb;
+}
+#endif
+
 int blk_register_queue(struct gendisk *disk)
 {
 	int ret;
@@ -705,6 +972,10 @@ int blk_register_queue(struct gendisk *disk)
 
 	if (q->mq_ops)
 		blk_mq_register_dev(dev, q);
+
+#ifdef CONFIG_WBT
+	blk_wb_init(q);
+#endif
 
 	if (!q->request_fn)
 		return 0;
