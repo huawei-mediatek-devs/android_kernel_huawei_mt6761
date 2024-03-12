@@ -158,14 +158,14 @@ static s32 mm_set_mux_clk(struct mm_freq_config *config, u32 step)
 	step_config = config->step_config[step];
 	if (step_config.clk_mux == NULL ||
 		step_config.clk_source == NULL) {
-		pr_notice("CCF handle can't be NULL during MMDVFS\n");
+		pr_debug("CCF handle can't be NULL during MMDVFS\n");
 		return -EINVAL;
 	}
 
 	ret = clk_prepare_enable(step_config.clk_mux);
 
 	if (ret) {
-		pr_notice("prepare clk(%d): %s-%u\n",
+		pr_debug("prepare clk(%d): %s-%u\n",
 			ret, config->prop_name, step);
 		return -EFAULT;
 	}
@@ -174,13 +174,13 @@ static s32 mm_set_mux_clk(struct mm_freq_config *config, u32 step)
 		step_config.clk_mux, step_config.clk_source);
 
 	if (ret)
-		pr_notice(
+		pr_debug(
 			"set parent(%d): %s-%u\n",
 			ret, config->prop_name, step);
 
 	clk_disable_unprepare(step_config.clk_mux);
 	if (ret)
-		pr_notice(
+		pr_debug(
 			"unprepare clk(%d): %s-%u\n",
 			ret, config->prop_name, step);
 	return ret;
@@ -199,7 +199,7 @@ static s32 mm_set_freq_hopping_clk(struct mm_freq_config *config, u32 step)
 #endif
 
 	if (ret)
-		pr_notice("hopping rate(%d):(%u)-0x%08x, %s-%u\n",
+		pr_debug("hopping rate(%d):(%u)-0x%08x, %s-%u\n",
 			ret, step_config.pll_id, step_config.pll_value,
 			config->prop_name, step);
 	return ret;
@@ -225,7 +225,7 @@ static s32 mm_apply_clk(struct mm_freq_config *config, u32 step, s32 old_step)
 	u32 i;
 
 	if (step >= MAX_FREQ_STEP) {
-		pr_notice(
+		pr_debug(
 			"Invalid clk apply step %d in %s\n",
 			step, config->prop_name);
 		return -EINVAL;
@@ -233,7 +233,7 @@ static s32 mm_apply_clk(struct mm_freq_config *config, u32 step, s32 old_step)
 
 	step_config = config->step_config[step];
 	if (step_config.clk_type == CLK_TYPE_NONE) {
-		pr_notice("No need to change clk of %s\n", config->prop_name);
+		pr_debug("No need to change clk of %s\n", config->prop_name);
 		return 0;
 	}
 
@@ -246,7 +246,7 @@ static s32 mm_apply_clk(struct mm_freq_config *config, u32 step, s32 old_step)
 			MMPROFILE_FLAG_PULSE, step, freq);
 #endif
 		if (log_level & 1 << mmdvfs_log_freq_change)
-			pr_notice(
+			pr_debug(
 				"mmdvfs freq change: step (%u), freq: %llu MHz",
 				step, freq);
 	}
@@ -277,12 +277,12 @@ static void update_step(void)
 	s32 old_max_step;
 
 	if (!mmdvfs_enable) {
-		pr_notice("mmdvfs qos is disabled\n");
+		pr_debug("mmdvfs qos is disabled\n");
 		return;
 	}
 
 	if (!step_size) {
-		pr_notice("no step available skip\n");
+		pr_debug("no step available skip\n");
 		return;
 	}
 
@@ -338,7 +338,7 @@ void mmdvfs_set_camera_on(bool is_camera_on)
 		pm_qos_update_request(&ddr_request,
 			PM_QOS_DDR_OPP_DEFAULT_VALUE);
 #endif
-	pr_notice("set is_camera_on=%d\n", is_camera_on);
+	pr_debug("set is_camera_on=%d\n", is_camera_on);
 }
 EXPORT_SYMBOL_GPL(mmdvfs_set_camera_on);
 
@@ -350,7 +350,7 @@ static int mm_freq_notify(struct notifier_block *nb,
 
 	mm_freq = container_of(nb, struct mm_freq_config, nb);
 	if (!step_size) {
-		pr_notice(
+		pr_debug(
 			"no step available in %s, skip\n", mm_freq->prop_name);
 		return NOTIFY_OK;
 	}
@@ -407,7 +407,7 @@ static void get_module_clock_by_index(struct device *dev,
 	result = of_property_read_string_index(dev->of_node, "clock-names",
 		index, &clk_name);
 	if (unlikely(result)) {
-		pr_notice("Cannot get module name of index (%u), result (%d)\n",
+		pr_debug("Cannot get module name of index (%u), result (%d)\n",
 			index, result);
 		return;
 	}
@@ -415,10 +415,10 @@ static void get_module_clock_by_index(struct device *dev,
 	*clk_module = devm_clk_get(dev, clk_name);
 	if (IS_ERR(*clk_module)) {
 		/* error status print */
-		pr_notice("Cannot get module clock: %s\n", clk_name);
+		pr_debug("Cannot get module clock: %s\n", clk_name);
 	} else {
 		/* message print */
-		pr_notice("Get module clock: %s\n", clk_name);
+		pr_debug("Get module clock: %s\n", clk_name);
 	}
 }
 
@@ -451,9 +451,9 @@ static void mmdvfs_get_step_node(struct device *dev,
 				step[mm_dp_pll_value];
 		}
 	} else {
-		pr_notice("read freq steps %s failed (%d)\n", name, result);
+		pr_debug("read freq steps %s failed (%d)\n", name, result);
 	}
-	pr_notice("%s: %lluMHz, clk:%u/%u/%u\n",
+	pr_debug("%s: %lluMHz, clk:%u/%u/%u\n",
 		name, mm_freq->freq_steps[index],
 		mm_freq->step_config[index].clk_type,
 		step[mm_dp_clk_param1], step[mm_dp_clk_param2]);
@@ -492,7 +492,7 @@ static int mmdvfs_probe(struct platform_device *pdev)
 	step_size = 0;
 	of_property_for_each_u32(node, vcore_node_name, prop, p, vopp) {
 		if (step_size >= MAX_FREQ_STEP) {
-			pr_notice(
+			pr_debug(
 				"vcore_steps is over the MAX_STEP (%d)\n",
 				MAX_FREQ_STEP);
 			break;
@@ -500,7 +500,7 @@ static int mmdvfs_probe(struct platform_device *pdev)
 		vopp_steps[step_size] = vopp;
 		step_size++;
 	}
-	pr_notice("vcore_steps: [%u, %u, %u, %u, %u, %u], count:%u\n",
+	pr_debug("vcore_steps: [%u, %u, %u, %u, %u, %u], count:%u\n",
 		vopp_steps[0], vopp_steps[1], vopp_steps[2],
 		vopp_steps[3], vopp_steps[4], vopp_steps[5], step_size);
 
@@ -510,7 +510,7 @@ static int mmdvfs_probe(struct platform_device *pdev)
 		of_property_for_each_string(
 			node, mm_freq->prop_name, prop, name) {
 			if (count >= MAX_FREQ_STEP) {
-				pr_notice("freq setting %s is over the MAX_STEP (%d)\n",
+				pr_debug("freq setting %s is over the MAX_STEP (%d)\n",
 					mm_freq->prop_name, MAX_FREQ_STEP);
 				break;
 			}
@@ -524,9 +524,9 @@ static int mmdvfs_probe(struct platform_device *pdev)
 			count++;
 		}
 		if (count != step_size)
-			pr_notice("freq setting %s is not same as vcore_steps (%d)\n",
+			pr_debug("freq setting %s is not same as vcore_steps (%d)\n",
 				mm_freq->prop_name, step_size);
-		pr_notice("%s: step size:%u\n", mm_freq->prop_name, step_size);
+		pr_debug("%s: step size:%u\n", mm_freq->prop_name, step_size);
 		pm_qos_add_notifier(mm_freq->pm_qos_class, &mm_freq->nb);
 	}
 
@@ -570,12 +570,12 @@ static int __init mmdvfs_pmqos_init(void)
 
 	status = platform_driver_register(&mmdvfs_pmqos_driver);
 	if (status != 0) {
-		pr_notice(
+		pr_debug(
 			"Failed to register MMDVFS-PMQOS driver(%d)\n", status);
 		return -ENODEV;
 	}
 
-	pr_notice("%s\n", __func__);
+	pr_debug("%s\n", __func__);
 	return 0;
 }
 
@@ -588,11 +588,11 @@ static int __init mmdvfs_pmqos_late_init(void)
 {
 #ifdef MMDVFS_FORCE_STEP0
 	mmdvfs_qos_force_step(0);
-	pr_notice("force set step0 when late_init\n");
+	pr_debug("force set step0 when late_init\n");
 #else
 	mmdvfs_qos_force_step(0);
 	mmdvfs_qos_force_step(-1);
-	pr_notice("force flip step0 when late_init\n");
+	pr_debug("force flip step0 when late_init\n");
 #endif
 	return 0;
 }
@@ -651,7 +651,7 @@ MODULE_PARM_DESC(dump_setting, "dump mmdvfs current setting");
 int mmdvfs_qos_force_step(int step)
 {
 	if (step >= (s32)step_size || step < STEP_UNREQUEST) {
-		pr_notice("force set step invalid: %d\n", step);
+		pr_debug("force set step invalid: %d\n", step);
 		return -EINVAL;
 	}
 	force_step = step;
@@ -667,7 +667,7 @@ int set_force_step(const char *val, const struct kernel_param *kp)
 
 	result = kstrtoint(val, 0, &new_force_step);
 	if (result) {
-		pr_notice("force set step failed: %d\n", result);
+		pr_debug("force set step failed: %d\n", result);
 		return result;
 	}
 	return mmdvfs_qos_force_step(new_force_step);
@@ -683,7 +683,7 @@ MODULE_PARM_DESC(force_step, "force mmdvfs to specified step, -1 for unset");
 void mmdvfs_qos_enable(bool enable)
 {
 	mmdvfs_enable = enable;
-	pr_notice("mmdvfs enabled? %d\n", enable);
+	pr_debug("mmdvfs enabled? %d\n", enable);
 }
 EXPORT_SYMBOL_GPL(mmdvfs_qos_enable);
 
@@ -694,7 +694,7 @@ int set_enable(const char *val, const struct kernel_param *kp)
 
 	result = kstrtobool(val, &enable);
 	if (result) {
-		pr_notice("force set enable: %d\n", result);
+		pr_debug("force set enable: %d\n", result);
 		return result;
 	}
 	mmdvfs_qos_enable(enable);
@@ -722,7 +722,7 @@ int set_vote_freq(const char *val, const struct kernel_param *kp)
 
 	result = kstrtoint(val, 0, &new_vote_freq);
 	if (result) {
-		pr_notice("force set step failed: %d\n", result);
+		pr_debug("force set step failed: %d\n", result);
 		return result;
 	}
 
