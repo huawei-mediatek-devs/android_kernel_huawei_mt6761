@@ -36,7 +36,6 @@
 #include <linux/module.h>	/* For MODULE_ marcros  */
 #include <linux/wait.h>		/* For wait queue*/
 #include <linux/sched.h>	/* For wait queue*/
-#include <linux/kthread.h>	/* For Kthread_run */
 #include <linux/platform_device.h>	/* platform device */
 #include <linux/time.h>
 
@@ -2249,21 +2248,6 @@ void fg_drv_update_hw_status(void)
 
 }
 
-
-int battery_update_routine(void *x)
-{
-	battery_update_psd(&battery_main);
-
-	while (1) {
-		wait_event(gm.wait_que, (gm.fg_update_flag > 0));
-		gm.fg_update_flag = 0;
-
-		fg_drv_update_hw_status();
-		if (g_fix_coverity_bat_core == EXITLOOP)
-			return -1;
-	}
-}
-
 void fg_update_routine_wakeup(void)
 {
 	gm.fg_update_flag = 1;
@@ -3974,7 +3958,6 @@ void mtk_battery_init(struct platform_device *dev)
 	gauge_coulomb_consumer_init(&gm.soc_minus, &dev->dev, "soc-1%");
 	gm.soc_minus.callback = fg_bat_int2_l_handler;
 
-	kthread_run(battery_update_routine, NULL, "battery_thread");
 	fg_drv_thread_hrtimer_init();
 
 	gtimer_init(&gm.tracking_timer, &dev->dev, "tracking_timer");
