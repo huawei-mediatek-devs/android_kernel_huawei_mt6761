@@ -37,7 +37,7 @@
 
 	/* chosen */
 	chosen: chosen {
-	bootargs = "vmalloc=496M slub_max_order=0 slub_debug=OFZPU \
+	bootargs = "vmalloc=496M slub_max_order=0 \
 page_owner=on androidboot.hardware=mt6761 \
 maxcpus=8 firmware_class.path=/vendor/firmware";
 		kaslr-seed = <0 0>;
