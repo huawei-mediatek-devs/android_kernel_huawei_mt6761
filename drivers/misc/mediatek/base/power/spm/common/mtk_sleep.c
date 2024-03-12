@@ -53,7 +53,7 @@ static int slp_suspend_ops_valid(suspend_state_t state)
 static int slp_suspend_ops_begin(suspend_state_t state)
 {
 	/* legacy log */
-	pr_info("[SLP] @@@@@@@@@@@@@@@@\tChip_pm_begin(%u)(%u)\t@@@@@@@@@@@@@@@@\n",
+	pr_debug("[SLP] @@@@@@@@@@@@@@@@\tChip_pm_begin(%u)(%u)\t@@@@@@@@@@@@@@@@\n",
 			spm_get_is_cpu_pdn(), spm_get_is_infra_pdn());
 
 	slp_wake_reason = WR_NONE;
@@ -73,7 +73,7 @@ static int slp_suspend_ops_prepare(void)
 #ifdef CONFIG_MTK_SND_SOC_NEW_ARCH
 bool __attribute__ ((weak)) ConditionEnterSuspend(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 	return true;
 }
 #endif /* MTK_SUSPEND_AUDIO_SUPPORT */
@@ -81,25 +81,25 @@ bool __attribute__ ((weak)) ConditionEnterSuspend(void)
 #ifdef CONFIG_MTK_SYSTRACKER
 void __attribute__ ((weak)) systracker_enable(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 }
 #endif /* CONFIG_MTK_SYSTRACKER */
 
 #ifdef CONFIG_MTK_BUS_TRACER
 void __attribute__ ((weak)) bus_tracer_enable(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 }
 #endif /* CONFIG_MTK_BUS_TRACER */
 
 void __attribute__((weak)) subsys_if_on(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 }
 
 void __attribute__((weak)) pll_if_on(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 }
 
 void __attribute__((weak))
@@ -122,7 +122,7 @@ spm_set_sleep_wakesrc(u32 wakesrc, bool enable, bool replace)
 
 bool __attribute__((weak)) spm_is_enable_sleep(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 	return false;
 }
 
@@ -135,14 +135,14 @@ spm_go_to_sleep(void)
 bool __attribute__((weak))
 spm_get_is_cpu_pdn(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 	return false;
 }
 
 bool __attribute__((weak))
 spm_get_is_infra_pdn(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 	return false;
 }
 
@@ -177,14 +177,14 @@ static int slp_suspend_ops_enter(suspend_state_t state)
 #endif /* CONFIG_FPGA_EARLY_PORTING */
 
 	if (spm_get_is_infra_pdn() && !spm_get_is_cpu_pdn()) {
-		pr_info("[SLP] CANNOT SLEEP DUE TO INFRA PDN BUT CPU PDN\n");
+		pr_debug("[SLP] CANNOT SLEEP DUE TO INFRA PDN BUT CPU PDN\n");
 		ret = -EPERM;
 		goto LEAVE_SLEEP;
 	}
 
 #ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
 	if (is_sspm_ipi_lock_spm()) {
-		pr_info("[SLP] CANNOT SLEEP DUE TO SSPM IPI\n");
+		pr_debug("[SLP] CANNOT SLEEP DUE TO SSPM IPI\n");
 		ret = -EPERM;
 		goto LEAVE_SLEEP;
 	}
@@ -192,7 +192,7 @@ static int slp_suspend_ops_enter(suspend_state_t state)
 
 #if !defined(CONFIG_FPGA_EARLY_PORTING)
 	if (spm_load_firmware_status() < 1) {
-		pr_info("SPM FIRMWARE IS NOT READY\n");
+		pr_debug("SPM FIRMWARE IS NOT READY\n");
 		ret = -EPERM;
 		goto LEAVE_SLEEP;
 	}
@@ -259,7 +259,7 @@ static const struct platform_suspend_ops slp_suspend_ops = {
 __attribute__ ((weak))
 int spm_set_dpidle_wakesrc(u32 wakesrc, bool enable, bool replace)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 	return 0;
 }
 
@@ -273,7 +273,7 @@ int slp_set_wakesrc(u32 wakesrc, bool enable, bool ck26m_on)
 	int r;
 	unsigned long flags;
 
-	pr_info("[SLP] wakesrc = 0x%x, enable = %u, ck26m_on = %u\n",
+	pr_debug("[SLP] wakesrc = 0x%x, enable = %u, ck26m_on = %u\n",
 		wakesrc, enable, ck26m_on);
 
 #if SLP_REPLACE_DEF_WAKESRC
@@ -399,9 +399,9 @@ void slp_module_init(void)
 	}
 
 	spm_output_sleep_option();
-	pr_info("[SLP] SLEEP_DPIDLE_EN:%d, REPLACE_DEF_WAKESRC:%d",
+	pr_debug("[SLP] SLEEP_DPIDLE_EN:%d, REPLACE_DEF_WAKESRC:%d",
 		SLP_SLEEP_DPIDLE_EN, SLP_REPLACE_DEF_WAKESRC);
-	pr_info(", SUSPEND_LOG_EN:%d\n", SLP_SUSPEND_LOG_EN);
+	pr_debug(", SUSPEND_LOG_EN:%d\n", SLP_SUSPEND_LOG_EN);
 	suspend_set_ops(&slp_suspend_ops);
 #if SLP_SUSPEND_LOG_EN
 	console_suspend_enabled = 0;

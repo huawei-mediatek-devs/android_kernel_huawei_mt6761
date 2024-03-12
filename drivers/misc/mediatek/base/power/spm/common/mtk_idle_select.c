@@ -191,7 +191,7 @@ int mtk_idle_select(int cpu)
 	if (!((system_state == SYSTEM_RUNNING) &&
 		(mtk_idle_plat_bootblock_check() == MTK_IDLE_PLAT_READY))
 	) {
-		pr_notice("Power/swap %s blocked by boot time\n", __func__);
+		pr_debug("Power/swap %s blocked by boot time\n", __func__);
 		return -1;
 	}
 

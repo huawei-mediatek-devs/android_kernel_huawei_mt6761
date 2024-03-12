@@ -28,7 +28,7 @@
 
 #define swpm_err                swpm_info
 #define swpm_warn               swpm_info
-#define swpm_info(fmt, args...) pr_notice(TAG""fmt, ##args)
+#define swpm_info(fmt, args...) pr_debug(TAG""fmt, ##args)
 #define swpm_dbg(fmt, args...)                           \
 	do {                                             \
 		if (swpm_debug)                          \

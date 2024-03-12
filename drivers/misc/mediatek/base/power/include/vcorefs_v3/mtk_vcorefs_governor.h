@@ -21,7 +21,7 @@
 #define vcorefs_debug vcorefs_info
 
 #define vcorefs_info(fmt, args...)	\
-	pr_notice(VCPREFS_TAG""fmt, ##args)
+	pr_debug(VCPREFS_TAG""fmt, ##args)
 
 /* Uses for DVFS Request */
 #define vcorefs_crit_mask(log_mask, kicker, fmt, args...)	\

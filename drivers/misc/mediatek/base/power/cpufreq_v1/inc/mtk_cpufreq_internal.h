@@ -93,14 +93,14 @@ extern unsigned int func_lv_mask;
 #define DEBUG 1
 
 #define TAG	"[Power/cpufreq] "
-#define tag_pr_notice(fmt, args...)	pr_notice(TAG fmt, ##args)
-#define tag_pr_info(fmt, args...)	pr_info(TAG fmt, ##args)
+#define tag_pr_debug(fmt, args...)	pr_debug(TAG fmt, ##args)
+#define tag_pr_debug(fmt, args...)	pr_debug(TAG fmt, ##args)
 #define tag_pr_debug(fmt, args...)	pr_debug(TAG fmt, ##args)
 
 #define cpufreq_ver(fmt, args...)		\
 do {						\
 	if (func_lv_mask)			\
-		tag_pr_info(fmt, ##args);	\
+		tag_pr_debug(fmt, ##args);	\
 } while (0)
 
 #define GEN_DB_ON(condition, fmt, args...)			\

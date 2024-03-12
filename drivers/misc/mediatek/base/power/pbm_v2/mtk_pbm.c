@@ -71,18 +71,18 @@ char log_buffer[128];
 int usedBytes;
 #endif
 
-#define pbm_emerg(fmt, args...)		pr_notice(fmt, ##args)
-#define pbm_alert(fmt, args...)		pr_notice(fmt, ##args)
-#define pbm_crit(fmt, args...)		pr_notice(fmt, ##args)
-#define pbm_err(fmt, args...)		pr_notice(fmt, ##args)
-#define pbm_warn(fmt, args...)		pr_notice(fmt, ##args)
+#define pbm_emerg(fmt, args...)		pr_debug(fmt, ##args)
+#define pbm_alert(fmt, args...)		pr_debug(fmt, ##args)
+#define pbm_crit(fmt, args...)		pr_debug(fmt, ##args)
+#define pbm_err(fmt, args...)		pr_debug(fmt, ##args)
+#define pbm_warn(fmt, args...)		pr_debug(fmt, ##args)
 #define pbm_notice(fmt, args...)	pr_debug(fmt, ##args)
 #define pbm_info(fmt, args...)		pr_debug(fmt, ##args)
 
 #define pbm_debug(fmt, args...)	\
 	do {			\
 		if (mt_pbm_debug)		\
-			pr_notice(fmt, ##args);	\
+			pr_debug(fmt, ##args);	\
 	} while (0)
 
 #define BIT_CHECK(a, b) ((a) & (1<<(b)))
@@ -1548,7 +1548,7 @@ void init_md_section_level(enum pbm_kicker kicker)
 
 static int __init pbm_module_init(void)
 {
-	pr_notice("DISABLE_PBM_FEATURE is defined.\n");
+	pr_debug("DISABLE_PBM_FEATURE is defined.\n");
 	return 0;
 }
 

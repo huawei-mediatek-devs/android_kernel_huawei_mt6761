@@ -54,36 +54,36 @@ unsigned int spm_sleep_count;
 
 int __attribute__ ((weak)) mtk_enter_idle_state(int idx)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 	return -1;
 }
 
 int __attribute__ ((weak)) vcorefs_get_curr_ddr(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 	return -1;
 }
 
 int  __attribute__ ((weak)) vcorefs_get_curr_vcore(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 	return -1;
 }
 
 void __attribute__ ((weak)) mtk8250_restore_dev(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 }
 
 int __attribute__ ((weak)) mtk8250_request_to_wakeup(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 	return 0;
 }
 
 int __attribute__ ((weak)) mtk8250_request_to_sleep(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 	return 0;
 }
 
@@ -131,7 +131,7 @@ static void spm_trigger_wfi_for_sleep(struct pwr_ctrl *pwrctrl)
 
 	if (spm_dormant_sta < 0) {
 		aee_sram_printk("spm_dormant_sta %d", spm_dormant_sta);
-		pr_info("[SPM] spm_dormant_sta %d", spm_dormant_sta);
+		pr_debug("[SPM] spm_dormant_sta %d", spm_dormant_sta);
 	}
 
 	if (is_infra_pdn(pwrctrl->pcm_flags))
@@ -202,20 +202,20 @@ static unsigned int spm_output_wake_reason(struct wake_status *wakesta)
 #endif
 	aee_sram_printk("dormant = %d, s_ddr = %d, s_vcore = %d, ",
 		  spm_dormant_sta, sleep_ddr_status, sleep_vcore_status);
-	pr_info("[SPM] dormant = %d, s_ddr = %d, s_vcore = %d, ",
+	pr_debug("[SPM] dormant = %d, s_ddr = %d, s_vcore = %d, ",
 		  spm_dormant_sta, sleep_ddr_status, sleep_vcore_status);
 	aee_sram_printk("ddr = %d, vcore = %d, sleep_count = %d\n",
 		  ddr_status, vcore_status, spm_sleep_count);
-	pr_info("ddr = %d, vcore = %d, sleep_count = %d\n",
+	pr_debug("ddr = %d, vcore = %d, sleep_count = %d\n",
 		  ddr_status, vcore_status, spm_sleep_count);
 	if (spm_ap_mdsrc_req_cnt != 0) {
 		aee_sram_printk("warning: spm_ap_mdsrc_req_cnt = %d, ",
 			spm_ap_mdsrc_req_cnt);
-		pr_info("[SPM ]warning: spm_ap_mdsrc_req_cnt = %d, ",
+		pr_debug("[SPM ]warning: spm_ap_mdsrc_req_cnt = %d, ",
 			spm_ap_mdsrc_req_cnt);
 		aee_sram_printk("r7[ap_mdsrc_req] = 0x%x\n",
 			spm_read(SPM_POWER_ON_VAL1) & (1 << 17));
-		pr_info("r7[ap_mdsrc_req] = 0x%x\n",
+		pr_debug("r7[ap_mdsrc_req] = 0x%x\n",
 			spm_read(SPM_POWER_ON_VAL1) & (1 << 17));
 	}
 
@@ -316,7 +316,7 @@ bool spm_get_is_infra_pdn(void)
 /* extern int get_dlpt_imix_spm(void); */
 int __attribute__((weak)) get_dlpt_imix_spm(void)
 {
-	pr_info("NO %s !!!\n", __func__);
+	pr_debug("NO %s !!!\n", __func__);
 	return 0;
 }
 #endif
@@ -370,7 +370,7 @@ unsigned int spm_go_to_sleep(void)
 		wd_api->wd_spmwdt_mode_config(WD_REQ_EN, WD_REQ_RST_MODE);
 		wd_api->wd_suspend_notify();
 	} else
-		pr_info("FAILED TO GET WD API\n");
+		pr_debug("FAILED TO GET WD API\n");
 #endif
 	lockdep_off();
 	spin_lock_irqsave(&__spm_lock, flags);
@@ -381,7 +381,7 @@ unsigned int spm_go_to_sleep(void)
 	aee_sram_printk("sec = %u, wakesrc = 0x%x (%u)(%u)\n",
 		  sec, pwrctrl->wake_src, is_cpu_pdn(pwrctrl->pcm_flags),
 		  is_infra_pdn(pwrctrl->pcm_flags));
-	pr_info("[SPM] sec = %u, wakesrc = 0x%x (%u)(%u)\n",
+	pr_debug("[SPM] sec = %u, wakesrc = 0x%x (%u)(%u)\n",
 		  sec, pwrctrl->wake_src, is_cpu_pdn(pwrctrl->pcm_flags),
 		  is_infra_pdn(pwrctrl->pcm_flags));
 
@@ -392,7 +392,7 @@ unsigned int spm_go_to_sleep(void)
 #if !defined(CONFIG_FPGA_EARLY_PORTING)
 	if (mtk8250_request_to_sleep()) {
 		last_wr = WR_UART_BUSY;
-		pr_info("Fail to request uart sleep\n");
+		pr_debug("Fail to request uart sleep\n");
 		goto RESTORE_IRQ;
 	}
 #endif
@@ -430,7 +430,7 @@ RESTORE_IRQ:
 		else {
 			aee_sram_printk("pwrctrl->wdt_disable %d\n",
 				pwrctrl->wdt_disable);
-			pr_info("[SPM] pwrctrl->wdt_disable %d\n",
+			pr_debug("[SPM] pwrctrl->wdt_disable %d\n",
 				pwrctrl->wdt_disable);
 		}
 		wd_api->wd_spmwdt_mode_config(WD_REQ_DIS, WD_REQ_RST_MODE);
@@ -448,7 +448,7 @@ RESTORE_IRQ:
 	if (pwrctrl->wakelock_timer_val) {
 		aee_sram_printk("#@# %s(%d) calling spm_pm_stay_awake()\n",
 			__func__, __LINE__);
-		pr_info("[SPM ]#@# %s(%d) calling spm_pm_stay_awake()\n",
+		pr_debug("[SPM ]#@# %s(%d) calling spm_pm_stay_awake()\n",
 			__func__, __LINE__);
 		spm_pm_stay_awake(pwrctrl->wakelock_timer_val);
 	}

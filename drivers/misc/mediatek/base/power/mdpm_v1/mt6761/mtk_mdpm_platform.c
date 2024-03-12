@@ -379,11 +379,11 @@ void md_power_meter_ut(void)
 
 	for (i = 0; i < POWER_CATEGORY_NUM; i++) {
 		if (mt_mdpm_debug)
-			pr_info("[UT] ====== POWERCATEGORY:%d ======\n", i);
+			pr_debug("[UT] ====== POWERCATEGORY:%d ======\n", i);
 
 		for (j = 0; j <= 16; j++) {
 			if (mt_mdpm_debug)
-				pr_info("[UT] ====== MD SCENARIO:%d ======\n",
+				pr_debug("[UT] ====== MD SCENARIO:%d ======\n",
 					j);
 
 			if (j == 0)
@@ -397,13 +397,13 @@ void md_power_meter_ut(void)
 
 			for (k = 0; k < SECTION_NUM; k++) {
 				if (mt_mdpm_debug)
-					pr_info("[UT] ====== DBM SECTION:%d ======\n",
+					pr_debug("[UT] ====== DBM SECTION:%d ======\n",
 					k + 1);
 
 				/* test if share_mem not change */
 				md_power = get_md1_power(i, true);
 				if (mt_mdpm_debug)
-					pr_info("[UT] md_power:%d ====(dbm=0)\n",
+					pr_debug("[UT] md_power:%d ====(dbm=0)\n",
 					md_power);
 
 				/* test section min value */
@@ -413,7 +413,7 @@ void md_power_meter_ut(void)
 
 				md_power = get_md1_power(i, true);
 				if (mt_mdpm_debug)
-					pr_info("[UT] md_power:%d ====\n",
+					pr_debug("[UT] md_power:%d ====\n",
 					md_power);
 
 				/* test section median value */
@@ -423,7 +423,7 @@ void md_power_meter_ut(void)
 
 				md_power = get_md1_power(i, true);
 				if (mt_mdpm_debug)
-					pr_info("[UT] md_power:%d ====\n",
+					pr_debug("[UT] md_power:%d ====\n",
 					md_power);
 
 				/* test section max value */
@@ -433,7 +433,7 @@ void md_power_meter_ut(void)
 
 				md_power = get_md1_power(i, true);
 				if (mt_mdpm_debug)
-					pr_info("[UT] md_power:%d ====\n",
+					pr_debug("[UT] md_power:%d ====\n",
 					md_power);
 			}
 		}
@@ -487,7 +487,7 @@ static int is_scenario_hit(u32 share_reg, unsigned int scenario)
 			hit = 1;
 		break;
 	default:
-		pr_notice("[%s] ERROR, unknown scenario [%d]\n",
+		pr_debug("[%s] ERROR, unknown scenario [%d]\n",
 			__func__, scenario);
 		WARN_ON_ONCE(1);
 		break;
@@ -510,7 +510,7 @@ void init_md1_section_level(u32 *share_mem)
 			|| md1_section_level_4g_upL2[section] > SECTION_VALUE
 			|| md1_section_level_tdd[section] > SECTION_VALUE
 			|| md1_section_level_c2k[section] > SECTION_VALUE) {
-			pr_notice("[%s] md1_section_level too large !\n",
+			pr_debug("[%s] md1_section_level too large !\n",
 			__func__);
 			WARN_ON_ONCE(1);
 		}
@@ -544,20 +544,20 @@ void init_md1_section_level(u32 *share_mem)
 	share_mem[SECTION_LEVLE_TDD] = mem_tdd;
 	share_mem[SECTION_1_LEVLE_C2K] = mem_c2k;
 
-	pr_info("AP2MD1 section level, 2G: 0x%x(0x%x), 3G: 0x%x(0x%x), ",
+	pr_debug("AP2MD1 section level, 2G: 0x%x(0x%x), 3G: 0x%x(0x%x), ",
 			mem_2g, share_mem[SECTION_LEVLE_2G],
 			mem_3g, share_mem[SECTION_LEVLE_3G]);
-	pr_info(
+	pr_debug(
 	"4G_upL1:0x%x(0x%x),4G_upL2:0x%x(0x%x),TDD:0x%x(0x%x),addr:0x%p\n",
 			mem_4g_upL1, share_mem[SECTION_LEVLE_4G],
 			mem_4g_upL2, share_mem[SECTION_1_LEVLE_4G],
 			mem_tdd, share_mem[SECTION_LEVLE_TDD],
 			share_mem);
-	pr_info("4G_upL1: 0x%x(0x%x), TDD: 0x%x(0x%x), addr: 0x%p\n",
+	pr_debug("4G_upL1: 0x%x(0x%x), TDD: 0x%x(0x%x), addr: 0x%p\n",
 		mem_4g_upL1, share_mem[SECTION_LEVLE_4G],
 		mem_tdd, share_mem[SECTION_LEVLE_TDD],
 		share_mem);
-	pr_info("C2K section level, C2K: 0x%x(0x%x), addr: 0x%p\n",
+	pr_debug("C2K section level, C2K: 0x%x(0x%x), addr: 0x%p\n",
 			mem_c2k, share_mem[SECTION_1_LEVLE_C2K],
 			share_mem);
 }
@@ -582,7 +582,7 @@ unsigned int get_md1_scenario(u32 share_reg, unsigned int power_category)
 	scenario = (scenario < 0) ? S_STANDBY : scenario;
 
 	if (mt_mdpm_debug)
-		pr_info("MD1 scenario: 0x%x, reg: 0x%x, pw: %d\n",
+		pr_debug("MD1 scenario: 0x%x, reg: 0x%x, pw: %d\n",
 			scenario, share_reg,
 			md1_scenario_pwr[power_category][scenario]);
 
@@ -603,7 +603,7 @@ int get_md1_dBm_power(unsigned int scenario, u32 *share_mem,
 #if 0
 	if (scenario == S_STANDBY) {
 		if (mt_mdpm_debug)
-			pr_info("MD1 is standby, dBm pw: 0\n");
+			pr_debug("MD1 is standby, dBm pw: 0\n");
 
 		return 0;
 	}
@@ -611,7 +611,7 @@ int get_md1_dBm_power(unsigned int scenario, u32 *share_mem,
 
 	if (share_mem == NULL) {
 		if (mt_mdpm_debug)
-			pr_info("MD1 share_mem is NULL, use max MD dbm power: %d\n"
+			pr_debug("MD1 share_mem is NULL, use max MD dbm power: %d\n"
 				, MAX_DBM_POWER);
 
 		return MAX_DBM_POWER;
@@ -625,7 +625,7 @@ int get_md1_dBm_power(unsigned int scenario, u32 *share_mem,
 		if ((i + 1) % 10 == 0) {
 			usedBytes = 0;
 			if (mt_mdpm_debug)
-				pr_info("%s\n", log_buffer);
+				pr_debug("%s\n", log_buffer);
 		}
 	}
 
@@ -650,7 +650,7 @@ static int get_md1_2g_dbm_power(u32 *share_mem, unsigned int power_category)
 
 	if (share_mem[DBM_2G_TABLE] == bef_share_mem) {
 		if (mt_mdpm_debug)
-			pr_info("2G dBm no TX power, reg: 0x%x(0x%x) return 0\n",
+			pr_debug("2G dBm no TX power, reg: 0x%x(0x%x) return 0\n",
 				share_mem[DBM_2G_TABLE], bef_share_mem);
 
 		return 0;
@@ -668,7 +668,7 @@ static int get_md1_2g_dbm_power(u32 *share_mem, unsigned int power_category)
 			rf_power = md1_rf_pwr_2g[power_category][section];
 
 			if (mt_mdpm_debug)
-				pr_info("2G dBm: reg:0x%x(0x%x),pa:%d,rf:%d,s:%d\n",
+				pr_debug("2G dBm: reg:0x%x(0x%x),pa:%d,rf:%d,s:%d\n",
 					share_mem[DBM_2G_TABLE], bef_share_mem,
 					pa_power, rf_power, section);
 
@@ -688,7 +688,7 @@ static int get_md1_3g_dbm_power(u32 *share_mem, unsigned int power_category)
 
 	if (share_mem[DBM_3G_TABLE] == bef_share_mem) {
 		if (mt_mdpm_debug)
-			pr_info("3G dBm no TX power, reg: 0x%x(0x%x) return 0\n",
+			pr_debug("3G dBm no TX power, reg: 0x%x(0x%x) return 0\n",
 				share_mem[DBM_2G_TABLE], bef_share_mem);
 
 		return 0;
@@ -706,7 +706,7 @@ static int get_md1_3g_dbm_power(u32 *share_mem, unsigned int power_category)
 			rf_power = md1_rf_pwr_3g[power_category][section];
 
 			if (mt_mdpm_debug)
-				pr_info("3G dBm: reg:0x%x(0x%x),pa:%d,rf:%d,s:%d\n",
+				pr_debug("3G dBm: reg:0x%x(0x%x),pa:%d,rf:%d,s:%d\n",
 					share_mem[DBM_3G_TABLE], bef_share_mem,
 					pa_power, rf_power, section);
 
@@ -727,7 +727,7 @@ static int get_md1_4g_upL1_dbm_power(u32 *share_mem,
 
 	if (share_mem[DBM_4G_TABLE] == bef_share_mem) {
 		if (mt_mdpm_debug)
-		pr_info("4G dBm no TX power, reg: 0x%x(0x%x) return 0\n",
+		pr_debug("4G dBm no TX power, reg: 0x%x(0x%x) return 0\n",
 			share_mem[DBM_2G_TABLE], bef_share_mem);
 
 		return 0;
@@ -745,7 +745,7 @@ static int get_md1_4g_upL1_dbm_power(u32 *share_mem,
 			rf_power = md1_rf_pwr_4g_upL1[power_category][section];
 
 			if (mt_mdpm_debug)
-				pr_info("4G dBm: reg:0x%x(0x%x),pa:%d,rf:%d,s:%d\n",
+				pr_debug("4G dBm: reg:0x%x(0x%x),pa:%d,rf:%d,s:%d\n",
 					share_mem[DBM_4G_TABLE], bef_share_mem,
 					pa_power, rf_power, section);
 
@@ -766,7 +766,7 @@ static int get_md1_4g_upL2_dbm_power(u32 *share_mem,
 
 	if (share_mem[DBM_4G_1_TABLE] == bef_share_mem) {
 		if (mt_mdpm_debug)
-			pr_info("4G_1 dBm no TX power, reg: 0x%x(0x%x) return 0\n",
+			pr_debug("4G_1 dBm no TX power, reg: 0x%x(0x%x) return 0\n",
 				share_mem[DBM_4G_1_TABLE], bef_share_mem);
 
 		return 0;
@@ -784,7 +784,7 @@ static int get_md1_4g_upL2_dbm_power(u32 *share_mem,
 			rf_power = md1_rf_pwr_4g_upL2[power_category][section];
 
 			if (mt_mdpm_debug)
-				pr_info("4G1 dBm:reg:0x%x(0x%x),pa:%d,rf:%d,s:%d\n",
+				pr_debug("4G1 dBm:reg:0x%x(0x%x),pa:%d,rf:%d,s:%d\n",
 					share_mem[DBM_4G_1_TABLE],
 					bef_share_mem,
 					pa_power, rf_power, section);
@@ -814,7 +814,7 @@ static int get_md1_c2k_dbm_power(u32 *share_mem, unsigned int power_category)
 
 	if (share_mem[DBM_C2K_1_TABLE] == bef_share_mem) {
 		if (mt_mdpm_debug)
-			pr_info("C2K dBm, no TX power, reg: 0x%x(0x%x) return 0\n",
+			pr_debug("C2K dBm, no TX power, reg: 0x%x(0x%x) return 0\n",
 			share_mem[DBM_C2K_1_TABLE], bef_share_mem);
 
 		return 0;
@@ -832,7 +832,7 @@ static int get_md1_c2k_dbm_power(u32 *share_mem, unsigned int power_category)
 			rf_power = md1_rf_pwr_c2k[power_category][section];
 
 			if (mt_mdpm_debug)
-				pr_info("C2K dBm update, reg:0x%x(0x%x),pa:%d,rf:%d,s:%d\n",
+				pr_debug("C2K dBm update, reg:0x%x(0x%x),pa:%d,rf:%d,s:%d\n",
 					share_mem[DBM_C2K_1_TABLE],
 					bef_share_mem,
 					pa_power, rf_power, section);
