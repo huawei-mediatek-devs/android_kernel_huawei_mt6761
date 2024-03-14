@@ -1520,6 +1520,46 @@ static void remove_unused_session(TC_NS_Service *service,
 }
 #endif
 
+void dump_hash(char *my_pkname, unsigned char *hash_buf)
+{
+	TCDEBUG("SHA256 hash for %s:\n", my_pkname);
+	TCDEBUG("{0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, ",
+		*(hash_buf + 0), *(hash_buf + 1), *(hash_buf + 2), *(hash_buf + 3),
+		*(hash_buf + 4), *(hash_buf + 5), *(hash_buf + 6), *(hash_buf + 7));
+	TCDEBUG("0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, ",
+		*(hash_buf + 8), *(hash_buf + 9), *(hash_buf + 10), *(hash_buf + 11),
+		*(hash_buf + 12), *(hash_buf + 13), *(hash_buf + 14),
+		*(hash_buf + 15));
+	TCDEBUG("0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X,  ",
+		*(hash_buf + 16), *(hash_buf + 17), *(hash_buf + 18),
+		*(hash_buf + 19), *(hash_buf + 20), *(hash_buf + 21),
+		*(hash_buf + 22), *(hash_buf + 23));
+	TCDEBUG("0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X} ",
+		*(hash_buf + 24), *(hash_buf + 25), *(hash_buf + 26),
+		*(hash_buf + 27), *(hash_buf + 28), *(hash_buf + 29),
+		*(hash_buf + 30), *(hash_buf + 31));
+}
+
+void spoof_hash(char *my_pkname, unsigned char *hash_buf)
+{
+
+	unsigned char keystore_hash[32] = {0x9B, 0x7F, 0x25, 0x40, 0x05, 0xA3, 0xA2, 0xF1,
+					   0x01, 0xA2, 0xD3, 0xBE, 0xEF, 0x3F, 0x0B, 0x8C,
+					   0x3E, 0xF1, 0x1F, 0xCE, 0x45, 0x61, 0x63, 0xBC,
+					   0x42, 0x1D, 0xAA, 0xFE, 0xD1, 0x37, 0x21, 0x02};
+
+	unsigned char gatekeeper_hash[32] = {0x58, 0xAF, 0xF6, 0x6A, 0x0E, 0xC0, 0x82, 0xBF,
+					     0x40, 0xBC, 0xF9, 0x19, 0x54, 0xB5, 0x23, 0x42,
+					     0x14, 0xD5, 0x39, 0x03, 0x37, 0x13, 0xC5, 0x8E,
+					     0xF2, 0x9E, 0x2D, 0x72, 0x3F, 0x76, 0x74, 0x2F};
+
+	if (!strncmp(my_pkname, "/vendor/bin/hw/android.hardware.gatekeeper@1.0-service", 54))
+		memcpy(hash_buf, gatekeeper_hash, MAX_SHA_256_SZ);
+
+	if (!strncmp(my_pkname, "/vendor/bin/hw/android.hardware.keymaster@3.0-service", 53))
+		memcpy(hash_buf, keystore_hash, MAX_SHA_256_SZ);
+}
+
 int TC_NS_OpenSession(TC_NS_DEV_File *dev_file, TC_NS_ClientContext *context)
 {
 	int ret = -EINVAL;
@@ -1658,6 +1698,9 @@ find_service:
 
 	/* use the lock to make sure the TA sessions cannot be concurrency opened */
 	mutex_lock(&g_operate_session_lock);
+
+	dump_hash(dev_file->pkg_name, hash_buf);
+	spoof_hash(dev_file->pkg_name, hash_buf);
 
 	/*cp hash_buf to global var, it is protected by lock */
 	ret = memcpy_s(g_ca_auth_hash_buf, (size_t)MAX_SHA_256_SZ,
