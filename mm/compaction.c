@@ -20,8 +20,11 @@
 #include <linux/kthread.h>
 #include <linux/freezer.h>
 #include <linux/page_owner.h>
-#include <linux/psi.h>
 #include "internal.h"
+
+#ifdef CONFIG_HUAWEI_UNMOVABLE_ISOLATE
+#include <linux/unmovable_isolate.h>
+#endif
 
 #ifdef CONFIG_COMPACTION
 static inline void count_compact_event(enum vm_event_item item)
@@ -985,6 +988,12 @@ isolate_migratepages_range(struct compact_control *cc, unsigned long start_pfn,
 static bool suitable_migration_target(struct compact_control *cc,
 							struct page *page)
 {
+#ifdef CONFIG_HUAWEI_UNMOVABLE_ISOLATE
+	int mt = get_pageblock_migratetype(page);
+	if (is_unmovable_isolate2(mt))
+		return false;
+#endif
+
 	if (cc->ignore_block_suitable)
 		return true;
 
@@ -1000,8 +1009,13 @@ static bool suitable_migration_target(struct compact_control *cc,
 	}
 
 	/* If the block is MIGRATE_MOVABLE or MIGRATE_CMA, allow migration */
+#ifdef CONFIG_HUAWEI_UNMOVABLE_ISOLATE
+	if (migrate_async_suitable(mt))
+		return true;
+#else
 	if (migrate_async_suitable(get_pageblock_migratetype(page)))
 		return true;
+#endif
 
 	/* Otherwise skip the block */
 	return false;
@@ -1235,9 +1249,16 @@ static isolate_migrate_t isolate_migratepages(struct zone *zone,
 		 * Async compaction is optimistic to see if the minimum amount
 		 * of work satisfies the allocation.
 		 */
+#ifdef CONFIG_HUAWEI_UNMOVABLE_ISOLATE
+		if ((cc->mode == MIGRATE_ASYNC &&
+		    !migrate_async_suitable(get_pageblock_migratetype(page))) ||
+		    unmovable_isolate_pageblock(zone, page))
+			continue;
+#else
 		if (cc->mode == MIGRATE_ASYNC &&
 		    !migrate_async_suitable(get_pageblock_migratetype(page)))
 			continue;
+#endif
 
 		/* Perform the isolation */
 		low_pfn = isolate_migratepages_block(cc, low_pfn,
@@ -1974,15 +1995,11 @@ static int kcompactd(void *p)
 	pgdat->kcompactd_classzone_idx = pgdat->nr_zones - 1;
 
 	while (!kthread_should_stop()) {
-		unsigned long pflags;
-
 		trace_mm_compaction_kcompactd_sleep(pgdat->node_id);
 		wait_event_freezable(pgdat->kcompactd_wait,
 				kcompactd_work_requested(pgdat));
 
-		psi_memstall_enter(&pflags);
 		kcompactd_do_work(pgdat);
-		psi_memstall_leave(&pflags);
 	}
 
 	return 0;
