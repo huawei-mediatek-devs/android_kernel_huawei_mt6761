@@ -98,6 +98,10 @@ struct writeback_control {
 	size_t wb_lcand_bytes;		/* bytes written by last candidate */
 	size_t wb_tcand_bytes;		/* bytes written by this candidate */
 #endif
+#ifdef CONFIG_HUAWEI_SWAP_ZDATA
+	bool ishibernation_rec;
+	unsigned nr_writedblock;  /*the number of blocks that was writebacked*/
+#endif
 };
 
 /*
@@ -184,6 +188,16 @@ static inline void wait_on_inode(struct inode *inode)
 {
 	might_sleep();
 	wait_on_bit(&inode->i_state, __I_NEW, TASK_UNINTERRUPTIBLE);
+}
+
+static inline int wbc_to_write_flag(struct writeback_control *wbc)
+{
+	if (wbc->sync_mode == WB_SYNC_ALL)
+		return WRITE_SYNC;
+	else if (wbc->for_kupdate || wbc->for_background)
+		return WRITE_BG;
+
+	return 0;
 }
 
 #ifdef CONFIG_CGROUP_WRITEBACK
@@ -362,6 +376,7 @@ void global_dirty_limits(unsigned long *pbackground, unsigned long *pdirty);
 unsigned long wb_calc_thresh(struct bdi_writeback *wb, unsigned long thresh);
 
 void wb_update_bandwidth(struct bdi_writeback *wb, unsigned long start_time);
+void page_writeback_init(void);
 void balance_dirty_pages_ratelimited(struct address_space *mapping);
 bool wb_over_bg_thresh(struct bdi_writeback *wb);
 

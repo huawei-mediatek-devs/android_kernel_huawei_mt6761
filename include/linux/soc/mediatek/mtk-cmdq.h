@@ -32,12 +32,11 @@
 /* GCE provide 26M timer, thus each tick 1/26M second,
  * which is, 1 microsecond = 26 ticks
  */
-#define CMDQ_US_TO_TICK(_t)		(_t * 26)
+#define CMDQ_MS_TO_TICK(_t)		(_t * 26)
 
 
 #if IS_ENABLED(CONFIG_MACH_MT6771) || IS_ENABLED(CONFIG_MACH_MT6765) || \
-	IS_ENABLED(CONFIG_MACH_MT6761) || IS_ENABLED(CONFIG_MACH_MT3967) || \
-	IS_ENABLED(CONFIG_MACH_MT6763) || IS_ENABLED(CONFIG_MACH_MT6757)
+	IS_ENABLED(CONFIG_MACH_MT6761) || IS_ENABLED(CONFIG_MACH_MT3967)
 #define CMDQ_REG_SHIFT_ADDR(addr)	(addr)
 #define CMDQ_REG_REVERT_ADDR(addr)	(addr)
 #elif IS_ENABLED(CONFIG_MACH_MT6779)
@@ -107,13 +106,6 @@ struct cmdq_client {
 	struct mbox_client client;
 	struct mbox_chan *chan;
 	void *cl_priv;
-	struct mutex chan_mutex;
-};
-
-struct cmdq_buf_pool {
-	struct dma_pool *pool;
-	atomic_t cnt;
-	u32 limit;
 };
 
 struct cmdq_operand {
@@ -287,7 +279,7 @@ s32 cmdq_pkt_logic_command(struct cmdq_pkt *pkt, enum CMDQ_LOGIC_ENUM s_op,
 	struct cmdq_operand *left_operand,
 	struct cmdq_operand *right_operand);
 
-s32 cmdq_pkt_jump(struct cmdq_pkt *pkt, s32 offset);
+s32 cmdq_pkt_jump(struct cmdq_pkt *pkt, u32 offset);
 
 s32 cmdq_pkt_jump_addr(struct cmdq_pkt *pkt, u32 addr);
 
@@ -323,10 +315,6 @@ s32 cmdq_pkt_sleep(struct cmdq_pkt *pkt, struct cmdq_base *clt_base,
 
 s32 cmdq_pkt_poll_timeout(struct cmdq_pkt *pkt, struct cmdq_base *clt_base,
 	u32 value, u32 addr, u32 mask, u16 count, u16 reg_gpr);
-
-void cmdq_pkt_perf_end(struct cmdq_pkt *pkt);
-void cmdq_pkt_perf_begin(struct cmdq_pkt *pkt);
-u32 *cmdq_pkt_get_perf_ret(struct cmdq_pkt *pkt);
 
 /**
  * cmdq_pkt_wfe() - append wait for event command to the CMDQ packet

@@ -25,10 +25,6 @@
 #define FIQ_SMP_CALL_SGI	13
 #endif
 
-#define GICD_V3_IIDR_PROD_ID	(24)
-#define GICD_V3_IIDR_GIC500	(0x0)
-#define GICD_V3_IIDR_GIC600	(0x2)
-
 #include <linux/irq.h>
 
 typedef void (*fiq_isr_handler) (void *arg, void *regs, void *svc_sp);
@@ -91,7 +87,7 @@ void irq_raise_softirq(const struct cpumask *mask, unsigned int irq);
 void gic_set_primask(void);
 /* restore the priority mask value */
 void gic_clear_primask(void);
-
+#endif
 
 #ifdef CONFIG_MTK_SYSIRQ
 static inline struct irq_data *get_gic_irq_data(struct irq_data *d)
@@ -122,5 +118,4 @@ static inline unsigned int virq_to_hwirq(unsigned int virq)
 
 	return hwirq;
 }
-#endif
 

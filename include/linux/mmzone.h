@@ -17,6 +17,9 @@
 #include <linux/pageblock-flags.h>
 #include <linux/page-flags-layout.h>
 #include <linux/atomic.h>
+#ifdef CONFIG_TASK_PROTECT_LRU
+#include <linux/mm_types.h>
+#endif
 #include <asm/page.h>
 
 /* Free memory management - zoned buddy allocator.  */
@@ -57,6 +60,14 @@ enum {
 	 */
 	MIGRATE_CMA,
 #endif
+#ifdef CONFIG_HUAWEI_UNMOVABLE_ISOLATE
+	/*
+	 * MIGRATE_UNMOVABLE_ISOLATEx migration type is designed to
+	 * allocate the appointed-order unmovable pages.
+	 */
+	MIGRATE_UNMOVABLE_ISOLATE1,
+	MIGRATE_UNMOVABLE_ISOLATE2,
+#endif
 #ifdef CONFIG_MEMORY_ISOLATION
 	MIGRATE_ISOLATE,	/* can't allocate from here */
 #endif
@@ -72,6 +83,13 @@ extern char * const migratetype_names[MIGRATE_TYPES];
 #else
 #  define is_migrate_cma(migratetype) false
 #  define is_migrate_cma_page(_page) false
+#endif
+
+#ifdef CONFIG_HUAWEI_UNMOVABLE_ISOLATE
+#  define is_unmovable_isolate1(migratetype) \
+			unlikely((migratetype) == MIGRATE_UNMOVABLE_ISOLATE1)
+#  define is_unmovable_isolate2(migratetype) \
+			unlikely((migratetype) == MIGRATE_UNMOVABLE_ISOLATE2)
 #endif
 
 #define for_each_migratetype_order(order, type) \
@@ -124,6 +142,13 @@ enum zone_stat_item {
 	NR_ZONE_INACTIVE_FILE,
 	NR_ZONE_ACTIVE_FILE,
 	NR_ZONE_UNEVICTABLE,
+#ifdef CONFIG_TASK_PROTECT_LRU
+	NR_PROTECT_LRU_BASE,
+	NR_PROTECT_INACTIVE_ANON = NR_PROTECT_LRU_BASE,
+	NR_PROTECT_ACTIVE_ANON,
+	NR_PROTECT_INACTIVE_FILE,
+	NR_PROTECT_ACTIVE_FILE,
+#endif
 	NR_ZONE_WRITE_PENDING,	/* Count of dirty, writeback and unstable pages */
 	NR_MLOCK,		/* mlock()ed pages found and moved off LRU */
 	NR_SLAB_RECLAIMABLE,
@@ -145,6 +170,11 @@ enum zone_stat_item {
 	NUMA_OTHER,		/* allocation from other node */
 #endif
 	NR_FREE_CMA_PAGES,
+	NR_IONCACHE_PAGES,
+#ifdef CONFIG_HUAWEI_UNMOVABLE_ISOLATE
+        NR_FREE_UNMOVABLE_ISOLATE1_PAGES,
+        NR_FREE_UNMOVABLE_ISOLATE2_PAGES,
+#endif
 	NR_VM_ZONE_STAT_ITEMS };
 
 enum node_stat_item {
@@ -159,7 +189,6 @@ enum node_stat_item {
 	NR_PAGES_SCANNED,	/* pages scanned since last reclaim */
 	WORKINGSET_REFAULT,
 	WORKINGSET_ACTIVATE,
-	WORKINGSET_RESTORE,
 	WORKINGSET_NODERECLAIM,
 	NR_ANON_MAPPED,	/* Mapped anonymous pages */
 	NR_FILE_MAPPED,	/* pagecache pages mapped into pagetables.
@@ -229,11 +258,26 @@ struct zone_reclaim_stat {
 	unsigned long		recent_scanned[2];
 };
 
+#ifdef CONFIG_TASK_PROTECT_LRU
+/* 4 comes from PROTECT_LRU_WIDTH, 3 protect heads and 1 normal head */
+#define PROTECT_HEAD_MAX 4
+#define PROTECT_HEAD_END (PROTECT_HEAD_MAX - 1)
+
+struct protect_head {
+	struct page protect_page[NR_LRU_LISTS - 1];
+	unsigned long max_pages;
+	unsigned long pages;
+};
+#endif
+
 struct lruvec {
 	struct list_head		lists[NR_LRU_LISTS];
 	struct zone_reclaim_stat	reclaim_stat;
 	/* Evictions & activations on the inactive file list */
 	atomic_long_t			inactive_age;
+#ifdef CONFIG_TASK_PROTECT_LRU
+	struct protect_head heads[PROTECT_HEAD_MAX];
+#endif
 #ifdef CONFIG_MEMCG
 	struct pglist_data *pgdat;
 #endif
@@ -433,6 +477,14 @@ struct zone {
 	unsigned long		present_pages;
 
 	const char		*name;
+#ifdef CONFIG_HUAWEI_UNMOVABLE_ISOLATE
+	/*
+	 * Number of MIGRATE_UNMOVABLE_ISOLATEx page block. To maintain for just
+	 * optimization. Protected by zone->lock.
+	 */
+	long long			nr_migrate_unmovable_isolate1_block;
+	long long			nr_migrate_unmovable_isolate2_block;
+#endif
 
 #ifdef CONFIG_MEMORY_ISOLATION
 	/*
@@ -890,6 +942,12 @@ int sysctl_min_slab_ratio_sysctl_handler(struct ctl_table *, int,
 
 extern int numa_zonelist_order_handler(struct ctl_table *, int,
 			void __user *, size_t *, loff_t *);
+
+#ifdef CONFIG_HUAWEI_UNMOVABLE_ISOLATE
+int unmovable_isolate_disabled_sysctl_handler(struct ctl_table *, int,
+			void __user *, size_t *, loff_t *);
+#endif
+
 extern char numa_zonelist_order[];
 #define NUMA_ZONELIST_ORDER_LEN 16	/* string buffer size */
 

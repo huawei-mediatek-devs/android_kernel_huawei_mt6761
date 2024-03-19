@@ -7,7 +7,9 @@
  * (C) 2007 SGI, Christoph Lameter
  */
 #include <linux/kobject.h>
-
+#ifdef CONFIG_KASAN
+#include <linux/kasan.h>
+#endif
 enum stat_item {
 	ALLOC_FASTPATH,		/* Allocation from cpu slab */
 	ALLOC_SLOWPATH,		/* Allocation by getting a new cpu slab */
@@ -67,8 +69,7 @@ struct kmem_cache {
 	int size;		/* The size of an object including meta data */
 	int object_size;	/* The size of an object without meta data */
 	int offset;		/* Free pointer offset. */
-	/* Number of per cpu partial objects to keep around */
-	unsigned int cpu_partial;
+	int cpu_partial;	/* Number of per cpu partial objects to keep around */
 	struct kmem_cache_order_objects oo;
 
 	/* Allocation and freeing of slabs */

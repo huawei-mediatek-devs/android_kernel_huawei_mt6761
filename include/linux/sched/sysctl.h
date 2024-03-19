@@ -14,6 +14,12 @@ extern int proc_dohung_task_timeout_secs(struct ctl_table *table, int write,
 enum { sysctl_hung_task_timeout_secs = 0 };
 #endif
 
+#ifdef CONFIG_HW_VIP_THREAD
+#include <chipset_common/hwcfs/hwcfs_sysctl.h>
+#endif
+#ifdef CONFIG_HUAWEI_BOOST_KILL
+extern unsigned int sysctl_boost_killing;
+#endif
 extern unsigned int sysctl_sched_latency;
 extern unsigned int sysctl_sched_min_granularity;
 extern unsigned int sysctl_sched_wakeup_granularity;
@@ -27,7 +33,6 @@ extern unsigned int sysctl_sched_walt_init_task_load_pct;
 extern unsigned int sysctl_sched_walt_cpu_high_irqload;
 #endif
 extern unsigned int sysctl_sched_isolation_hint_enable;
-extern unsigned int sysctl_sched_rotation_enable;
 
 enum sched_tunable_scaling {
 	SCHED_TUNABLESCALING_NONE,
@@ -75,14 +80,6 @@ static inline unsigned int get_sysctl_sched_cfs_boost(void)
 {
 	return sysctl_sched_cfs_boost;
 }
-
-#ifdef CONFIG_CGROUP_SCHEDTUNE
-extern int stune_task_threshold;
-extern int sched_stune_task_threshold_handler(struct ctl_table *table,
-					int write, void __user *buffer,
-					size_t *length, loff_t *ppos);
-#endif
-
 #else
 static inline unsigned int get_sysctl_sched_cfs_boost(void)
 {

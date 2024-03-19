@@ -86,10 +86,6 @@ DEFINE_EVENT(fpsgo_log_template, minitop_log,
 	     TP_PROTO(char *log),
 	     TP_ARGS(log));
 
-DEFINE_EVENT(fpsgo_log_template, fpsgo_main_log,
-	     TP_PROTO(char *log),
-	     TP_ARGS(log));
-
 #endif /* _TRACE_FPSGO_H */
 
 /* This part must be outside protection */

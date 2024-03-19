@@ -16,6 +16,7 @@ struct block_device;
 struct io_context;
 struct cgroup_subsys_state;
 typedef void (bio_end_io_t) (struct bio *);
+typedef void (bio_throtl_end_io_t) (struct bio *);
 
 struct bio_crypt_ctx {
 	unsigned int	bc_flags;
@@ -66,6 +67,15 @@ struct bio {
 	bio_end_io_t		*bi_end_io;
 
 	void			*bi_private;
+
+#ifdef CONFIG_BLK_DEV_THROTTLING
+	bio_throtl_end_io_t     *bi_throtl_end_io1;
+	void                    *bi_throtl_private1;
+	bio_throtl_end_io_t     *bi_throtl_end_io2;
+	void                    *bi_throtl_private2;
+	unsigned long           bi_throtl_in_queue;
+#endif
+
 #ifdef CONFIG_BLK_CGROUP
 	/*
 	 * Optional ioc and css associated with this bio.  Put on bio
@@ -194,10 +204,14 @@ enum rq_flag_bits {
 	__REQ_FUA,		/* forced unit access */
 	__REQ_PREFLUSH,		/* request for cache flush */
 
+	__REQ_BG,               /* background activity */
+	__REQ_FG,               /* foreground activity */
+
 	/* bio only flags */
 	__REQ_RAHEAD,		/* read ahead, can fail anytime */
 	__REQ_THROTTLED,	/* This bio has already been subjected to
 				 * throttling rules. Don't do it again. */
+	__REQ_CHAINED,
 
 	/* request only flags */
 	__REQ_SORTED,		/* elevator knows about this request */
@@ -240,7 +254,7 @@ enum rq_flag_bits {
 	(REQ_FAILFAST_DEV | REQ_FAILFAST_TRANSPORT | REQ_FAILFAST_DRIVER)
 #define REQ_COMMON_MASK \
 	(REQ_FAILFAST_MASK | REQ_SYNC | REQ_META | REQ_PRIO | REQ_NOIDLE | \
-	 REQ_PREFLUSH | REQ_FUA | REQ_INTEGRITY | REQ_NOMERGE)
+	REQ_PREFLUSH | REQ_FUA | REQ_INTEGRITY | REQ_NOMERGE | REQ_BG | REQ_FG)
 #define REQ_CLONE_MASK		REQ_COMMON_MASK
 
 /* This mask is used for both bio and request merge checking */
@@ -249,6 +263,7 @@ enum rq_flag_bits {
 
 #define REQ_RAHEAD		(1ULL << __REQ_RAHEAD)
 #define REQ_THROTTLED		(1ULL << __REQ_THROTTLED)
+#define REQ_CHAINED		(1ULL << __REQ_CHAINED)
 
 #define REQ_SORTED		(1ULL << __REQ_SORTED)
 #define REQ_SOFTBARRIER		(1ULL << __REQ_SOFTBARRIER)
@@ -265,6 +280,8 @@ enum rq_flag_bits {
 #define REQ_COPY_USER		(1ULL << __REQ_COPY_USER)
 #define REQ_PREFLUSH		(1ULL << __REQ_PREFLUSH)
 #define REQ_FLUSH_SEQ		(1ULL << __REQ_FLUSH_SEQ)
+#define REQ_BG                  (1ULL << __REQ_BG)
+#define REQ_FG                  (1ULL << __REQ_FG)
 #define REQ_IO_STAT		(1ULL << __REQ_IO_STAT)
 #define REQ_MIXED_MERGE		(1ULL << __REQ_MIXED_MERGE)
 #define REQ_PM			(1ULL << __REQ_PM)
@@ -290,6 +307,14 @@ enum req_op {
 typedef unsigned int blk_qc_t;
 #define BLK_QC_T_NONE	-1U
 #define BLK_QC_T_SHIFT	16
+
+struct blk_rq_stat {
+	s64 mean;
+	u64 min;
+	u64 max;
+	s64 nr_samples;
+	s64 time;
+};
 
 static inline bool blk_qc_t_valid(blk_qc_t cookie)
 {

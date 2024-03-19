@@ -41,6 +41,13 @@ extern void *proc_get_parent_data(const struct inode *);
 extern void proc_remove(struct proc_dir_entry *);
 extern void remove_proc_entry(const char *, struct proc_dir_entry *);
 extern int remove_proc_subtree(const char *, struct proc_dir_entry *);
+#ifdef CONFIG_HUAWEI_SWAP_ZDATA
+extern void exit_proc_reclaim(struct task_struct *tsk);
+#endif
+
+#ifdef CONFIG_SCHED_HWSTATUS
+extern void sched_hwstatus_updatefg(pid_t pid,pid_t tgid);
+#endif
 
 #else /* CONFIG_PROC_FS */
 

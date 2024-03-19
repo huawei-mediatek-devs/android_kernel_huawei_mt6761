@@ -386,54 +386,8 @@ TRACE_EVENT(sspm_ipi,
 	__entry->start, __entry->ipi_id, __entry->ipi_opt)
 );
 
-TRACE_EVENT(trigger_lowmem_hint,
-	TP_PROTO(
-		long mm_free,
-		long mm_thrash
-	),
-
-	TP_ARGS(mm_free, mm_thrash),
-
-	TP_STRUCT__entry(
-		__field(long, mm_free)
-		__field(long, mm_thrash)
-	),
-
-	TP_fast_assign(
-		__entry->mm_free = mm_free;
-		__entry->mm_thrash = mm_thrash;
-	),
-
-	TP_printk("free=%ld thrash=%ld",
-		__entry->mm_free, __entry->mm_thrash
-	)
-);
-
-TRACE_EVENT(lowmem_hint_uevent,
-	TP_PROTO(
-		int ret
-	),
-
-	TP_ARGS(ret),
-
-	TP_STRUCT__entry(
-		__field(int, ret)
-	),
-
-	TP_fast_assign(
-		__entry->ret = ret;
-	),
-
-	TP_printk("ret=%d",
-		__entry->ret
-	)
-);
-
 TRACE_EVENT(perf_index_s,
 	TP_PROTO(
-		unsigned int sf0,
-		unsigned int sf1,
-		unsigned int sf2,
 		int dram_freq,
 		int bw_c,
 		int bw_g,
@@ -441,12 +395,9 @@ TRACE_EVENT(perf_index_s,
 		int bw_total
 	),
 
-	TP_ARGS(sf0, sf1, sf2, dram_freq, bw_c, bw_g, bw_mm, bw_total),
+	TP_ARGS(dram_freq, bw_c, bw_g, bw_mm, bw_total),
 
 	TP_STRUCT__entry(
-		__field(unsigned int, sf0)
-		__field(unsigned int, sf1)
-		__field(unsigned int, sf2)
 		__field(int, dram_freq)
 		__field(int, bw_c)
 		__field(int, bw_g)
@@ -455,9 +406,6 @@ TRACE_EVENT(perf_index_s,
 	),
 
 	TP_fast_assign(
-		__entry->sf0	=  sf0;
-		__entry->sf1    =  sf1;
-		__entry->sf2    =  sf2;
 		__entry->dram_freq = dram_freq;
 		__entry->bw_c     = bw_c;
 		__entry->bw_g     = bw_g;
@@ -465,8 +413,7 @@ TRACE_EVENT(perf_index_s,
 		__entry->bw_total = bw_total;
 	),
 
-	TP_printk("sched_freq=%d|%d|%d dram_freq=%d bw=%d|%d|%d|%d",
-	__entry->sf0, __entry->sf1, __entry->sf2,
+	TP_printk("dram_freq=%d bw=%d|%d|%d|%d",
 	__entry->dram_freq,
 	__entry->bw_c,  __entry->bw_g,  __entry->bw_mm,  __entry->bw_total)
 );
@@ -549,23 +496,6 @@ TRACE_EVENT(perf_index_l,
 		__entry->stall[2], __entry->stall[3],
 		__entry->stall[4], __entry->stall[5],
 		__entry->stall[6], __entry->stall[7])
-);
-
-TRACE_EVENT(swpm_power,
-
-	TP_PROTO(char *power),
-
-	TP_ARGS(power),
-
-	TP_STRUCT__entry(
-		 __string(power_str, power)
-	),
-
-	TP_fast_assign(
-		__assign_str(power_str, power);
-	),
-
-	TP_printk("%s", __get_str(power_str))
 );
 
 #endif /* _TRACE_MTK_EVENTS_H */
