@@ -1,7 +1,6 @@
 # Any varying coverage in these files is non-deterministic
 # and is generally not a function of system call inputs.
 KCOV_INSTRUMENT		:= n
-UBSAN_SANITIZE_lockdep.o	:= n
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/include
 subdir-ccflags-y += -I$(srctree)/kernel/sched/
 obj-y += mutex.o semaphore.o rwsem.o percpu-rwsem.o
@@ -15,12 +14,7 @@ endif
 
 ifeq ($(CONFIG_PROVE_LOCKING),y)
 ccflags-y += -DMTK_LOCK_DEBUG
-endif
-
-ifeq ($(CONFIG_LOCKDEP),y)
-ccflags-y += -DMTK_ENHANCE_LOCKDEP_PROC
-ccflags-y += -DMTK_LOCK_DEBUG_NEW_DEPENDENCY
-ccflags-y += -DMTK_LOCK_MONITOR
+ccflags-y += -DMTK_ENHANCE_PROC_LOCKDEP
 endif
 
 obj-$(CONFIG_DEBUG_MUTEXES) += mutex-debug.o

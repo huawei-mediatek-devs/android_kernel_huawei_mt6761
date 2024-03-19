@@ -41,22 +41,8 @@ mt_cpufreq_find_close_freq(unsigned int id, unsigned int freq) { return 0; }
 #endif
 
 extern unsigned long boosted_cpu_util(int cpu);
-extern raw_spinlock_t stune_lock;
-
-#ifdef CONFIG_PROVE_LOCKING
-int close_lockdep_if_cpu_offline(void);
-void open_lockdep_if_need(int need);
-#endif
 
 #ifdef CONFIG_CGROUP_SCHEDTUNE
-#ifdef CONFIG_UCLAMP_TASK_GROUP
-extern int uclamp_group_get(struct task_struct *p,
-				   struct cgroup_subsys_state *css,
-				   int clamp_id, struct uclamp_se *uc_se,
-				   unsigned int clamp_value);
-extern void uclamp_group_put(int clamp_id, int group_id);
-extern struct mutex uclamp_mutex;
-#endif
 
 int schedtune_cpu_boost(int cpu);
 int schedtune_task_boost(struct task_struct *tsk);
@@ -71,8 +57,6 @@ void schedtune_exit_task(struct task_struct *tsk);
 void schedtune_enqueue_task(struct task_struct *p, int cpu);
 void schedtune_dequeue_task(struct task_struct *p, int cpu);
 
-extern int stune_task_threshold;
-
 #else /* CONFIG_CGROUP_SCHEDTUNE */
 
 #define schedtune_cpu_boost(cpu)  get_sysctl_sched_cfs_boost()
@@ -85,7 +69,6 @@ extern int stune_task_threshold;
 #define schedtune_enqueue_task(task, cpu) do { } while (0)
 #define schedtune_dequeue_task(task, cpu) do { } while (0)
 
-#define stune_task_threshold 0
 #endif /* CONFIG_CGROUP_SCHEDTUNE */
 
 int schedtune_normalize_energy(int energy);

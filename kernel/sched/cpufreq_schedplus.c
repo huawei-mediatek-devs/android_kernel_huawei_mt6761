@@ -30,9 +30,6 @@
 #include <linux/irq_work.h>
 #include <linux/delay.h>
 #include <linux/string.h>
-#include <linux/spinlock.h>
-#include <linux/cpumask.h>
-#include <linux/cpu_pm.h>
 #include <trace/events/sched.h>
 
 #include "sched.h"
@@ -92,9 +89,6 @@ static struct gov_data *g_gd[MAX_CLUSTER_NR] = { NULL };
 #endif
 
 #include <mt-plat/met_drv.h>
-
-static DEFINE_SPINLOCK(cpu_mcdi_mask_lock);
-struct cpumask cpu_mcdi_mask;
 
 struct sugov_cpu {
 	struct sugov_policy *sg_policy;
@@ -272,18 +266,19 @@ static void cpufreq_sched_try_driver_target(
 	if (!freq)
 		return;
 
-	/* notify fps tracker */
-	if (cpufreq_notifier_fp)
-		cpufreq_notifier_fp(cid, freq);
+	/* if freq min of stune changed, notify fps tracker */
+	if (min_boost_freq[cid] || cap_min_freq[cid])
+		if (cpufreq_notifier_fp)
+			cpufreq_notifier_fp(cid, freq);
 
 	cur_time = ktime_get();
 
 	policy = cpufreq_cpu_get(gd->target_cpu);
-	/* update current freq asap if tiny system. */
-#ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
 	if (IS_ERR_OR_NULL(policy))
 		return;
 
+	/* update current freq asap if tiny system. */
+#ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
 	max = policy->cpuinfo.max_freq;
 
 	/* freq is real world frequency already. */
@@ -313,9 +308,6 @@ static void cpufreq_sched_try_driver_target(
 #endif
 #else
 
-	if (IS_ERR_OR_NULL(policy))
-		return;
-
 	if (policy->governor != &cpufreq_gov_sched ||
 		!policy->governor_data)
 		return;
@@ -328,9 +320,9 @@ static void cpufreq_sched_try_driver_target(
 
 	up_write(&policy->rwsem);
 
-#endif
 	if (policy)
 		cpufreq_cpu_put(policy);
+#endif
 	/* debug */
 	met_tag_oneshot(0, met_dvfs_info[cid], freq);
 
@@ -347,10 +339,8 @@ void update_cpu_freq_quick(int cpu, int freq)
 {
 	int cid = arch_get_cluster_id(cpu);
 	int freq_new;
-	unsigned int min, max;
 	struct gov_data *gd;
 	int max_clus_nr = arch_get_nr_clusters();
-	ktime_t throttle;
 	unsigned int cur_freq;
 
 	/*
@@ -367,25 +357,15 @@ void update_cpu_freq_quick(int cpu, int freq)
 	gd = g_gd[cid];
 	cur_freq = gd->requested_freq;
 
-	max = arch_scale_get_max_freq(cpu);
-	min = arch_scale_get_min_freq(cpu);
-	freq_new = clamp((unsigned int)freq, min, max);
-	freq_new = mt_cpufreq_find_close_freq(cid, freq_new);
-
-	gd->requested_freq = freq_new;
+	freq_new = mt_cpufreq_find_close_freq(cid, freq);
 
 #if 0
 	if (freq_new == cur_freq)
 		return;
 #endif
 
-	throttle = freq_new < cur_freq ?
-			gd->down_throttle : gd->up_throttle;
 	gd->thro_type = freq_new < cur_freq ?
 			DVFS_THROTTLE_DOWN : DVFS_THROTTLE_UP;
-
-	trace_sched_dvfs(cpu, cid, SCHE_ONESHOT, cur_freq, freq_new, min, max,
-			gd->thro_type, throttle.tv64);
 
 	cpufreq_sched_try_driver_target(cpu, NULL, freq_new, -1);
 }
@@ -508,7 +488,6 @@ static void update_fdomain_capacity_request(int cpu, int type)
 	ktime_t throttle, now;
 	unsigned int cur_freq;
 	unsigned int max, min;
-	unsigned int uclamp_min, uclamp_max;
 	int cap_min = 0;
 
 	/*
@@ -525,7 +504,6 @@ static void update_fdomain_capacity_request(int cpu, int type)
 	/* type.I */
 	if (!mt_cpufreq_get_sched_enable())
 		goto out;
-	cpu_max_freq = arch_scale_get_max_freq(cpu);
 #else
 	policy = cpufreq_cpu_get(cpu);
 
@@ -535,8 +513,8 @@ static void update_fdomain_capacity_request(int cpu, int type)
 	if (policy->governor != &cpufreq_gov_sched ||
 		 !policy->governor_data)
 		goto out;
-	cpu_max_freq = policy->cpuinfo.max_freq;
 #endif
+	cpu_max_freq = policy->cpuinfo.max_freq;
 	arch_get_cluster_cpus(&cls_cpus, cid);
 
 	/* find max capacity requested by cpus in this policy */
@@ -547,14 +525,6 @@ static void update_fdomain_capacity_request(int cpu, int type)
 
 		if (!cpu_online(cpu_tmp))
 			continue;
-
-		uclamp_min = uclamp_value(cpu_tmp, UCLAMP_MIN);
-		uclamp_max = uclamp_value(cpu_tmp, UCLAMP_MAX);
-		trace_sched_dvfs_uclamp(cpu_tmp, uclamp_min, uclamp_max);
-
-		/* In schedplus, util is scaling by capacity_orig_of*/
-		uclamp_min = (uclamp_min << SCHED_CAPACITY_SHIFT) /
-			capacity_orig_of(cpu_tmp);
 
 		/* convert IO boosted freq to capacity */
 		boosted_util = (sg_cpu->iowait_boost << SCHED_CAPACITY_SHIFT) /
@@ -584,7 +554,6 @@ static void update_fdomain_capacity_request(int cpu, int type)
 			}
 			sg_cpu->last_update = time;
 		}
-
 		scr = &per_cpu(cpu_sched_capacity_reqs, cpu_tmp);
 
 		/*
@@ -609,8 +578,6 @@ static void update_fdomain_capacity_request(int cpu, int type)
 			capacity = max(capacity, boosted_util);
 		else
 			capacity = max(capacity, scr->total);
-
-		capacity = uclamp_min > capacity ? uclamp_min : capacity;
 
 #ifdef CONFIG_CGROUP_SCHEDTUNE
 		/* see if capacity_min exist */
@@ -647,6 +614,8 @@ static void update_fdomain_capacity_request(int cpu, int type)
 		goto out;
 
 	now = ktime_get();
+
+	cur_freq = gd->requested_freq;
 
 	gd->target_cpu = cpu;
 
@@ -691,7 +660,7 @@ static void update_fdomain_capacity_request(int cpu, int type)
 
 	gd->last_freq_update_time = time;
 
-	trace_sched_dvfs(cpu, cid, type, cur_freq, freq_new, min, max,
+	trace_sched_dvfs(cpu, cid, type, cur_freq, freq_new,
 			gd->thro_type, throttle.tv64);
 
 	/*
@@ -864,7 +833,7 @@ static void cpufreq_sched_policy_exit(struct cpufreq_policy *policy)
 	/* struct gov_data *gd = policy->governor_data; */
 
 #ifdef CONFIG_CPU_FREQ_SCHED_ASSIST
-	return;
+	return 0;
 #else
 	clear_sched_freq();
 
@@ -902,48 +871,6 @@ static void cpufreq_sched_stop(struct cpufreq_policy *policy)
 		per_cpu(enabled, cpu) = 0;
 #endif
 }
-
-static int cpu_pm_notifier(struct notifier_block *nb,
-		unsigned long cmd, void *data)
-{
-	int cpu = smp_processor_id();
-	int cid = arch_get_cluster_id(cpu);
-	unsigned long flags;
-	struct cpumask cluster_mask, tmp_mask;
-
-	switch (cmd) {
-	case CPU_PM_ENTER:
-		spin_lock_irqsave(&cpu_mcdi_mask_lock, flags);
-		cpumask_set_cpu(cpu, &cpu_mcdi_mask);
-
-		/*
-		 * if all cpu in same cluster were isolated and entered mcdi,
-		 * ramp down frequency.
-		 */
-		arch_get_cluster_cpus(&cluster_mask, cid);
-		cpumask_and(&tmp_mask, &cpu_mcdi_mask, cpu_isolated_mask);
-		cpumask_and(&tmp_mask, &tmp_mask, &cluster_mask);
-
-		if (cpumask_equal(&tmp_mask, &cluster_mask))
-			update_cpu_freq_quick(cpu, 0);
-
-		spin_unlock_irqrestore(&cpu_mcdi_mask_lock, flags);
-		break;
-	case CPU_PM_EXIT:
-		spin_lock_irqsave(&cpu_mcdi_mask_lock, flags);
-		cpumask_clear_cpu(cpu, &cpu_mcdi_mask);
-		spin_unlock_irqrestore(&cpu_mcdi_mask_lock, flags);
-		break;
-	default:
-		break;
-	}
-	return NOTIFY_OK;
-}
-
-
-static struct notifier_block cpu_pm_notifier_block = {
-	.notifier_call = cpu_pm_notifier,
-};
 
 static struct notifier_block cpu_hotplug;
 
@@ -1021,39 +948,6 @@ static ssize_t store_down_throttle_nsec(struct cpufreq_policy *policy,
 	gd->down_throttle_nsec_bk = val;
 	return count;
 }
-
-void schedplus_set_down_throttle_nsec(unsigned long val)
-{
-	int cid;
-	struct gov_data *gd;
-
-	for (cid = 0; cid < MAX_CLUSTER_NR; cid++) {
-		gd = g_gd[cid];
-		if (!gd)
-			return;
-		gd->down_throttle_nsec = val;
-		gd->down_throttle_nsec_bk = val;
-	}
-}
-EXPORT_SYMBOL(schedplus_set_down_throttle_nsec);
-
-unsigned long schedplus_show_down_throttle_nsec(int cpu)
-{
-	int cid;
-	struct gov_data *gd;
-
-	if (cpu < 0 || cpu >= nr_cpu_ids)
-		return -EINVAL;
-
-	cid = arch_get_cluster_id(cpu);
-	gd = g_gd[cid];
-
-	if (!gd)
-		return -EINVAL;
-
-	return gd->down_throttle_nsec;
-}
-EXPORT_SYMBOL(schedplus_show_down_throttle_nsec);
 
 /*
  * Create show/store routines
@@ -1164,8 +1058,6 @@ static int __init cpufreq_sched_init(void)
 
 	cpu_hotplug.notifier_call = cpu_hotplug_handler;
 	register_hotcpu_notifier(&cpu_hotplug);
-
-	cpu_pm_register_notifier(&cpu_pm_notifier_block);
 
 	return cpufreq_register_governor(&cpufreq_gov_sched);
 }

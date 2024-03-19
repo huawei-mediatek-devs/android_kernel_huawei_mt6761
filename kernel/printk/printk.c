@@ -1154,7 +1154,10 @@ static int devkmsg_open(struct inode *inode, struct file *file)
 {
 	struct devkmsg_user *user;
 	int err;
-
+#ifdef DEVKMSG_LIMIT_CONTROL
+	int interval = 5;
+	int burst = 100;
+#endif
 	if (devkmsg_log & DEVKMSG_LOG_MASK_OFF)
 		return -EPERM;
 
@@ -1170,7 +1173,11 @@ static int devkmsg_open(struct inode *inode, struct file *file)
 	if (!user)
 		return -ENOMEM;
 
+#ifdef  DEVKMSG_LIMIT_CONTROL
+	ratelimit_state_init(&user->rs, interval, burst);
+#else
 	ratelimit_default_init(&user->rs);
+#endif
 	ratelimit_set_flags(&user->rs, RATELIMIT_MSG_ON_RELEASE);
 
 	mutex_init(&user->lock);
@@ -1250,12 +1257,7 @@ static void __init log_buf_len_update(unsigned size)
 /* save requested log_buf_len since it's too early to process it */
 static int __init log_buf_len_setup(char *str)
 {
-	unsigned int size;
-
-	if (!str)
-		return -EINVAL;
-
-	size = memparse(str, &str);
+	unsigned size = memparse(str, &str);
 
 	log_buf_len_update(size);
 
@@ -2279,7 +2281,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 	local_irq_restore(flags);
 
 	/* If called from the scheduler, we can not call up(). */
-	if (!in_sched && cpu_online(raw_smp_processor_id())) {
+	if (!in_sched) {
 		lockdep_off();
 		/*
 		 * Try to acquire and then immediately release the console
@@ -2443,7 +2445,6 @@ static int parse_log_file(void)
 		return -ENOMEM;
 
 	log_count = 0;
-	memset(buff, 0, sizeof(buff));
 	while (log_seq < log_next_seq) {
 		msg = log_from_idx(log_index);
 		count = msg_print_text(msg, prev, true, buff, sizeof(buff));
@@ -2910,11 +2911,7 @@ skip:
 				(unsigned long)len_con_write_pstore,
 				(unsigned long)time_con_write_pstore,
 				rem_nsec_con_write_pstore/1000,
-#if !defined(CONFIG_MACH_MT6757)
 				mtk8250_uart_dump());
-#else
-				"NA");
-#endif
 			break;
 		}
 		/* print the uart status next time enter the console_unlock */
@@ -3882,5 +3879,68 @@ void get_kernel_log_buffer(unsigned long *addr,
 	*addr = (unsigned long)log_buf;
 	*size = log_buf_len;
 	*start = (unsigned long)&log_first_idx;
+}
+int kmsg_print_to_ddr(char *buf, int size)
+{
+	char *text;
+	struct printk_log *msg;
+	int len = 0;
+	u64 kmsg_seq = 0;
+	u32 kmsg_idx = 0;
+	enum log_flags kmsg_prev = 0;
+	size_t kmsg_partial = 0;
+
+	text = kmalloc(LOG_LINE_MAX + PREFIX_MAX, GFP_KERNEL);
+	if (!text)
+		return -ENOMEM;
+
+	while (size > 0) {
+		size_t n;
+		size_t skip;
+
+		raw_spin_lock_irq(&logbuf_lock);
+		if (kmsg_seq < log_first_seq) {
+			/* messages are gone, move to first one */
+			kmsg_seq = log_first_seq;
+			kmsg_idx = log_first_idx;
+			kmsg_prev = 0;
+			kmsg_partial = 0;
+		}
+		if (kmsg_seq == log_next_seq) {
+			raw_spin_unlock_irq(&logbuf_lock);
+			break;
+		}
+
+		skip = kmsg_partial;
+		msg = log_from_idx(kmsg_idx);
+		n = msg_print_text(msg, kmsg_prev, true, text,
+				   LOG_LINE_MAX + PREFIX_MAX);
+		if (n - kmsg_partial <= size) {
+			/* message fits into buffer, move forward */
+			kmsg_idx = log_next(kmsg_idx);
+			kmsg_seq++;
+			kmsg_prev = msg->flags;
+			n -= kmsg_partial;
+			kmsg_partial = 0;
+		} else if (!len){
+			/* partial read(), remember position */
+			n = size;
+			kmsg_partial += n;
+		} else
+			n = 0;
+		raw_spin_unlock_irq(&logbuf_lock);
+
+		if (!n)
+			break;
+
+		memcpy(buf, text + skip, n);
+
+		len += n;
+		size -= n;
+		buf += n;
+	}
+
+	kfree(text);
+	return len;
 }
 #endif

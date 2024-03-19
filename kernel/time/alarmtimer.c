@@ -26,6 +26,7 @@
 #include <linux/workqueue.h>
 #include <linux/freezer.h>
 #include <linux/ratelimit.h>
+#include <linux/module.h>
 
 /**
  * struct alarm_base - Alarm timer bases
@@ -213,7 +214,48 @@ ktime_t alarm_expires_remaining(const struct alarm *alarm)
 }
 EXPORT_SYMBOL_GPL(alarm_expires_remaining);
 
+typedef enum 
+{
+    RUNMODE_FLAG_NORMAL,
+    RUNMODE_FLAG_FACTORY,
+    RUNMODE_FLAG_UNKNOW
+}hw_runmode_t;
+
+#define RUNMODE_FLAG_NORMAL_KEY     "normal"
+#define RUNMODE_FLAG_FACTORY_KEY    "factory"
+static hw_runmode_t runmode_factory = RUNMODE_FLAG_UNKNOW;
+
+static int __init init_runmode(char *str)
+{
+    if(!str || !(*str)) {
+        printk(KERN_CRIT"%s:get run mode fail\n",__func__);
+        return 0;
+    }    
+
+    if(!strncmp(str, RUNMODE_FLAG_FACTORY_KEY, sizeof(RUNMODE_FLAG_FACTORY_KEY)-1)) {
+        runmode_factory = RUNMODE_FLAG_FACTORY;
+        printk(KERN_NOTICE "%s:run mode is factory\n", __func__);
+    } else {
+        runmode_factory = RUNMODE_FLAG_NORMAL;
+        printk(KERN_NOTICE "%s:run mode is normal\n", __func__);
+    }    
+
+    return 1;
+}
+
+__setup("androidboot.huawei_swtype=", init_runmode);
+
+
+
+bool hw_alarm_stop = 0;
+module_param(hw_alarm_stop, bool, 0644);
+MODULE_PARM_DESC(hw_alarm_stop, "stop or not alarm");
+EXPORT_SYMBOL(hw_alarm_stop);
+
 #ifdef CONFIG_RTC_CLASS
+
+extern unsigned int runmode_is_factory(void);
+
 /**
  * alarmtimer_suspend - Suspend time callback
  * @dev: unused
@@ -233,6 +275,10 @@ static int alarmtimer_suspend(struct device *dev)
 	int i;
 	int ret;
 
+	if (hw_alarm_stop && runmode_is_factory()){
+		pr_err("runmode_is_factory true, forbid alarms\n");
+		return 0;
+	}
 	spin_lock_irqsave(&freezer_delta_lock, flags);
 	min = freezer_delta;
 	freezer_delta = ktime_set(0, 0);
@@ -804,8 +850,7 @@ static int alarm_timer_nsleep(const clockid_t which_clock, int flags,
 	/* Convert (if necessary) to absolute time */
 	if (flags != TIMER_ABSTIME) {
 		ktime_t now = alarm_bases[type].gettime();
-
-		exp = ktime_add_safe(now, exp);
+		exp = ktime_add(now, exp);
 	}
 
 	if (alarmtimer_do_nsleep(&alarm, exp))

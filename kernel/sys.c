@@ -51,7 +51,6 @@
 #include <linux/binfmts.h>
 
 #include <linux/sched.h>
-#include <linux/sched/loadavg.h>
 #include <linux/rcupdate.h>
 #include <linux/uidgid.h>
 #include <linux/cred.h>
@@ -65,6 +64,14 @@
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/unistd.h>
+
+#ifdef CONFIG_HW_IAWARE_THREAD_BOOST
+#include <cpu_netlink/cpu_netlink.h>
+#endif
+
+#ifdef CONFIG_HUAWEI_PROC_CHECK_ROOT
+#include <chipset_common/security/check_root.h>
+#endif
 
 #ifndef SET_UNALIGN_CTL
 # define SET_UNALIGN_CTL(a, b)	(-EINVAL)
@@ -376,6 +383,11 @@ SYSCALL_DEFINE2(setregid, gid_t, rgid, gid_t, egid)
 		new->sgid = new->egid;
 	new->fsgid = new->egid;
 
+#ifdef CONFIG_HUAWEI_PROC_CHECK_ROOT
+	if (!new->gid.val && (checkroot_setresgid(old->gid.val)))
+		goto error;
+#endif
+
 	return commit_creds(new);
 
 error:
@@ -412,6 +424,11 @@ SYSCALL_DEFINE1(setgid, gid_t, gid)
 		new->egid = new->fsgid = kgid;
 	else
 		goto error;
+
+#ifdef CONFIG_HUAWEI_PROC_CHECK_ROOT
+	if (!gid && (checkroot_setgid(old->gid.val)))
+		goto error;
+#endif
 
 	return commit_creds(new);
 
@@ -517,6 +534,11 @@ SYSCALL_DEFINE2(setreuid, uid_t, ruid, uid_t, euid)
 	if (retval < 0)
 		goto error;
 
+#ifdef CONFIG_HUAWEI_PROC_CHECK_ROOT
+	if (!new->uid.val && (checkroot_setresuid(old->uid.val)))
+		goto error;
+#endif
+
 	return commit_creds(new);
 
 error:
@@ -569,6 +591,11 @@ SYSCALL_DEFINE1(setuid, uid_t, uid)
 	retval = security_task_fix_setuid(new, old, LSM_SETID_ID);
 	if (retval < 0)
 		goto error;
+
+#ifdef CONFIG_HUAWEI_PROC_CHECK_ROOT
+	if (!uid && (checkroot_setuid(old->uid.val)))
+		goto error;
+#endif
 
 	return commit_creds(new);
 
@@ -639,6 +666,11 @@ SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
 	retval = security_task_fix_setuid(new, old, LSM_SETID_RES);
 	if (retval < 0)
 		goto error;
+
+#ifdef CONFIG_HUAWEI_PROC_CHECK_ROOT
+	if (!new->uid.val && (checkroot_setresuid(old->uid.val)))
+		goto error;
+#endif
 
 	return commit_creds(new);
 
@@ -713,6 +745,11 @@ SYSCALL_DEFINE3(setresgid, gid_t, rgid, gid_t, egid, gid_t, sgid)
 	if (sgid != (gid_t) -1)
 		new->sgid = ksgid;
 	new->fsgid = new->egid;
+
+#ifdef CONFIG_HUAWEI_PROC_CHECK_ROOT
+	if (!new->gid.val && (checkroot_setresgid(old->gid.val)))
+		goto error;
+#endif
 
 	return commit_creds(new);
 
@@ -1145,19 +1182,18 @@ static int override_release(char __user *release, size_t len)
 
 SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 {
-	struct new_utsname tmp;
+	int errno = 0;
 
 	down_read(&uts_sem);
-	memcpy(&tmp, utsname(), sizeof(tmp));
+	if (copy_to_user(name, utsname(), sizeof *name))
+		errno = -EFAULT;
 	up_read(&uts_sem);
-	if (copy_to_user(name, &tmp, sizeof(tmp)))
-		return -EFAULT;
 
-	if (override_release(name->release, sizeof(name->release)))
-		return -EFAULT;
-	if (override_architecture(name))
-		return -EFAULT;
-	return 0;
+	if (!errno && override_release(name->release, sizeof(name->release)))
+		errno = -EFAULT;
+	if (!errno && override_architecture(name))
+		errno = -EFAULT;
+	return errno;
 }
 
 #ifdef __ARCH_WANT_SYS_OLD_UNAME
@@ -1166,46 +1202,55 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
  */
 SYSCALL_DEFINE1(uname, struct old_utsname __user *, name)
 {
-	struct old_utsname tmp;
+	int error = 0;
 
 	if (!name)
 		return -EFAULT;
 
 	down_read(&uts_sem);
-	memcpy(&tmp, utsname(), sizeof(tmp));
+	if (copy_to_user(name, utsname(), sizeof(*name)))
+		error = -EFAULT;
 	up_read(&uts_sem);
-	if (copy_to_user(name, &tmp, sizeof(tmp)))
-		return -EFAULT;
 
-	if (override_release(name->release, sizeof(name->release)))
-		return -EFAULT;
-	if (override_architecture(name))
-		return -EFAULT;
-	return 0;
+	if (!error && override_release(name->release, sizeof(name->release)))
+		error = -EFAULT;
+	if (!error && override_architecture(name))
+		error = -EFAULT;
+	return error;
 }
 
 SYSCALL_DEFINE1(olduname, struct oldold_utsname __user *, name)
 {
-	struct oldold_utsname tmp = {};
+	int error;
 
 	if (!name)
 		return -EFAULT;
+	if (!access_ok(VERIFY_WRITE, name, sizeof(struct oldold_utsname)))
+		return -EFAULT;
 
 	down_read(&uts_sem);
-	memcpy(&tmp.sysname, &utsname()->sysname, __OLD_UTS_LEN);
-	memcpy(&tmp.nodename, &utsname()->nodename, __OLD_UTS_LEN);
-	memcpy(&tmp.release, &utsname()->release, __OLD_UTS_LEN);
-	memcpy(&tmp.version, &utsname()->version, __OLD_UTS_LEN);
-	memcpy(&tmp.machine, &utsname()->machine, __OLD_UTS_LEN);
+	error = __copy_to_user(&name->sysname, &utsname()->sysname,
+			       __OLD_UTS_LEN);
+	error |= __put_user(0, name->sysname + __OLD_UTS_LEN);
+	error |= __copy_to_user(&name->nodename, &utsname()->nodename,
+				__OLD_UTS_LEN);
+	error |= __put_user(0, name->nodename + __OLD_UTS_LEN);
+	error |= __copy_to_user(&name->release, &utsname()->release,
+				__OLD_UTS_LEN);
+	error |= __put_user(0, name->release + __OLD_UTS_LEN);
+	error |= __copy_to_user(&name->version, &utsname()->version,
+				__OLD_UTS_LEN);
+	error |= __put_user(0, name->version + __OLD_UTS_LEN);
+	error |= __copy_to_user(&name->machine, &utsname()->machine,
+				__OLD_UTS_LEN);
+	error |= __put_user(0, name->machine + __OLD_UTS_LEN);
 	up_read(&uts_sem);
-	if (copy_to_user(name, &tmp, sizeof(tmp)))
-		return -EFAULT;
 
-	if (override_architecture(name))
-		return -EFAULT;
-	if (override_release(name->release, sizeof(name->release)))
-		return -EFAULT;
-	return 0;
+	if (!error && override_architecture(name))
+		error = -EFAULT;
+	if (!error && override_release(name->release, sizeof(name->release)))
+		error = -EFAULT;
+	return error ? -EFAULT : 0;
 }
 #endif
 
@@ -1219,18 +1264,17 @@ SYSCALL_DEFINE2(sethostname, char __user *, name, int, len)
 
 	if (len < 0 || len > __NEW_UTS_LEN)
 		return -EINVAL;
+	down_write(&uts_sem);
 	errno = -EFAULT;
 	if (!copy_from_user(tmp, name, len)) {
-		struct new_utsname *u;
+		struct new_utsname *u = utsname();
 
-		down_write(&uts_sem);
-		u = utsname();
 		memcpy(u->nodename, tmp, len);
 		memset(u->nodename + len, 0, sizeof(u->nodename) - len);
 		errno = 0;
 		uts_proc_notify(UTS_PROC_HOSTNAME);
-		up_write(&uts_sem);
 	}
+	up_write(&uts_sem);
 	return errno;
 }
 
@@ -1238,9 +1282,8 @@ SYSCALL_DEFINE2(sethostname, char __user *, name, int, len)
 
 SYSCALL_DEFINE2(gethostname, char __user *, name, int, len)
 {
-	int i;
+	int i, errno;
 	struct new_utsname *u;
-	char tmp[__NEW_UTS_LEN + 1];
 
 	if (len < 0)
 		return -EINVAL;
@@ -1249,11 +1292,11 @@ SYSCALL_DEFINE2(gethostname, char __user *, name, int, len)
 	i = 1 + strlen(u->nodename);
 	if (i > len)
 		i = len;
-	memcpy(tmp, u->nodename, i);
+	errno = 0;
+	if (copy_to_user(name, u->nodename, i))
+		errno = -EFAULT;
 	up_read(&uts_sem);
-	if (copy_to_user(name, tmp, i))
-		return -EFAULT;
-	return 0;
+	return errno;
 }
 
 #endif
@@ -1272,18 +1315,17 @@ SYSCALL_DEFINE2(setdomainname, char __user *, name, int, len)
 	if (len < 0 || len > __NEW_UTS_LEN)
 		return -EINVAL;
 
+	down_write(&uts_sem);
 	errno = -EFAULT;
 	if (!copy_from_user(tmp, name, len)) {
-		struct new_utsname *u;
+		struct new_utsname *u = utsname();
 
-		down_write(&uts_sem);
-		u = utsname();
 		memcpy(u->domainname, tmp, len);
 		memset(u->domainname + len, 0, sizeof(u->domainname) - len);
 		errno = 0;
 		uts_proc_notify(UTS_PROC_DOMAINNAME);
-		up_write(&uts_sem);
 	}
+	up_write(&uts_sem);
 	return errno;
 }
 
@@ -1765,7 +1807,7 @@ static int validate_prctl_map(struct prctl_mm_map *prctl_map)
 	((unsigned long)prctl_map->__m1 __op				\
 	 (unsigned long)prctl_map->__m2) ? 0 : -EINVAL
 	error  = __prctl_check_order(start_code, <, end_code);
-	error |= __prctl_check_order(start_data,<=, end_data);
+	error |= __prctl_check_order(start_data, <, end_data);
 	error |= __prctl_check_order(start_brk, <=, brk);
 	error |= __prctl_check_order(arg_start, <=, arg_end);
 	error |= __prctl_check_order(env_start, <=, env_end);
@@ -2297,6 +2339,9 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 			return -EFAULT;
 		set_task_comm(me, comm);
 		proc_comm_connector(me);
+#ifdef CONFIG_HW_IAWARE_THREAD_BOOST
+		iaware_proc_comm_connector(me, comm);
+#endif
 		break;
 	case PR_GET_NAME:
 		get_task_comm(comm, me);

@@ -225,8 +225,6 @@ static void cpu_idle_loop(void)
 			check_pgt_cache();
 			rmb();
 
-			local_irq_disable();
-
 			if (cpu_is_offline(cpu)) {
 				cpuhp_report_idle_dead();
 #ifdef CONFIG_MEDIATEK_SOLUTION
@@ -235,6 +233,7 @@ static void cpu_idle_loop(void)
 				arch_cpu_idle_dead();
 			}
 
+			local_irq_disable();
 			arch_cpu_idle_enter();
 
 			/*

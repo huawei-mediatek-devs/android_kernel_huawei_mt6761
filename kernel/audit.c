@@ -403,8 +403,7 @@ static void audit_printk_skb(struct sk_buff *skb)
 }
 
 
-#if defined(CONFIG_MTK_SELINUX_AEE_WARNING) &&\
-	defined(MTK_SELINUX_WARNING_ENABLE)
+#ifdef CONFIG_MTK_SELINUX_AEE_WARNING
 /*
  * return skb field of audit buffer
  */

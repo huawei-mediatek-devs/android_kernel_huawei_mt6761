@@ -15,10 +15,11 @@
 #include <linux/lockdep.h>
 #include <linux/export.h>
 #include <linux/sysctl.h>
-#include <linux/suspend.h>
 #include <linux/utsname.h>
 #include <trace/events/sched.h>
-
+#ifdef CONFIG_DETECT_HUAWEI_HUNG_TASK
+#include "huawei_hung_task.h"
+#endif
 /*
  * The number of tasks checked:
  */
@@ -31,7 +32,7 @@ int __read_mostly sysctl_hung_task_check_count = PID_MAX_LIMIT;
  * is disabled during the critical section. It also controls the size of
  * the RCU grace period. So it needs to be upper-bound.
  */
-#define HUNG_TASK_LOCK_BREAK (HZ / 10)
+#define HUNG_TASK_BATCHING 1024
 
 /*
  * Zero means infinite timeout - no checking done:
@@ -65,7 +66,9 @@ static int
 hung_task_panic(struct notifier_block *this, unsigned long event, void *ptr)
 {
 	did_panic = 1;
-
+#ifdef CONFIG_DETECT_HUAWEI_HUNG_TASK
+    fetch_hung_task_panic(did_panic);
+#endif
 	return NOTIFY_DONE;
 }
 
@@ -73,6 +76,7 @@ static struct notifier_block panic_block = {
 	.notifier_call = hung_task_panic,
 };
 
+ #ifndef CONFIG_DETECT_HUAWEI_HUNG_TASK
 static void check_hung_task(struct task_struct *t, unsigned long timeout)
 {
 	unsigned long switch_count = t->nvcsw + t->nivcsw;
@@ -159,7 +163,7 @@ static bool rcu_lock_break(struct task_struct *g, struct task_struct *t)
 static void check_hung_uninterruptible_tasks(unsigned long timeout)
 {
 	int max_count = sysctl_hung_task_check_count;
-	unsigned long last_break = jiffies;
+	int batch_count = HUNG_TASK_BATCHING;
 	struct task_struct *g, *t;
 
 	/*
@@ -173,10 +177,10 @@ static void check_hung_uninterruptible_tasks(unsigned long timeout)
 	for_each_process_thread(g, t) {
 		if (!max_count--)
 			goto unlock;
-		if (time_after(jiffies, last_break + HUNG_TASK_LOCK_BREAK)) {
+		if (!--batch_count) {
+			batch_count = HUNG_TASK_BATCHING;
 			if (!rcu_lock_break(g, t))
 				goto unlock;
-			last_break = jiffies;
 		}
 		/* use "==" to skip the TASK_KILLABLE tasks waiting on NFS */
 		if (t->state == TASK_UNINTERRUPTIBLE)
@@ -185,6 +189,7 @@ static void check_hung_uninterruptible_tasks(unsigned long timeout)
  unlock:
 	rcu_read_unlock();
 }
+ #endif
 
 static long hung_timeout_jiffies(unsigned long last_checked,
 				 unsigned long timeout)
@@ -209,7 +214,9 @@ int proc_dohung_task_timeout_secs(struct ctl_table *table, int write,
 		goto out;
 
 	wake_up_process(watchdog_task);
-
+#ifdef CONFIG_DETECT_HUAWEI_HUNG_TASK
+    fetch_task_timeout_secs(sysctl_hung_task_timeout_secs);
+#endif
  out:
 	return ret;
 }
@@ -222,28 +229,6 @@ void reset_hung_task_detector(void)
 }
 EXPORT_SYMBOL_GPL(reset_hung_task_detector);
 
-static bool hung_detector_suspended;
-
-static int hungtask_pm_notify(struct notifier_block *self,
-			      unsigned long action, void *hcpu)
-{
-	switch (action) {
-	case PM_SUSPEND_PREPARE:
-	case PM_HIBERNATION_PREPARE:
-	case PM_RESTORE_PREPARE:
-		hung_detector_suspended = true;
-		break;
-	case PM_POST_SUSPEND:
-	case PM_POST_HIBERNATION:
-	case PM_POST_RESTORE:
-		hung_detector_suspended = false;
-		break;
-	default:
-		break;
-	}
-	return NOTIFY_OK;
-}
-
 /*
  * kthread which checks for tasks stuck in D state
  */
@@ -254,13 +239,20 @@ static int watchdog(void *dummy)
 	set_user_nice(current, 0);
 
 	for ( ; ; ) {
+ #ifdef CONFIG_DETECT_HUAWEI_HUNG_TASK
+        unsigned long timeout = HEARTBEAT_TIME;
+ #else
 		unsigned long timeout = sysctl_hung_task_timeout_secs;
+ #endif
 		long t = hung_timeout_jiffies(hung_last_checked, timeout);
 
 		if (t <= 0) {
-			if (!atomic_xchg(&reset_hung_task, 0) &&
-			    !hung_detector_suspended)
+			if (!atomic_xchg(&reset_hung_task, 0))
+ #ifdef CONFIG_DETECT_HUAWEI_HUNG_TASK
+                check_hung_tasks_proposal(timeout);
+ #else
 				check_hung_uninterruptible_tasks(timeout);
+ #endif
 			hung_last_checked = jiffies;
 			continue;
 		}
@@ -272,11 +264,13 @@ static int watchdog(void *dummy)
 
 static int __init hung_task_init(void)
 {
+ #ifdef CONFIG_DETECT_HUAWEI_HUNG_TASK
+    int ret = 0;
+    ret = create_sysfs_hungtask();
+    if (ret)
+        pr_err("hungtask: create_sysfs_hungtask fail.\n");
+ #endif
 	atomic_notifier_chain_register(&panic_notifier_list, &panic_block);
-
-	/* Disable hung task detector on suspend */
-	pm_notifier(hungtask_pm_notify, 0);
-
 	watchdog_task = kthread_run(watchdog, NULL, "khungtaskd");
 
 	return 0;

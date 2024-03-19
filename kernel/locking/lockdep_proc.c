@@ -23,11 +23,7 @@
 
 #include "lockdep_internals.h"
 
-#ifdef CONFIG_MTK_BOOT
-#include <mt-plat/mtk_boot_common.h>
-#endif
-
-#ifdef MTK_ENHANCE_LOCKDEP_PROC
+#ifdef MTK_ENHANCE_PROC_LOCKDEP
 static unsigned int lockdep_mode;
 
 #define __USAGE(__STATE)						\
@@ -114,7 +110,7 @@ static int l_show(struct seq_file *m, void *v)
 	print_name(m, class);
 	seq_puts(m, "\n");
 
-#ifdef MTK_ENHANCE_LOCKDEP_PROC
+#ifdef MTK_ENHANCE_PROC_LOCKDEP
 	/* 0x1: print usage traces of this lock */
 	if (lockdep_mode & 0x1) {
 		int bit;
@@ -177,7 +173,7 @@ static int lockdep_open(struct inode *inode, struct file *file)
 	return seq_open(file, &lockdep_ops);
 }
 
-#ifdef MTK_ENHANCE_LOCKDEP_PROC
+#ifdef MTK_ENHANCE_PROC_LOCKDEP
 /*
  * 0x0: print basic dependency information
  * 0x1: print usage traces of this lock
@@ -212,7 +208,7 @@ static ssize_t lockdep_write(struct file *filp,
 
 static const struct file_operations proc_lockdep_operations = {
 	.open		= lockdep_open,
-#ifdef MTK_ENHANCE_LOCKDEP_PROC
+#ifdef MTK_ENHANCE_PROC_LOCKDEP
 	.write		= lockdep_write,
 #endif
 	.read		= seq_read,
@@ -327,6 +323,7 @@ static void lockdep_stats_debug_show(struct seq_file *m)
 
 static int lockdep_stats_show(struct seq_file *m, void *v)
 {
+	struct lock_class *class;
 	unsigned long nr_unused = 0, nr_uncategorized = 0,
 		      nr_irq_safe = 0, nr_irq_unsafe = 0,
 		      nr_softirq_safe = 0, nr_softirq_unsafe = 0,
@@ -335,9 +332,6 @@ static int lockdep_stats_show(struct seq_file *m, void *v)
 		      nr_softirq_read_safe = 0, nr_softirq_read_unsafe = 0,
 		      nr_hardirq_read_safe = 0, nr_hardirq_read_unsafe = 0,
 		      sum_forward_deps = 0;
-
-#ifdef CONFIG_PROVE_LOCKING
-	struct lock_class *class;
 
 	list_for_each_entry(class, &all_lock_classes, lock_entry) {
 
@@ -370,12 +364,12 @@ static int lockdep_stats_show(struct seq_file *m, void *v)
 		if (class->usage_mask & LOCKF_ENABLED_HARDIRQ_READ)
 			nr_hardirq_read_unsafe++;
 
+#ifdef CONFIG_PROVE_LOCKING
 		sum_forward_deps += lockdep_count_forward_deps(class);
+#endif
 	}
 #ifdef CONFIG_DEBUG_LOCKDEP
 	DEBUG_LOCKS_WARN_ON(debug_atomic_read(nr_unused_locks) != nr_unused);
-#endif
-
 #endif
 	seq_printf(m, " lock-classes:                  %11lu [max: %lu]\n",
 			nr_lock_classes, MAX_LOCKDEP_KEYS);
@@ -787,11 +781,7 @@ static const struct file_operations proc_lock_stat_operations = {
 
 static int __init lockdep_proc_init(void)
 {
-#ifdef CONFIG_MTK_BOOT
-	if (get_boot_mode() == META_BOOT)
-		debug_locks_off();
-#endif
-#ifdef MTK_ENHANCE_LOCKDEP_PROC
+#ifdef MTK_ENHANCE_PROC_LOCKDEP
 	proc_create("lockdep", 0600, NULL, &proc_lockdep_operations);
 #else
 	proc_create("lockdep", S_IRUSR, NULL, &proc_lockdep_operations);
@@ -807,10 +797,6 @@ static int __init lockdep_proc_init(void)
 #ifdef CONFIG_LOCK_STAT
 	proc_create("lock_stat", S_IRUSR | S_IWUSR, NULL,
 		    &proc_lock_stat_operations);
-#endif
-
-#ifdef MTK_LOCK_MONITOR
-	lock_monitor_init();
 #endif
 	lockdep_test_init();
 	return 0;

@@ -63,6 +63,9 @@
 #include <linux/dynamic_debug.h>
 #include <uapi/linux/module.h>
 #include "module-internal.h"
+#ifdef CONFIG_MODULE_SIG
+#include <chipset_common/security/hw_kernel_stp_interface.h>
+#endif
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
@@ -986,7 +989,7 @@ SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
 		mod->exit();
 	blocking_notifier_call_chain(&module_notify_list,
 				     MODULE_STATE_GOING, mod);
-	klp_module_going(mod);
+
 	ftrace_release_mod(mod);
 
 	async_synchronize_full();
@@ -1993,12 +1996,10 @@ void set_all_modules_text_ro(void)
 
 static void disable_ro_nx(const struct module_layout *layout)
 {
-	if (rodata_enabled) {
-		frob_text(layout, set_memory_rw);
-		frob_rodata(layout, set_memory_rw);
-		frob_ro_after_init(layout, set_memory_rw);
-	}
+	frob_text(layout, set_memory_rw);
+	frob_rodata(layout, set_memory_rw);
 	frob_rodata(layout, set_memory_x);
+	frob_ro_after_init(layout, set_memory_rw);
 	frob_ro_after_init(layout, set_memory_x);
 	frob_writable_data(layout, set_memory_x);
 }
@@ -2746,6 +2747,8 @@ static int module_sig_check(struct load_info *info, int flags)
 	int err = -ENOKEY;
 	const unsigned long markerlen = sizeof(MODULE_SIG_STRING) - 1;
 	const void *mod = info->hdr;
+	struct stp_item item;
+	int ret = 0;
 
 	/*
 	 * Require flags == 0, as a module with version information
@@ -2762,6 +2765,19 @@ static int module_sig_check(struct load_info *info, int flags)
 	if (!err) {
 		info->sig_ok = true;
 		return 0;
+	}
+	(void)memset(&item, 0, sizeof(item));
+	item.id = item_info[MOD_SIGN].id;
+	item.status = STP_RISK;
+	item.credible = STP_CREDIBLE;
+	item.version = 0;
+	(void)strncpy(item.name, item_info[MOD_SIGN].name, STP_ITEM_NAME_LEN - 1);
+	ret = kernel_stp_upload(item, NULL);
+	if (ret != 0) {
+		pr_err("stp mod_sign upload fail");
+	}
+	else {
+		pr_err("stp mod_sign upload success");
 	}
 
 	/* Not having a signature is only an error if we're strict. */
@@ -3362,7 +3378,8 @@ static bool finished_loading(const char *name)
 	sched_annotate_sleep();
 	mutex_lock(&module_mutex);
 	mod = find_module_all(name, strlen(name), true);
-	ret = !mod || mod->state == MODULE_STATE_LIVE;
+	ret = !mod || mod->state == MODULE_STATE_LIVE
+		|| mod->state == MODULE_STATE_GOING;
 	mutex_unlock(&module_mutex);
 
 	return ret;
@@ -3494,7 +3511,7 @@ fail:
 	module_put(mod);
 	blocking_notifier_call_chain(&module_notify_list,
 				     MODULE_STATE_GOING, mod);
-	klp_module_going(mod);
+
 	ftrace_release_mod(mod);
 	free_module(mod);
 	wake_up_all(&module_wq);
@@ -3525,7 +3542,8 @@ again:
 	mutex_lock(&module_mutex);
 	old = find_module_all(mod->name, strlen(mod->name), true);
 	if (old != NULL) {
-		if (old->state != MODULE_STATE_LIVE) {
+		if (old->state == MODULE_STATE_COMING
+		    || old->state == MODULE_STATE_UNFORMED) {
 			/* Wait in case it fails to load. */
 			mutex_unlock(&module_mutex);
 			err = wait_event_interruptible(module_wq,
@@ -3579,15 +3597,7 @@ out:
 
 static int prepare_coming_module(struct module *mod)
 {
-	int err;
-
 	ftrace_module_enable(mod);
-	err = klp_module_coming(mod);
-	if (err)
-		return err;
-
-	blocking_notifier_call_chain(&module_notify_list,
-				     MODULE_STATE_COMING, mod);
 	return 0;
 }
 
@@ -3732,20 +3742,19 @@ static int load_module(struct load_info *info, const char __user *uargs,
 			goto sysfs_cleanup;
 	}
 
-	/* Get rid of temporary copy. */
-	free_copy(info);
-
 	/* Done! */
 	trace_module_load(mod);
 
-	return do_init_module(mod);
+	err = do_init_module(mod);
+	/* Get rid of temporary copy. */
+	free_copy(info);
+	return err;
 
  sysfs_cleanup:
 	mod_sysfs_teardown(mod);
  coming_cleanup:
 	blocking_notifier_call_chain(&module_notify_list,
 				     MODULE_STATE_GOING, mod);
-	klp_module_going(mod);
  bug_cleanup:
 	/* module_bug_cleanup needs module_mutex protection */
 	mutex_lock(&module_mutex);
@@ -4020,7 +4029,7 @@ static unsigned long mod_find_symname(struct module *mod, const char *name)
 
 	for (i = 0; i < kallsyms->num_symtab; i++)
 		if (strcmp(name, symname(kallsyms, i)) == 0 &&
-		    kallsyms->symtab[i].st_shndx != SHN_UNDEF)
+		    kallsyms->symtab[i].st_info != 'U')
 			return kallsyms->symtab[i].st_value;
 	return 0;
 }
@@ -4066,10 +4075,6 @@ int module_kallsyms_on_each_symbol(int (*fn)(void *, const char *,
 		if (mod->state == MODULE_STATE_UNFORMED)
 			continue;
 		for (i = 0; i < kallsyms->num_symtab; i++) {
-
-			if (kallsyms->symtab[i].st_shndx == SHN_UNDEF)
-				continue;
-
 			ret = fn(data, symname(kallsyms, i),
 				 mod, kallsyms->symtab[i].st_value);
 			if (ret != 0)
@@ -4319,67 +4324,12 @@ void print_modules(void)
 	list_for_each_entry_rcu(mod, &modules, list) {
 		if (mod->state == MODULE_STATE_UNFORMED)
 			continue;
-#if 0
 		pr_cont(" %s%s", mod->name, module_flags(mod, buf));
-#else
-		pr_cont(" %s %px %px %d %d %s",
-			mod->name,
-			mod->core_layout.base,
-			mod->init_layout.base,
-			mod->core_layout.size,
-			mod->init_layout.size,
-			module_flags(mod, buf));
-#endif
 	}
 	preempt_enable();
 	if (last_unloaded_module[0])
 		pr_cont(" [last unloaded: %s]", last_unloaded_module);
 	pr_cont("\n");
-}
-
-int __weak do_translation_fault_preconditioner(unsigned long addr)
-{
-	return -1;
-}
-
-/* MUST ensure called when preempt disabled already */
-int save_modules(char *mbuf, int mbufsize)
-{
-	struct module *mod;
-	char buf[8];
-	/*int off = 0;*/
-	int sz = 0;
-
-	if (mbuf == NULL || mbufsize <= 0) {
-		pr_cont("mrdump: module info buffer wrong(sz:%d)\n", mbufsize);
-		return 0;
-	}
-
-	memset(mbuf, '\0', mbufsize);
-	sz += snprintf(mbuf + sz, mbufsize - sz, "Modules linked in:");
-	list_for_each_entry_rcu(mod, &modules, list) {
-		do_translation_fault_preconditioner((unsigned long)mod);
-		if (mod->state == MODULE_STATE_UNFORMED)
-			continue;
-		if (sz >= mbufsize) {
-			pr_cont("mrdump: module info buffer full(sz:%d)\n",
-				mbufsize);
-			break;
-		}
-		sz += snprintf(mbuf + sz, mbufsize - sz, " %s %px %px %d %d %s",
-				mod->name,
-				mod->core_layout.base,
-				mod->init_layout.base,
-				mod->core_layout.size,
-				mod->init_layout.size,
-				module_flags(mod, buf));
-	}
-	if (last_unloaded_module[0] && sz < mbufsize)
-		sz += snprintf(mbuf + sz, mbufsize - sz, " [last unloaded: %s]",
-				last_unloaded_module);
-	if (sz < mbufsize)
-		sz += snprintf(mbuf + sz, mbufsize - sz, "\n");
-	return sz;
 }
 
 #ifdef CONFIG_MODVERSIONS
