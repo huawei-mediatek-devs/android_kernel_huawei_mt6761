@@ -801,7 +801,7 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level,
 static int kvm_vcpu_set_target(struct kvm_vcpu *vcpu,
 			       const struct kvm_vcpu_init *init)
 {
-	unsigned int i, ret;
+	unsigned int i;
 	int phys_target = kvm_target_cpu();
 
 	if (init->target != phys_target)
@@ -836,14 +836,9 @@ static int kvm_vcpu_set_target(struct kvm_vcpu *vcpu,
 	vcpu->arch.target = phys_target;
 
 	/* Now we know what it is, we can reset it. */
-	ret = kvm_reset_vcpu(vcpu);
-	if (ret) {
-		vcpu->arch.target = -1;
-		bitmap_zero(vcpu->arch.features, KVM_VCPU_MAX_FEATURES);
-	}
-
-	return ret;
+	return kvm_reset_vcpu(vcpu);
 }
+
 
 static int kvm_arch_vcpu_ioctl_vcpu_init(struct kvm_vcpu *vcpu,
 					 struct kvm_vcpu_init *init)
@@ -1097,6 +1092,8 @@ static void cpu_init_hyp_mode(void *dummy)
 
 	__cpu_init_hyp_mode(pgd_ptr, hyp_stack_ptr, vector_ptr);
 	__cpu_init_stage2();
+
+	kvm_arm_init_debug();
 }
 
 static void cpu_hyp_reinit(void)
@@ -1111,8 +1108,6 @@ static void cpu_hyp_reinit(void)
 		if (__hyp_get_vectors() == hyp_default_vectors)
 			cpu_init_hyp_mode(NULL);
 	}
-
-	kvm_arm_init_debug();
 }
 
 static void cpu_hyp_reset(void)

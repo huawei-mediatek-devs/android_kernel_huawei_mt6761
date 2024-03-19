@@ -60,89 +60,35 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 		cpu0: cpu@0 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
-			next-level-cache = <&L2_0>;
 			reg = <0x000>;
 			enable-method = "psci";
 			cpu-idle-states = <&CPU_SLEEP_0>;
 			#cooling-cells = <2>;
-			sched-energy-costs = <&MT8173_CPU_COST_0
-					      &MT8173_CLUSTER_COST_0>;
 		};
 
 		cpu1: cpu@1 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
-			next-level-cache = <&L2_0>;
 			reg = <0x001>;
 			enable-method = "psci";
 			cpu-idle-states = <&CPU_SLEEP_0>;
-			sched-energy-costs = <&MT8173_CPU_COST_0
-					      &MT8173_CLUSTER_COST_0>;
 		};
 
 		cpu2: cpu@100 {
 			device_type = "cpu";
-			compatible = "arm,cortex-a72";
-			next-level-cache = <&L2_0>;
+			compatible = "arm,cortex-a57";
 			reg = <0x100>;
 			enable-method = "psci";
 			cpu-idle-states = <&CPU_SLEEP_0>;
 			#cooling-cells = <2>;
-			sched-energy-costs = <&MT8173_CPU_COST_1
-					      &MT8173_CLUSTER_COST_1>;
 		};
 
 		cpu3: cpu@101 {
 			device_type = "cpu";
-			compatible = "arm,cortex-a72";
-			next-level-cache = <&L2_0>;
+			compatible = "arm,cortex-a57";
 			reg = <0x101>;
 			enable-method = "psci";
 			cpu-idle-states = <&CPU_SLEEP_0>;
-			sched-energy-costs = <&MT8173_CPU_COST_1
-					      &MT8173_CLUSTER_COST_1>;
-		};
-
-		energy-costs {
-			MT8173_CPU_COST_0: mt8173-core-cost0 {
-				busy-cost-data = <
-					1024	0
-				>;
-				idle-cost-data = <
-					0
-					0
-				>;
-			};
-
-			MT8173_CPU_COST_1: mt8173-core-cost1 {
-				busy-cost-data = <
-					1024	0
-				>;
-				idle-cost-data = <
-					0
-					0
-				>;
-			};
-
-			MT8173_CLUSTER_COST_0: mt8173-cluster-cost0 {
-				busy-cost-data = <
-					1024	0
-				>;
-				idle-cost-data = <
-					0
-					0
-				>;
-			};
-
-			MT8173_CLUSTER_COST_1: mt8173-cluster-cost1 {
-				busy-cost-data = <
-					1024	0
-				>;
-				idle-cost-data = <
-					0
-					0
-				>;
-			};
 		};
 
 		idle-states {
@@ -157,24 +103,6 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 				arm,psci-suspend-param = <0x0010000>;
 			};
 		};
-
-		L2_0: l2-cache0 {
-			compatible = "cache";
-		};
-	};
-
-	pmu_a53 {
-		compatible = "arm,cortex-a53-pmu";
-		interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_LOW>,
-			     <GIC_SPI 9 IRQ_TYPE_LEVEL_LOW>;
-		interrupt-affinity = <&cpu0>, <&cpu1>;
-	};
-
-	pmu_a72 {
-		compatible = "arm,cortex-a72-pmu";
-		interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL_LOW>,
-			     <GIC_SPI 13 IRQ_TYPE_LEVEL_LOW>;
-		interrupt-affinity = <&cpu2>, <&cpu3>;
 	};
 
 	psci {
@@ -265,22 +193,13 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 		compatible = "arm,armv8-timer";
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_PPI 13
-			     (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
+			      (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
 			     <GIC_PPI 14
-			     (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
+			      (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
 			     <GIC_PPI 11
-			     (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
+			      (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
 			     <GIC_PPI 10
-			     (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>;
-		clock-frequency = <13000000>;
-		arm,no-tick-in-suspend;
-	};
-
-	ice: ice_debug {
-		compatible = "mediatek,mt8173-ice_debug",
-			     "mediatek,mt2701-ice_debug";
-		clocks = <&infracfg CLK_INFRA_DBGCLK>;
-		clock-names = "ice_dbg";
+			      (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>;
 	};
 
 	soc {
@@ -310,21 +229,11 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 			#clock-cells = <1>;
 		};
 
-		disp_tvdpll_cfg6: disp_tvdpll_cfg6@100000a0 {
-			compatible = "mediatek,mt8173-disp_tvdpll_cfg6";
-			reg = <0 0x100000a0 0 0x1000>;
-		};
-
 		infracfg: power-controller@10001000 {
 			compatible = "mediatek,mt8173-infracfg", "syscon";
 			reg = <0 0x10001000 0 0x1000>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
-		};
-
-		disp_io_driving: disp_io_driving@100020f0 {
-			compatible = "mediatek,mt8173-disp_io_driving";
-			reg = <0 0x100020f0 0 0x1000>;
 		};
 
 		pericfg: power-controller@10003000 {
@@ -430,25 +339,13 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 			reg = <0 0x10007000 0 0x100>;
 		};
 
-		timer: apxgpt@10008000 {
+		timer: timer@10008000 {
 			compatible = "mediatek,mt8173-timer",
 				     "mediatek,mt6577-timer";
 			reg = <0 0x10008000 0 0x1000>;
 			interrupts = <GIC_SPI 144 IRQ_TYPE_LEVEL_LOW>;
 			clocks = <&infracfg CLK_INFRA_CLK_13M>,
 				 <&topckgen CLK_TOP_RTC_SEL>;
-			clock-names = "clk13m",
-				      "clk32k";
-		};
-
-		disp_tvdpll_con0: disp_tvdpll_con0@1000c270 {
-			compatible = "mediatek,mt8173-disp_tvdpll_con0";
-			reg = <0 0x1000c270 0 0x1000>;
-		};
-
-		disp_tvdpll_con1: disp_tvdpll_con1@1000c274 {
-			compatible = "mediatek,mt8173-disp_tvdpll_con1";
-			reg = <0 0x1000c274 0 0x1000>;
 		};
 
 		pwrap: pwrap@1000d000 {
@@ -504,12 +401,6 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 			#interrupt-cells = <3>;
 			interrupt-parent = <&gic>;
 			reg = <0 0x10200620 0 0x20>;
-		};
-
-		emi: emi@10203000 {
-			compatible = "mediatek,mt8173-emi", "mediatek,emi";
-			reg = <0 0x10203000 0 0x1000>;
-			interrupts = <GIC_SPI 126 IRQ_TYPE_LEVEL_LOW>;
 		};
 
 		sys_cirq: sys_cirq@10204000 {
@@ -823,28 +714,6 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 			status = "disabled";
 		};
 
-		pwm: pwm@11006000 {
-			compatible = "mediatek,mt8173-pwm";
-			reg = <0 0x11006000 0 0x1000>;
-			interrupts = <GIC_SPI 77 IRQ_TYPE_LEVEL_LOW>;
-			clocks = <&pericfg CLK_PERI_PWM>,
-				 <&pericfg CLK_PERI_PWM1>,
-				 <&pericfg CLK_PERI_PWM2>,
-				 <&pericfg CLK_PERI_PWM3>,
-				 <&pericfg CLK_PERI_PWM4>,
-				 <&pericfg CLK_PERI_PWM5>,
-				 <&pericfg CLK_PERI_PWM6>,
-				 <&pericfg CLK_PERI_PWM7>;
-			clock-names = "PWM-main",
-				      "PWM1-main",
-				      "PWM2-main",
-				      "PWM3-main",
-				      "PWM4-main",
-				      "PWM5-main",
-				      "PWM6-main",
-				      "PWM7-main";
-		};
-
 		i2c0: i2c@11007000 {
 			compatible = "mediatek,mt8173-i2c";
 			reg = <0 0x11007000 0 0x70>,
@@ -1020,8 +889,7 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 
 		mmc0: mmc@11230000 {
 			compatible = "mediatek,mt8173-mmc";
-			reg = <0 0x11230000 0 0x1000>,
-			      <0 0x10000400 0 0x10>;
+			reg = <0 0x11230000 0 0x1000>;
 			interrupts = <GIC_SPI 71 IRQ_TYPE_LEVEL_LOW>;
 			clocks = <&pericfg CLK_PERI_MSDC30_0>,
 				 <&topckgen CLK_TOP_MSDC50_0_H_SEL>;
@@ -1031,8 +899,7 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 
 		mmc1: mmc@11240000 {
 			compatible = "mediatek,mt8173-mmc";
-			reg = <0 0x11240000 0 0x1000>,
-			      <0 0x10000400 0 0x10>;
+			reg = <0 0x11240000 0 0x1000>;
 			interrupts = <GIC_SPI 72 IRQ_TYPE_LEVEL_LOW>;
 			clocks = <&pericfg CLK_PERI_MSDC30_1>,
 				 <&topckgen CLK_TOP_AXI_SEL>;
@@ -1042,8 +909,7 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 
 		mmc2: mmc@11250000 {
 			compatible = "mediatek,mt8173-mmc";
-			reg = <0 0x11250000 0 0x1000>,
-			      <0 0x10000400 0 0x10>;
+			reg = <0 0x11250000 0 0x1000>;
 			interrupts = <GIC_SPI 73 IRQ_TYPE_LEVEL_LOW>;
 			clocks = <&pericfg CLK_PERI_MSDC30_2>,
 				 <&topckgen CLK_TOP_AXI_SEL>;
@@ -1218,7 +1084,7 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 			interrupts = <GIC_SPI 197 IRQ_TYPE_LEVEL_LOW>;
 		};
 
-		disp_pwm: pwm@1401e000 {
+		pwm: pwm@1401e000 {
 			compatible = "mediatek,mt8173-disp_pwm";
 			reg = <0 0x1401e000 0 0x2000>;
 		};
@@ -1318,11 +1184,6 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 			#clock-cells = <1>;
 		};
 
-		vdec_gcon@16000000 {
-			compatible = "mediatek,mt8173-vdec_gcon";
-			reg = <0 0x16000000 0 0x10000>;
-		};
-
 		larb1: larb@16010000 {
 			compatible = "mediatek,mt8173-smi-larb";
 			reg = <0 0x16010000 0 0x1000>;
@@ -1332,12 +1193,6 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 			clocks = <&vdecsys CLK_VDEC_CKEN>,
 				 <&vdecsys CLK_VDEC_LARB_CKEN>;
 			clock-names = "apb", "smi";
-		};
-
-		vdec@16020000 {
-			compatible = "mediatek,mt8173-vdec";
-			reg = <0 0x16020000 0 0x10000>;
-			interrupts = <GIC_SPI 204 IRQ_TYPE_LEVEL_LOW>;
 		};
 
 		vencsys: clock-controller@18000000 {
@@ -1355,12 +1210,6 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 			clocks = <&vencsys CLK_VENC_CKE1>,
 				 <&vencsys CLK_VENC_CKE0>;
 			clock-names = "apb", "smi";
-		};
-
-		venc@18002000 {
-			compatible = "mediatek,mt8173-venc";
-			reg = <0 0x18002000 0 0x1000>;
-			interrupts = <GIC_SPI 198 IRQ_TYPE_LEVEL_LOW>;
 		};
 
 		vcodec_enc: vcodec@18002000 {
@@ -1417,12 +1266,6 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 			clocks = <&vencltsys CLK_VENCLT_CKE1>,
 				 <&vencltsys CLK_VENCLT_CKE0>;
 			clock-names = "apb", "smi";
-		};
-
-		venclt@19002000 {
-			compatible = "mediatek,mt8173-venclt";
-			reg = <0 0x19002000 0 0x1000>;
-			interrupts = <GIC_SPI 202 IRQ_TYPE_LEVEL_LOW>;
 		};
 
 		mtkfb: MTKFB@bf200000 {
@@ -1543,21 +1386,10 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 			compatible = "mediatek,mt8173-accdet";
 		};
 
-		battery_meter: mediatek,battery_meter {
-			compatible = "mediatek,battery_meter";
-		};
-
-		battery_common: mediatek,battery_common {
-			compatible = "mediatek,battery_common";
-		};
-
-		touch: touch@ {
-			compatible = "mediatek,mt8173-touch";
-		};
-
-		mtee: mtee {
-			compatible = "mediatek,mtee";
+		clkao: clkao {
+			compatible = "simple-bus";
 		};
 	};
 };
 
+#include "mt8173-clkao.dtsi"

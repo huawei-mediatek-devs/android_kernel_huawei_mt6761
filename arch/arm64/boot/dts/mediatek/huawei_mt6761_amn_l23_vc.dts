@@ -1,0 +1,36 @@
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/pinctrl/mt6761-pinfunc.h>
+#include <dt-bindings/mmc/mt6761-msdc.h>
+#include <dt-bindings/clock/mt6761-clk.h>
+
+/dts-v1/;
+/plugin/;
+
+#include "huawei_audio/huawei_mt6735_accdet.dtsi"
+#include "huawei_common/huawei_common.dtsi"
+#include "huawei_mt6761_amn_l23_vc/huawei.dtsi"
+
+&rootparam {
+    mtk,boardid = <4 1 1 2>;
+    mtk,board_name = "AMN_L23_VC";
+    mtk,product_name = "AMN-L23";
+
+};
+
+&dev_detect {
+    dc_dc = <1>;
+    fflash = <1>;
+};
+
+&antenna_boardid_detect {
+    expect_value = <2097>;
+};
+
+#include <k61v1_64_mexico/cust.dtsi>
+#include "huawei_mt6761_amn_l23_vc/huawei-camera.dtsi"
+&i2c5 {
+	clock-frequency = <400000>;
+};
+/*End of this file, DO NOT ADD ANYTHING HERE*/
+

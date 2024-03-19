@@ -9,7 +9,6 @@ config ARM
 	select ARCH_HAS_GCOV_PROFILE_ALL
 	select ARCH_MIGHT_HAVE_PC_PARPORT
 	select ARCH_SUPPORTS_ATOMIC_RMW
-	select ARCH_HAS_PTE_SPECIAL if (ARM_LPAE || CPU_V7 || CPU_V7M || CPU_V6 || CPUV6K)
 	select ARCH_USE_BUILTIN_BSWAP
 	select ARCH_USE_CMPXCHG_LOCKREF
 	select ARCH_WANT_IPC_PARSE_VERSION
@@ -104,6 +103,12 @@ config ARM
 config ARM_HAS_SG_CHAIN
 	select ARCH_HAS_SG_CHAIN
 	bool
+
+config FINAL_RELEASE
+	bool "enables final_release macro"
+	default n
+	help
+	  This enables final_release macro.
 
 config NEED_SG_DMA_LENGTH
 	bool
@@ -1489,7 +1494,6 @@ config NR_CPUS
 config HOTPLUG_CPU
 	bool "Support for hot-pluggable CPUs"
 	depends on SMP
-	select GENERIC_IRQ_MIGRATION
 	help
 	  Say Y here to experiment with turning CPUs off and on.  CPUs
 	  can be controlled through /sys/devices/system/cpu.

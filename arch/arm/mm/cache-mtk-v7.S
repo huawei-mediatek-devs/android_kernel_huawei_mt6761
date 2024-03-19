@@ -11,27 +11,43 @@
  * GNU General Public License for more details.
  */
 
-#include <linux/linkage.h>
-
        .text
+       .global __inner_flush_dcache_all
+       .global __inner_flush_dcache_L1
+       .global __inner_flush_dcache_L2
+       .global __inner_clean_dcache_all
+       .global __inner_clean_dcache_L1
+       .global __inner_clean_dcache_L2
+       .global __inner_inv_dcache_all
+       .global __inner_inv_dcache_L1
+       .global __inner_inv_dcache_L2
+       .global __enable_dcache
+       .global __enable_icache
+       .global __enable_cache
+       .global __disable_dcache
+       .global __disable_icache
+       .global __disable_cache
+       .global __disable_dcache__inner_flush_dcache_L1
+       .global __disable_dcache__inner_flush_dcache_L1__inner_flush_dcache_L2
+       .global __disable_dcache__inner_flush_dcache_L1__inner_clean_dcache_L2
+       .global dis_D_inner_fL1L2
+       .global d_i_dis_flush_all
 .equ C1_IBIT ,  0x00001000
 .equ C1_CBIT ,  0x00000004
 .equ PSR_F_BIT, 0x00000040
 .equ PSR_I_BIT, 0x00000080
 
-ENTRY(__enable_icache)
+__enable_icache:
     MRC p15,0,r0,c1,c0,0
     ORR r0,r0,#C1_IBIT
     MCR p15,0,r0,c1,c0,0
     BX lr
-ENDPROC(__enable_icache)
-ENTRY(__disable_icache)
+__disable_icache:
     MRC p15,0,r0,c1,c0,0
     BIC r0,r0,#C1_IBIT
     MCR p15,0,r0,c1,c0,0
     BX lr
-ENDPROC(__disable_icache)
-ENTRY(__enable_dcache)
+__enable_dcache:
     MRC p15,0,r0,c1,c0,0
     ORR r0,r0,#C1_CBIT
     dsb
@@ -39,8 +55,7 @@ ENTRY(__enable_dcache)
     dsb
     isb
     BX lr
-ENDPROC(__enable_dcache)
-ENTRY(__disable_dcache)
+__disable_dcache:
     MRC p15,0,r0,c1,c0,0
     BIC r0,r0,#C1_CBIT
     dsb
@@ -58,15 +73,13 @@ and before the caches are cleaned or invalidated:
     dsb
     isb
     BX lr
-ENDPROC(__disable_dcache)
-ENTRY(__enable_cache)
+__enable_cache:
     MRC p15,0,r0,c1,c0,0
     ORR r0,r0,#C1_IBIT
     ORR r0,r0,#C1_CBIT
     MCR p15,0,r0,c1,c0,0
     BX lr
-ENDPROC(__enable_cache)
-ENTRY(__disable_cache)
+__disable_cache:
     MRC p15,0,r0,c1,c0,0
     BIC r0,r0,#C1_IBIT
     BIC r0,r0,#C1_CBIT
@@ -81,11 +94,10 @@ and before the caches are cleaned or invalidated:
     MCR p15,0,r0,c8,c7,1
     dsb
     BX lr
-ENDPROC(__disable_cache)
 
 
-ENTRY(__inner_flush_dcache_all)
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r14}
+__inner_flush_dcache_all:
+        push    {r0,r1,r2,r3,r4,r5,r7,r8,r9,r10,r11,r14}
         dmb                                     @ ensure ordering with previous memory accesses
         mrc     p15, 1, r0, c0, c0, 1           @ read clidr
         ands    r3, r0, #0x7000000              @ extract loc from clidr
@@ -114,12 +126,8 @@ all_loop1:
 all_loop2:
         mov     r9, r4                          @ create working copy of max way size
 all_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
 #ifdef CONFIG_L1C_OPT
 #replace DCCISW by DCISW+DCCSW
         cmp     r10, #2
@@ -146,12 +154,11 @@ all_finished:
         mcr     p15, 2, r10, c0, c0, 0          @ select current cache level in cssr
         dsb
         isb
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r8,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__inner_flush_dcache_all)
 
-ENTRY(__inner_flush_dcache_L1)
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r14}
+__inner_flush_dcache_L1:
+        push    {r0,r1,r2,r3,r4,r5,r7,r8,r9,r10,r11,r14}
         dmb                                     @ ensure ordering with previous memory accesses
         mrc     p15, 1, r0, c0, c0, 1           @ read clidr
         ands    r3, r0, #0x7000000              @ extract loc from clidr
@@ -180,12 +187,8 @@ L1_loop1:
 L1_loop2:
         mov     r9, r4                          @ create working copy of max way size
 L1_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
 #ifdef CONFIG_L1C_OPT
 #replace DCCISW by DCISW+DCCSW
         mrs   	r1, cpsr                      @disable IRQ and save flag to make clean and invalidate atomic
@@ -210,12 +213,11 @@ L1_finished:
         mcr     p15, 2, r10, c0, c0, 0          @ select current cache level in cssr
         dsb
         isb
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r8,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__inner_flush_dcache_L1)
 
-ENTRY(__inner_flush_dcache_L2)
-	push    {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+__inner_flush_dcache_L2:
+        push    {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         @push    {r4,r5,r7,r9,r10,r11}
         dmb                                     @ ensure ordering with previous memory accesses
         mrc     p15, 1, r0, c0, c0, 1           @ read clidr
@@ -245,12 +247,8 @@ L2_loop1:
 L2_loop2:
         mov     r9, r4                          @ create working copy of max way size
 L2_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
         mcr     p15, 0, r11, c7, c14, 2         @ clean & invalidate by set/way
         subs    r9, r9, #1                      @ decrement the way
         bge     L2_loop3
@@ -266,12 +264,11 @@ L2_finished:
         dsb
         isb
         @pop     {r4,r5,r7,r9,r10,r11}
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__inner_flush_dcache_L2)
 
-ENTRY(__inner_clean_dcache_all)
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+ __inner_clean_dcache_all:
+        push    {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         @push    {r4,r5,r7,r9,r10,r11}
         dmb                                     @ ensure ordering with previous memory accesses
         mrc     p15, 1, r0, c0, c0, 1           @ read clidr
@@ -301,12 +298,8 @@ all_cl_loop1:
 all_cl_loop2:
         mov     r9, r4                          @ create working copy of max way size
 all_cl_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
         mcr     p15, 0, r11, c7, c10, 2         @ clean by set/way
 
         subs    r9, r9, #1                      @ decrement the way
@@ -323,12 +316,11 @@ all_cl_finished:
         dsb
         isb
         @pop     {r4,r5,r7,r9,r10,r11}
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__inner_clean_dcache_all)
 
-ENTRY(__inner_clean_dcache_L1)
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+__inner_clean_dcache_L1:
+        push    {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         @push    {r4,r5,r7,r9,r10,r11}
         dmb                                     @ ensure ordering with previous memory accesses
         mrc     p15, 1, r0, c0, c0, 1           @ read clidr
@@ -358,12 +350,8 @@ L1_cl_loop1:
 L1_cl_loop2:
         mov     r9, r4                          @ create working copy of max way size
 L1_cl_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl	r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
         mcr     p15, 0, r11, c7, c10, 2         @ clean by set/way
 
         subs    r9, r9, #1                      @ decrement the way
@@ -380,11 +368,10 @@ L1_cl_finished:
         dsb
         isb
         @pop     {r4,r5,r7,r9,r10,r11}
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__inner_clean_dcache_L1)
 
-ENTRY(__inner_clean_dcache_L2)
+__inner_clean_dcache_L2:
 #if 0
         mov     r0, sp
         mcr     p15, 0, r0, c7, c14, 1          @ clean and invalidate D entry
@@ -393,7 +380,7 @@ ENTRY(__inner_clean_dcache_L2)
         mcr     p15, 0, r0, c7, c14, 1          @ clean and invalidate D entry
         dsb
 #endif
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        push    {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         @push    {r4,r5,r7,r9,r10,r11}
 #if 0
         mov     r0, sp
@@ -431,12 +418,8 @@ L2_cl_loop1:
 L2_cl_loop2:
         mov     r9, r4                          @ create working copy of max way size
 L2_cl_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
         mcr     p15, 0, r11, c7, c10, 2         @ clean by set/way
         subs    r9, r9, #1                      @ decrement the way
         bge     L2_cl_loop3
@@ -452,11 +435,10 @@ L2_cl_finished:
         dsb
         isb
         @pop     {r4,r5,r7,r9,r10,r11}
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__inner_clean_dcache_L2)
-ENTRY(__inner_inv_dcache_all)
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+ __inner_inv_dcache_all:
+        push    {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         @push    {r4,r5,r7,r9,r10,r11}
         dmb                                     @ ensure ordering with previous memory accesses
         mrc     p15, 1, r0, c0, c0, 1           @ read clidr
@@ -486,12 +468,8 @@ all_inv_loop1:
 all_inv_loop2:
         mov     r9, r4                          @ create working copy of max way size
 all_inv_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
         mcr     p15, 0,  r11, c7, c6, 2         @ invalidate by set/way
 
         subs    r9, r9, #1                      @ decrement the way
@@ -508,12 +486,11 @@ all_inv_finished:
         dsb
         isb
         @pop     {r4,r5,r7,r9,r10,r11}
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__inner_inv_dcache_all)
 
-ENTRY(__inner_inv_dcache_L1)
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+__inner_inv_dcache_L1:
+        push    {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         @push    {r4,r5,r7,r9,r10,r11}
         dmb                                     @ ensure ordering with previous memory accesses
         mrc     p15, 1, r0, c0, c0, 1           @ read clidr
@@ -543,12 +520,8 @@ L1_inv_loop1:
 L1_inv_loop2:
         mov     r9, r4                          @ create working copy of max way size
 L1_inv_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
         mcr     p15, 0,  r11, c7, c6, 2         @ invalidate by set/way
         subs    r9, r9, #1                      @ decrement the way
         bge     L1_inv_loop3
@@ -564,12 +537,11 @@ L1_inv_finished:
         dsb
         isb
         @pop     {r4,r5,r7,r9,r10,r11}
-	pop     {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__inner_inv_dcache_L1)
 
-ENTRY(__inner_inv_dcache_L2)
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+__inner_inv_dcache_L2:
+        push    {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         @push    {r4,r5,r7,r9,r10,r11}
         dmb                                     @ ensure ordering with previous memory accesses
         mrc     p15, 1, r0, c0, c0, 1           @ read clidr
@@ -599,12 +571,8 @@ L2_inv_loop1:
 L2_inv_loop2:
         mov     r9, r4                          @ create working copy of max way size
 L2_inv_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
         mcr     p15, 0,  r11, c7, c6, 2         @ invalidate by set/way
         subs    r9, r9, #1                      @ decrement the way
         bge     L2_inv_loop3
@@ -620,15 +588,14 @@ L2_inv_finished:
         dsb
         isb
         @pop     {r4,r5,r7,r9,r10,r11}
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__inner_inv_dcache_L2)
 
-ENTRY(__disable_dcache__inner_flush_dcache_L1)
+__disable_dcache__inner_flush_dcache_L1:
 /*******************************************************************************
  * push stack                                                                  *
  ******************************************************************************/
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        push    {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
 /*******************************************************************************
  * __disable_dcache                                                            *
  ******************************************************************************/
@@ -679,12 +646,8 @@ DF1_L1_loop1:
 DF1_L1_loop2:
         mov     r9, r4                          @ create working copy of max way size
 DF1_L1_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5               )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB (lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
 #if 1
         mcr     p15, 0, r11, c7, c10, 2         @ clean by set/way
         mcr     p15, 0, r11, c7, c6, 2         @ invalidate by set/way
@@ -709,15 +672,14 @@ DF1_L1_finished:
 /*******************************************************************************
  * pop  stack                                                                  *
  ******************************************************************************/
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__disable_dcache__inner_flush_dcache_L1)
 
-ENTRY(__disable_dcache__inner_flush_dcache_L1__inner_flush_dcache_L2)
+__disable_dcache__inner_flush_dcache_L1__inner_flush_dcache_L2:
 /*******************************************************************************
  * push stack                                                                  *
  ******************************************************************************/
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        push    {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
 /*******************************************************************************
  * __disable_dcache                                                            *
  ******************************************************************************/
@@ -768,12 +730,8 @@ DF1F2_L1_loop1:
 DF1F2_L1_loop2:
         mov     r9, r4                          @ create working copy of max way size
 DF1F2_L1_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
 #if 1
         mcr     p15, 0, r11, c7, c10, 2         @ clean by set/way
         mcr     p15, 0, r11, c7, c6, 2         @ invalidate by set/way
@@ -830,12 +788,8 @@ DF1F2_L2_loop1:
 DF1F2_L2_loop2:
         mov     r9, r4                          @ create working copy of max way size
 DF1F2_L2_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
         mcr     p15, 0, r11, c7, c14, 2         @ clean & invalidate by set/way
         subs    r9, r9, #1                      @ decrement the way
         bge     DF1F2_L2_loop3
@@ -853,15 +807,15 @@ DF1F2_L2_finished:
 /*******************************************************************************
  * pop stack                                                                   *
  ******************************************************************************/
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__disable_dcache__inner_flush_dcache_L1__inner_flush_dcache_L2)
 
-ENTRY(__disable_dcache__inner_flush_dcache_L1__inner_clean_dcache_L2)
+dis_D_inner_fL1L2:
+__disable_dcache__inner_flush_dcache_L1__inner_clean_dcache_L2:
 /*******************************************************************************
  * push stack                                                                  *
  ******************************************************************************/
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        push    {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
 /*******************************************************************************
  * __disable_dcache                                                            *
  ******************************************************************************/
@@ -912,12 +866,8 @@ DF1C2_L1_loop1:
 DF1C2_L1_loop2:
         mov     r9, r4                          @ create working copy of max way size
 DF1C2_L1_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
 #if 1
         mcr     p15, 0, r11, c7, c10, 2         @ clean by set/way
         mcr     p15, 0, r11, c7, c6, 2         @ invalidate by set/way
@@ -974,12 +924,8 @@ DF1C2_L2_cl_loop1:
 DF1C2_L2_cl_loop2:
         mov     r9, r4                          @ create working copy of max way size
 DF1C2_L2_cl_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
         mcr     p15, 0, r11, c7, c10, 2         @ clean by set/way
         subs    r9, r9, #1                      @ decrement the way
         bge     DF1C2_L2_cl_loop3
@@ -997,16 +943,15 @@ DF1C2_L2_cl_finished:
 /*******************************************************************************
  * pop  stack                                                                  *
  ******************************************************************************/
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         bx      lr
-ENDPROC(__disable_dcache__inner_flush_dcache_L1__inner_clean_dcache_L2)
 
 
-ENTRY(d_i_dis_flush_all)
+d_i_dis_flush_all:
 /*******************************************************************************
  * push stack                                                                  *
  ******************************************************************************/
-        push    {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        push    {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
 /*******************************************************************************
  * __disable_dcache                                                            *
  ******************************************************************************/
@@ -1058,12 +1003,8 @@ DIF1F2_L1_loop1:
 DIF1F2_L1_loop2:
         mov     r9, r4                          @ create working copy of max way size
 DIF1F2_L1_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
 #if 1
         mcr     p15, 0, r11, c7, c10, 2         @ clean by set/way
         mcr     p15, 0, r11, c7, c6, 2         @ invalidate by set/way
@@ -1120,12 +1061,8 @@ DIF1F2_L2_loop1:
 DIF1F2_L2_loop2:
         mov     r9, r4                          @ create working copy of max way size
 DIF1F2_L2_loop3:
- ARM  ( orr     r11, r10, r9, lsl r5 )          @ factor way and cache number into r11
- THUMB( lsl     r6, r9, r5           )
- THUMB( orr     r11, r10, r6         )          @ factor way and cache number into r11
- ARM  ( orr     r11, r11, r7, lsl r2 )          @ factor index number into r11
- THUMB( lsl     r6, r7, r2           )
- THUMB( orr     r11, r11, r6         )          @ factor index number into r11
+        orr     r11, r10, r9, lsl r5            @ factor way and cache number into r11
+        orr     r11, r11, r7, lsl r2            @ factor index number into r11
         mcr     p15, 0, r11, c7, c14, 2         @ clean & invalidate by set/way
         subs    r9, r9, #1                      @ decrement the way
         bge     DIF1F2_L2_loop3
@@ -1143,28 +1080,8 @@ DIF1F2_L2_finished:
 /*******************************************************************************
  * pop stack                                                                   *
  ******************************************************************************/
-        pop     {r0,r1,r2,r3,r4,r5,r6,r7,r9,r10,r11,r14}
+        pop     {r0,r1,r2,r3,r4,r5,r7,r9,r10,r11,r14}
         bx      lr
-ENDPROC(d_i_dis_flush_all)
-
-ENTRY(dis_D_inner_flush_all)
-	/* disable data cache*/
-	ARM(	stmfd	sp!, {r4-r5, r7, r9-r11, lr}	)
-	THUMB(	stmfd	sp!, {r4-r7, r9-r11, lr}	)
-
-	MRC p15,0,r0,c1,c0,0
-	BIC r0,r0,#C1_CBIT
-	dsb
-	MCR p15,0,r0,c1,c0,0
-	dsb
-	isb
-
-	bl	v7_flush_dcache_all
-
-	ARM(	ldmfd	sp!, {r4-r5, r7, r9-r11, lr}	)
-	THUMB(	ldmfd	sp!, {r4-r7, r9-r11, lr}	)
-	bx	lr
-ENDPROC(dis_D_inner_flush_all)
 
 
         .end

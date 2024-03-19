@@ -47,7 +47,7 @@ export REALMODE_CFLAGS
 export BITS
 
 ifdef CONFIG_X86_NEED_RELOCS
-        LDFLAGS_vmlinux := --emit-relocs --discard-none
+        LDFLAGS_vmlinux := --emit-relocs
 endif
 
 #

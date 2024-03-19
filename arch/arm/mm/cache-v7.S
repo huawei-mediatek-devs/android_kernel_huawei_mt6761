@@ -356,7 +356,7 @@ ENDPROC(v7_flush_kern_dcache_area)
  *	- start   - virtual start address of region
  *	- end     - virtual end address of region
  */
-ENTRY(v7_dma_inv_range)
+v7_dma_inv_range:
 	dcache_line_size r2, r3
 	sub	r3, r2, #1
 	tst	r0, r3
@@ -366,16 +366,14 @@ ENTRY(v7_dma_inv_range)
 	ALT_UP(W(nop))
 #endif
 	mcrne	p15, 0, r0, c7, c14, 1		@ clean & invalidate D / U line
-	addne	r0, r0, r2
 
 	tst	r1, r3
 	bic	r1, r1, r3
 	mcrne	p15, 0, r1, c7, c14, 1		@ clean & invalidate D / U line
-	cmp	r0, r1
 1:
-	mcrlo	p15, 0, r0, c7, c6, 1		@ invalidate D / U line
-	addlo	r0, r0, r2
-	cmplo	r0, r1
+	mcr	p15, 0, r0, c7, c6, 1		@ invalidate D / U line
+	add	r0, r0, r2
+	cmp	r0, r1
 	blo	1b
 	dsb	st
 	ret	lr
@@ -386,7 +384,7 @@ ENDPROC(v7_dma_inv_range)
  *	- start   - virtual start address of region
  *	- end     - virtual end address of region
  */
-ENTRY(v7_dma_clean_range)
+v7_dma_clean_range:
 	dcache_line_size r2, r3
 	sub	r3, r2, #1
 	bic	r0, r0, r3

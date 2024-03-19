@@ -1,0 +1,95 @@
+#include "../lcdkit3.0/amman/devkit_lcd_kit.dtsi"
+
+&huawei_lcd_panel {
+		compatible = "huawei,lcd_panel_type";
+		product_id = <1001>;
+		detect_type = <2>; /*0:DETECT_GPIOID  1:DETECT_CHIPID  2:DETECT_LCD_TYPE */
+		gpio_id = <169 178>; /*ID0 ID1*/
+		support_lcd_type = "LCD_KIT";
+		iovcc_ctrl_mode = <1>;
+};
+
+/* DISPSYS GPIO standardization */
+&pio {
+	mtkfb_pins_lcm_reset0: lcm_rst_out0_gpio {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO45__FUNC_GPIO45>;
+			slew-rate = <1>;
+			output-low;
+		};
+	};
+
+	mtkfb_pins_lcm_reset1: lcm_rst_out1_gpio {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO45__FUNC_GPIO45>;
+			slew-rate = <1>;
+			output-high;
+		};
+	};
+};
+
+&mtkfb {
+	pinctrl-names = "lcm_rst_out0_gpio", "lcm_rst_out1_gpio";
+	pinctrl-0 = <&mtkfb_pins_lcm_reset0>;
+	pinctrl-1 = <&mtkfb_pins_lcm_reset1>;
+	status = "okay";
+};
+
+&i2c6{
+    tps65132@3e {
+        compatible = "ti,tps65132";
+        reg = <0x3e>;
+        tps65132_i2c_bus_id = <6>;
+        tps65132_support = <1>;
+    };
+
+    ktd3133@35 {
+        compatible = "ktd,ktd3133";
+        reg = <0x35>;
+        ktd3133_i2c_bus_id = <6>;
+        ktd3133_support = <1>;
+        ktd3133_hw_enable = <1>;
+        ktd3133_hw_en_gpio = <154>;
+        bl_on_lk_mdelay = <1>;
+        ktd3133_reg_mode = <0x99>;
+        ktd3133_reg_control = <0x60>;
+        ktd3133_reg_lsb = <0x00>;
+        ktd3133_reg_msb = <0x00>;
+        ktd3133_reg_pwm = <0x1B>;
+        ktd3133_reg_ramp_on = <0x44>;
+        ktd3133_reg_transit_ramp = <0x13>;
+    };
+
+    lm3697@36 {
+        compatible = "ti,lm3697";
+        reg = <0x36>;
+        lm3697_i2c_bus_id = <6>;
+        lm3697_support = <1>;
+        lm3697_hw_enable = <1>;
+        lm3697_hw_en_gpio = <154>;
+        bl_on_lk_mdelay = <1>;
+        lm3697_backlight_config_lsb_reg_addr = <0x22>;
+        lm3697_backlight_config_msb_reg_addr = <0x23>;
+        lm3697_reg_sink_output_config = <0x03>;
+        lm3697_reg_ramp_on_off_l = <0x00>;
+        lm3697_reg_ramp_on_off_r = <0x00>;
+        lm3697_reg_ramp_time = <0x11>;
+        lm3697_reg_ramp_time_config = <0x00>;
+        lm3697_reg_brightness_config = <0x00>;
+        lm3697_reg_full_scale_current_setting_a = <0x13>;
+        lm3697_reg_full_scale_current_setting_b = <0x13>;
+        lm3697_reg_current_sink_feedback_enable = <0x03>;
+        lm3697_reg_boost_control = <0x04>;
+        lm3697_reg_auto_frequency_threshold = <0xcf>;
+        lm3697_reg_pwm_config = <0x0c>;
+        lm3697_reg_brightness_lsb_a = <0x00>;
+        lm3697_reg_brightness_msb_a = <0x00>;
+        lm3697_reg_brightness_lsb_b = <0x00>;
+        lm3697_reg_brightness_msb_b = <0x00>;
+        lm3697_reg_bank_enable = <0x02>;
+        lm3697_reg_open_faults = <0x00>;
+        lm3697_reg_short_faults = <0x00>;
+        lm3697_reg_fault_enable = <0x00>;
+    };
+
+};

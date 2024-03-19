@@ -10,7 +10,7 @@
 #
 # Copyright (C) 1995-2001 by Russell King
 
-LDFLAGS_vmlinux	:=--no-undefined -X
+LDFLAGS_vmlinux	:=-p --no-undefined -X
 CPPFLAGS_vmlinux.lds = -DTEXT_OFFSET=$(TEXT_OFFSET)
 GZFLAGS		:=-9
 
@@ -81,7 +81,7 @@ ifeq ($(CONFIG_ARM64_MODULE_CMODEL_LARGE), y)
 KBUILD_CFLAGS_MODULE	+= -mcmodel=large
 ifeq ($(CONFIG_LTO_CLANG), y)
 # Code model is not stored in LLVM IR, so we need to pass it also to LLVMgold
-KBUILD_LDFLAGS_MODULE	+= -plugin-opt=-code-model=large
+LDFLAGS		+= -plugin-opt=-code-model=large
 endif
 endif
 
@@ -114,6 +114,8 @@ KASAN_SHADOW_OFFSET := $(shell printf "0x%08x00000000\n" $$(( \
 
 export	TEXT_OFFSET GZFLAGS
 
+subdir-ccflags-y += -Werror
+
 core-y		+= arch/arm64/kernel/ arch/arm64/mm/
 core-$(CONFIG_NET) += arch/arm64/net/
 core-$(CONFIG_KVM) += arch/arm64/kvm/
@@ -136,7 +138,17 @@ all:	$(KBUILD_IMAGE) $(KBUILD_DTBS)
 MTK_PLATFORM := $(CONFIG_MTK_PLATFORM:"%"=%)
 MTK_PROJECT := $(CONFIG_ARCH_MTK_PROJECT:"%"=%)
 export MTK_PLATFORM MTK_PROJECT MTK_TARGET_PROJECT
+ifeq ($(CONFIG_LCD_KIT_DRIVER),y)
+-include $(srctree)/scripts/drvgen/lcdkit.mk
+endif
 -include $(srctree)/scripts/drvgen/drvgen.mk
+ifeq ($(CONFIG_LCD_KIT_DRIVER),y)
+archprepare: $(DRVGEN_FILE_LIST)  
+else
+archprepare: $(DRVGEN_FILE_LIST)
+endif
+dtbs: $(DRVGEN_FILE_LIST)
+
 
 boot := arch/arm64/boot
 
@@ -171,16 +183,6 @@ vdso_install:
 archclean:
 	$(Q)$(MAKE) $(clean)=$(boot)
 	$(Q)$(MAKE) $(clean)=$(boot)/dts
-
-# We need to generate vdso-offsets.h before compiling certain files in kernel/.
-# In order to do that, we should use the archprepare target, but we can't since
-# asm-offsets.h is included in some files used to generate vdso-offsets.h, and
-# asm-offsets.h is built in prepare0, for which archprepare is a dependency.
-# Therefore we need to generate the header after prepare0 has been made, hence
-# this hack.
-prepare: vdso_prepare
-vdso_prepare: prepare0
-	$(Q)$(MAKE) $(build)=arch/arm64/kernel/vdso include/generated/vdso-offsets.h
 
 define archhelp
   echo  '* Image.gz      - Compressed kernel image (arch/$(ARCH)/boot/Image.gz)'

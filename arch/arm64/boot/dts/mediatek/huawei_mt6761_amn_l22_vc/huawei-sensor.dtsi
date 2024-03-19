@@ -1,0 +1,10 @@
+&psensor_enable {
+	compatible = "mediatek,psensor";
+	status = "okay";
+	psensor,ldo_ven = <&pio 170 0x00>;
+	};
+&huawei_scp_info {
+	compatible = "huawei,huawei_scp_info";
+	product_number = <3>;
+	status = "okay";
+};

@@ -1,0 +1,29 @@
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/pinctrl/mt6761-pinfunc.h>
+#include <dt-bindings/mmc/mt6761-msdc.h>
+#include <dt-bindings/clock/mt6761-clk.h>
+
+/dts-v1/;
+/plugin/;
+
+#include "huawei_common/huawei_common.dtsi"
+#include "huawei_mt6761_mrd_lx2_va/huawei.dtsi"
+#include "huawei_audio/huawei_mt6735_accdet.dtsi"
+#include "huawei_audio/huawei_mt676x_audio_gpio.dtsi"
+#include "huawei_audio/cs35l41.dtsi"
+
+&rootparam {
+    mtk,boardid = <4 0 3 4>;
+    mtk,board_name = "MRD_LX2_VA";
+    mtk,product_name = "MRD-LX2";
+};
+
+&antenna_boardid_detect {
+    expect_value = <2049>;
+};
+
+#include <k61v1_64_mexico/cust.dtsi>
+#include "huawei_mt6761_mrd_lx2_va/huawei-camera.dtsi"
+/*End of this file, DO NOT ADD ANYTHING HERE*/
+

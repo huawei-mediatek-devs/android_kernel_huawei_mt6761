@@ -111,6 +111,7 @@ config ARM64
 	select SPARSE_IRQ
 	select SYSCTL_EXCEPTION_TRACE
 	select THREAD_INFO_IN_TASK
+	select HAVE_LIVEPATCH
 	help
 	  ARM 64-bit (AArch64) Linux support.
 
@@ -243,6 +244,8 @@ config PGTABLE_LEVELS
 source "init/Kconfig"
 
 source "kernel/Kconfig.freezer"
+
+source "kernel/livepatch/Kconfig"
 
 source "arch/arm64/Kconfig.platforms"
 
@@ -1064,6 +1067,12 @@ config EFI
 	  allow the kernel to be booted as an EFI application. This
 	  is only useful on systems that have UEFI firmware.
 
+config FINAL_RELEASE
+	bool "enables final_release macro"
+	default n
+	help
+	  This enables final_release macro
+
 config DMI
 	bool "Enable support for SMBIOS (DMI) tables"
 	depends on EFI
@@ -1154,10 +1163,6 @@ config SYSVIPC_COMPAT
 	def_bool y
 	depends on COMPAT && SYSVIPC
 
-config KEYS_COMPAT
-	def_bool y
-	depends on COMPAT && KEYS
-
 endmenu
 
 menu "Power management options"
@@ -1205,5 +1210,18 @@ source "crypto/Kconfig"
 if CRYPTO
 source "arch/arm64/crypto/Kconfig"
 endif
+
+config HUAWEI_KERNEL
+        bool "Use huawei code"
+        default n
+        help
+          use huawei code
+
+config HUAWEI_KERNEL_DEBUG
+        bool "Use Huawei kernel debug mode"
+        depends on HUAWEI_KERNEL
+        default n
+        help
+          Enable sysrq, dump mode and some debug masks by default.
 
 source "lib/Kconfig"

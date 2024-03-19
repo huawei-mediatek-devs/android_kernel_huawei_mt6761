@@ -1,0 +1,5 @@
+&fm_info {
+	compatible = "huawei,fm_elna";
+	status = "okay";
+	fm,enable_elna = "false";
+	};

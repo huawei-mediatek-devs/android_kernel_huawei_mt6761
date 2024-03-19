@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2017 Linaro Ltd. <ard.biesheuvel@linaro.org>
+ * Copyright (C) 2014-2016 Linaro Ltd. <ard.biesheuvel@linaro.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -114,6 +114,10 @@ static unsigned int count_plts(Elf64_Sym *syms, Elf64_Rela *rela, int num,
 		case R_AARCH64_CALL26:
 			/*
 			 * We only have to consider branch targets that resolve
+			 * to undefined symbols. This is not simply a heuristic,
+			 * it is a fundamental limitation, since the PLT itself
+			 * is part of the module, and needs to be within 128 MB
+			 * as well, so modules can never grow beyond that limit.
 			 * to symbols that are defined in a different section.
 			 * This is not simply a heuristic, it is a fundamental
 			 * limitation, since there is no guaranteed way to emit
@@ -201,6 +205,17 @@ int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 						sechdrs[i].sh_info);
 	}
 
+#ifdef CONFIG_LIVEPATCH
+	for (i = 0; i < ehdr->e_shnum; i++) {
+		if (!strcmp(".livepatch.pltcount", secstrings + sechdrs[i].sh_name)) {
+			core_plts += sechdrs[i].sh_size;
+			sechdrs[i].sh_size = 0;
+			sechdrs[i].sh_type = SHT_NOBITS;
+			sechdrs[i].sh_flags = 0;
+			break;
+		}
+	}
+#endif
 	mod->arch.core.plt->sh_type = SHT_NOBITS;
 	mod->arch.core.plt->sh_flags = SHF_EXECINSTR | SHF_ALLOC;
 	mod->arch.core.plt->sh_addralign = L1_CACHE_BYTES;
@@ -214,6 +229,28 @@ int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 	mod->arch.init.plt->sh_size = (init_plts + 1) * sizeof(struct plt_entry);
 	mod->arch.init.plt_num_entries = 0;
 	mod->arch.init.plt_max_entries = init_plts;
-
 	return 0;
+}
+
+u64 livepatch_emit_plt_entry(struct module *mod, unsigned long val)
+{
+	struct plt_entry *plt = mod->arch.core.plt->sh_addr;
+	int num = mod->arch.core.plt_num_entries;
+	u32 *addr = (u32 *)&plt[num];
+	u32 insns[4];
+	int i;
+
+	mod->arch.core.plt_num_entries++;
+	BUG_ON(mod->arch.core.plt_num_entries > mod->arch.core.plt_max_entries);
+
+	insns[0] = cpu_to_le32(0x92800010 | (((~val      ) & 0xffff)) << 5);
+	insns[1] = cpu_to_le32(0xf2a00010 | ((( val >> 16) & 0xffff)) << 5);
+	insns[2] = cpu_to_le32(0xf2c00010 | ((( val >> 32) & 0xffff)) << 5);
+	insns[3] = cpu_to_le32(0xd61f0200);
+
+	for (i = 0; i < 4; i ++) {
+			aarch64_insn_patch_text_nosync(addr + i, insns[i]);
+	}
+
+	return (u64)addr;
 }

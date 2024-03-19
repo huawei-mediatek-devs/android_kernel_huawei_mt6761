@@ -135,21 +135,21 @@
 	.macro	armv6_mt_table pfx
 \pfx\()_mt_table:
 	.long	0x00						@ L_PTE_MT_UNCACHED
-	.long	PTE_EXT_TEX(1)					@ L_PTE_MT_BUFFERABLE(L_PTE_MT_DEV_WC)
+	.long	PTE_EXT_TEX(1)					@ L_PTE_MT_BUFFERABLE
 	.long	PTE_CACHEABLE					@ L_PTE_MT_WRITETHROUGH
-	.long	PTE_CACHEABLE | PTE_BUFFERABLE			@ L_PTE_MT_WRITEBACK(L_PTE_MT_DEV_CACHED)
+	.long	PTE_CACHEABLE | PTE_BUFFERABLE			@ L_PTE_MT_WRITEBACK
 	.long	PTE_BUFFERABLE					@ L_PTE_MT_DEV_SHARED
-	.long	PTE_CACHEABLE | PTE_BUFFERABLE | PTE_EXT_APX	@ L_PTE_MT_VECTORS
-	.long	PTE_EXT_TEX(2)					@ L_PTE_MT_DEV_NONSHARED
+	.long	0x00						@ unused
+	.long	0x00						@ L_PTE_MT_MINICACHE (not present)
 	.long	PTE_EXT_TEX(1) | PTE_CACHEABLE | PTE_BUFFERABLE	@ L_PTE_MT_WRITEALLOC
 	.long	0x00						@ unused
+	.long	PTE_EXT_TEX(1)					@ L_PTE_MT_DEV_WC
+	.long	0x00						@ unused
+	.long	PTE_CACHEABLE | PTE_BUFFERABLE			@ L_PTE_MT_DEV_CACHED
+	.long	PTE_EXT_TEX(2)					@ L_PTE_MT_DEV_NONSHARED
 	.long	0x00						@ unused
 	.long	0x00						@ unused
-	.long	0x00						@ unused
-	.long	0x00						@ unused
-	.long	0x00						@ unused
-	.long	0x00						@ unused
-	.long	0x00						@ unused
+	.long	PTE_CACHEABLE | PTE_BUFFERABLE | PTE_EXT_APX	@ L_PTE_MT_VECTORS
 	.endm
 
 	.macro	armv6_set_pte_ext pfx
@@ -274,21 +274,13 @@
 	mcr	p15, 0, ip, c7, c10, 4		@ data write barrier
 	.endm
 
-.macro define_processor_functions name:req, dabort:req, pabort:req, nommu=0, suspend=0, bugs=0
-/*
- * If we are building for big.Little with branch predictor hardening,
- * we need the processor function tables to remain available after boot.
- */
-#if defined(CONFIG_BIG_LITTLE) && defined(CONFIG_HARDEN_BRANCH_PREDICTOR)
-	.section ".rodata"
-#endif
+.macro define_processor_functions name:req, dabort:req, pabort:req, nommu=0, suspend=0
 	.type	\name\()_processor_functions, #object
 	.align 2
 ENTRY(\name\()_processor_functions)
 	.word	\dabort
 	.word	\pabort
 	.word	cpu_\name\()_proc_init
-	.word	\bugs
 	.word	cpu_\name\()_proc_fin
 	.word	cpu_\name\()_reset
 	.word	cpu_\name\()_do_idle
@@ -317,9 +309,6 @@ ENTRY(\name\()_processor_functions)
 	.endif
 
 	.size	\name\()_processor_functions, . - \name\()_processor_functions
-#if defined(CONFIG_BIG_LITTLE) && defined(CONFIG_HARDEN_BRANCH_PREDICTOR)
-	.previous
-#endif
 .endm
 
 .macro define_cache_functions name:req

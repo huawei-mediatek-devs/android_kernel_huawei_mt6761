@@ -61,7 +61,6 @@ _BUGVERBOSE_LOCATION(__FILE__, __LINE__)		\
 
 #define __WARN_TAINT(taint) 				\
 	__BUG_FLAGS(BUGFLAG_TAINT(taint))
-#undef __WARN_TAINT
 
 #define HAVE_ARCH_BUG
 
