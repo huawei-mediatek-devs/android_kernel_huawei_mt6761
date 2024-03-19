@@ -1288,16 +1288,11 @@ static void v4l_fill_fmtdesc(struct v4l2_fmtdesc *fmt)
 		case V4L2_PIX_FMT_JPGL:		descr = "JPEG Lite"; break;
 		case V4L2_PIX_FMT_SE401:	descr = "GSPCA SE401"; break;
 		case V4L2_PIX_FMT_S5C_UYVY_JPG:	descr = "S5C73MX interleaved UYVY/JPEG"; break;
-		case V4L2_PIX_FMT_DIVX:
-			descr = "DIVX";
-			break;
 		case V4L2_PIX_FMT_DIVX3:	descr = "DIVX3"; break;
 		case V4L2_PIX_FMT_DIVX4:	descr = "DIVX4"; break;
 		case V4L2_PIX_FMT_DIVX5:	descr = "DIVX5"; break;
 		case V4L2_PIX_FMT_DIVX6:	descr = "DIVX6"; break;
 		case V4L2_PIX_FMT_H265:		descr = "H.265"; break;
-		case V4L2_PIX_FMT_HEIF:
-			descr = "HEIF"; break;
 		case V4L2_PIX_FMT_S263:		descr = "S.263"; break;
 		case V4L2_PIX_FMT_WMV1:		descr = "WMV1"; break;
 		case V4L2_PIX_FMT_WMV2:		descr = "WMV2"; break;
@@ -1307,23 +1302,10 @@ static void v4l_fill_fmtdesc(struct v4l2_fmtdesc *fmt)
 		case V4L2_PIX_FMT_RV30:		descr = "RealVideo 8"; break;
 		case V4L2_PIX_FMT_RV40:		descr = "RealVideo 9/10"; break;
 		case V4L2_PIX_FMT_MT21C:
-		case V4L2_PIX_FMT_MT21:
-		case V4L2_PIX_FMT_MT2110T:
-		case V4L2_PIX_FMT_MT2110R:
-		case V4L2_PIX_FMT_MT21C10T:
-		case V4L2_PIX_FMT_MT21C10R:
-		case V4L2_PIX_FMT_MT21CS:
-		case V4L2_PIX_FMT_MT21S:
-		case V4L2_PIX_FMT_MT21S10T:
-		case V4L2_PIX_FMT_MT21S10R:
-		case V4L2_PIX_FMT_MT21CS10T:
-		case V4L2_PIX_FMT_MT21CS10R:
-		case V4L2_PIX_FMT_MT21CSA:
-		case V4L2_PIX_FMT_MT21S10TJ:
-		case V4L2_PIX_FMT_MT21S10RJ:
-		case V4L2_PIX_FMT_MT21CS10TJ:
-		case V4L2_PIX_FMT_MT21CS10RJ:
-			descr = "Mediatek Video Block Format"; break;
+		case V4L2_PIX_FMT_MT21T:
+		case V4L2_PIX_FMT_MT21U:
+		case V4L2_PIX_FMT_MT2TU:
+			descr = "Mediatek Compressed Format"; break;
 		default:
 			WARN(1, "Unknown pixelformat 0x%08x\n", fmt->pixelformat);
 			if (fmt->description[0])
@@ -1996,22 +1978,7 @@ static int v4l_s_parm(const struct v4l2_ioctl_ops *ops,
 	struct v4l2_streamparm *p = arg;
 	int ret = check_fmt(file, p->type);
 
-	if (ret)
-		return ret;
-
-	/* Note: extendedmode is never used in drivers */
-	if (V4L2_TYPE_IS_OUTPUT(p->type)) {
-		memset(p->parm.output.reserved, 0,
-		       sizeof(p->parm.output.reserved));
-		p->parm.output.extendedmode = 0;
-		p->parm.output.outputmode &= V4L2_MODE_HIGHQUALITY;
-	} else {
-		memset(p->parm.capture.reserved, 0,
-		       sizeof(p->parm.capture.reserved));
-		p->parm.capture.extendedmode = 0;
-		p->parm.capture.capturemode &= V4L2_MODE_HIGHQUALITY;
-	}
-	return ops->vidioc_s_parm(file, fh, p);
+	return ret ? ret : ops->vidioc_s_parm(file, fh, p);
 }
 
 static int v4l_queryctrl(const struct v4l2_ioctl_ops *ops,

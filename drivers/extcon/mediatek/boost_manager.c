@@ -23,15 +23,14 @@
 #if CONFIG_MTK_GAUGE_VERSION == 30
 #include <mtk_gauge_time_service.h>
 #include <mt-plat/charger_class.h>
-#include <linux/alarmtimer.h>
+
 #endif
 
 struct usbotg_boost {
 	struct platform_device *pdev;
 	struct charger_device *primary_charger;
 #if CONFIG_MTK_GAUGE_VERSION == 30
-	struct alarm otg_timer;
-	struct timespec endtime;
+	struct gtimer otg_kthread_gtimer;
 	struct workqueue_struct *boost_workq;
 	struct work_struct kick_work;
 	unsigned int polling_interval;
@@ -41,31 +40,17 @@ struct usbotg_boost {
 static struct usbotg_boost *g_info;
 
 #if CONFIG_MTK_GAUGE_VERSION == 30
-static void usbotg_alarm_start_timer(struct usbotg_boost *info)
-{
-	struct timespec time, time_now;
-	ktime_t ktime;
-
-	get_monotonic_boottime(&time_now);
-	time.tv_sec = info->polling_interval;
-	time.tv_nsec = 0;
-	info->endtime = timespec_add(time_now, time);
-
-	ktime = ktime_set(info->endtime.tv_sec, info->endtime.tv_nsec);
-
-	pr_info("%s: alarm timer start\n", __func__);
-	alarm_start(&info->otg_timer, ktime);
-}
-
 static void enable_boost_polling(bool poll_en)
 {
 	if (g_info) {
 		if (poll_en) {
-			usbotg_alarm_start_timer(g_info);
+			gtimer_start(&g_info->otg_kthread_gtimer,
+				g_info->polling_interval);
+
 			g_info->polling_enabled = true;
 		} else {
 			g_info->polling_enabled = false;
-			alarm_try_to_cancel(&g_info->otg_timer);
+			gtimer_stop(&g_info->otg_kthread_gtimer);
 		}
 	}
 }
@@ -75,25 +60,25 @@ static void usbotg_boost_kick_work(struct work_struct *work)
 	struct usbotg_boost *usb_boost_manager =
 		container_of(work, struct usbotg_boost, kick_work);
 
-	pr_info("%s\n", __func__);
+	pr_info("usbotg_boost_kick_work\n");
 
 	charger_dev_kick_wdt(usb_boost_manager->primary_charger);
 
 	if (usb_boost_manager->polling_enabled == true) {
-		usbotg_alarm_start_timer(usb_boost_manager);
+		gtimer_start(&usb_boost_manager->otg_kthread_gtimer,
+			usb_boost_manager->polling_interval);
 	}
 }
 
-static enum alarmtimer_restart
-	usbotg_alarm_timer_func(struct alarm *alarm, ktime_t now)
+static int usbotg_gtimer_func(struct gtimer *data)
 {
 	struct usbotg_boost *usb_boost_manager =
-		container_of(alarm, struct usbotg_boost, otg_timer);
+		container_of(data, struct usbotg_boost, otg_kthread_gtimer);
 
 	queue_work(usb_boost_manager->boost_workq,
 		&usb_boost_manager->kick_work);
 
-	return ALARMTIMER_NORESTART;
+	return 0;
 }
 #endif
 
@@ -145,8 +130,8 @@ static int usbotg_boost_probe(struct platform_device *pdev)
 	}
 
 #if CONFIG_MTK_GAUGE_VERSION == 30
-	alarm_init(&info->otg_timer, ALARM_BOOTTIME,
-		usbotg_alarm_timer_func);
+	gtimer_init(&info->otg_kthread_gtimer, &info->pdev->dev, "otg_boost");
+	info->otg_kthread_gtimer.callback = usbotg_gtimer_func;
 	if (of_property_read_u32(node, "boost_period",
 		(u32 *) &info->polling_interval))
 		return -EINVAL;

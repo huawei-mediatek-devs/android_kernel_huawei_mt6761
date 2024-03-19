@@ -31,17 +31,21 @@
 #define TILE_LOSS_RIGHT 4
 
 int rsz_calc_tile_params(u32 frm_in_len, u32 frm_out_len,
-			 bool tile_mode, struct rsz_tile_params *t)
+			 bool tile_mode, struct rsz_tile_params *t, u32 array_size)
 {
 	u32 tile_loss = 0;
 	u32 step = 0;
-	s32 init_phase = 0;
-	s32 offset[2] = { 0 };
-	s32 int_offset[2] = { 0 };
-	s32 sub_offset[2] = { 0 };
+	u32 init_phase = 0;
+	u32 offset[2] = { 0 };
+	u32 int_offset[2] = { 0 };
+	u32 sub_offset[2] = { 0 };
 	u32 tile_in_len[2] = { 0 };
 	u32 tile_out_len = 0;
 
+	if (t == NULL) {
+		DDPMSG("rsz_tile_params pointer is NULL\n");
+		return -EINVAL;
+	}
 	if (tile_mode)
 		tile_loss = TILE_LOSS;
 
@@ -51,15 +55,8 @@ int rsz_calc_tile_params(u32 frm_in_len, u32 frm_out_len,
 	/* left half */
 	offset[0] = (step * (frm_out_len - 1) - UNIT * (frm_in_len - 1)) / 2;
 	init_phase = UNIT - offset[0];
-	sub_offset[0] = -offset[0];
-	if (sub_offset[0] < 0) {
-		int_offset[0]--;
-		sub_offset[0] = UNIT + sub_offset[0];
-	}
-	if (sub_offset[0] >= UNIT) {
-		int_offset[0]++;
-		sub_offset[0] = sub_offset[0] - UNIT;
-	}
+	int_offset[0] = init_phase / UNIT;
+	sub_offset[0] = init_phase - UNIT * int_offset[0];
 	if (tile_mode) {
 		tile_in_len[0] = frm_in_len / 2 + tile_loss;
 		tile_out_len = frm_out_len / 2;
@@ -69,8 +66,8 @@ int rsz_calc_tile_params(u32 frm_in_len, u32 frm_out_len,
 	}
 
 	t[0].step = step;
-	t[0].int_offset = (u32)(int_offset[0] & 0xffff);
-	t[0].sub_offset = (u32)(sub_offset[0] & 0x1fffff);
+	t[0].int_offset = int_offset[0];
+	t[0].sub_offset = sub_offset[0];
 	t[0].in_len = tile_in_len[0];
 	t[0].out_len = tile_out_len;
 
@@ -80,6 +77,8 @@ int rsz_calc_tile_params(u32 frm_in_len, u32 frm_out_len,
 
 	if (!tile_mode)
 		return 0;
+	if (array_size < 2)
+		DDPMSG("error, rsz_tile_params array out-of-bounds\n");
 
 	/* right half */
 	offset[1] = (init_phase + frm_out_len / 2 * step) -
@@ -96,8 +95,8 @@ int rsz_calc_tile_params(u32 frm_in_len, u32 frm_out_len,
 	}
 
 	t[1].step = step;
-	t[1].int_offset = (u32)(int_offset[1] & 0xffff);
-	t[1].sub_offset = (u32)(sub_offset[1] & 0x1fffff);
+	t[1].int_offset = int_offset[1];
+	t[1].sub_offset = sub_offset[1];
 	t[1].in_len = tile_in_len[1];
 	t[1].out_len = tile_out_len;
 
@@ -261,9 +260,9 @@ static int rsz_config(enum DISP_MODULE_ENUM module,
 	}
 
 	rsz_calc_tile_params(rsz_config->frm_in_w, rsz_config->frm_out_w,
-			     tile_mode, rsz_config->tw);
+			     tile_mode, rsz_config->tw,2);
 	rsz_calc_tile_params(rsz_config->frm_in_h, rsz_config->frm_out_h,
-			     tile_mode, &rsz_config->th);
+			     tile_mode, &rsz_config->th,1);
 
 	in_w = rsz_config->tw[tile_idx].in_len;
 	in_h = rsz_config->th.in_len;

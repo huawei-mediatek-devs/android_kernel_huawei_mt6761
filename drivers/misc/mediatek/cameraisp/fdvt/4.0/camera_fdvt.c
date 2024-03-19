@@ -542,7 +542,7 @@ static int FDVT_SetRegHW(FDVTRegIO *a_pstCfg)
 	if (copy_from_user(
 		(void *)pFDVTWriteBuffer.u4Addr,
 		(void *) pREGIO->pAddr,
-		pREGIO->u4Count * sizeof(u32))) {
+		pREGIO->u4Count * sizeof(u32)) != 0) {
 		LOG_DBG("ioctl copy from user failed\n");
 		return -EFAULT;
 	}
@@ -560,7 +560,7 @@ static int FDVT_SetRegHW(FDVTRegIO *a_pstCfg)
 
 	for (i = 0; i < pREGIO->u4Count; i++) {
 		if ((FDVT_ADDR + pFDVTWriteBuffer.u4Addr[i]) >=
-		FDVT_ENABLE &&
+		FDVT_ADDR &&
 		(FDVT_ADDR + pFDVTWriteBuffer.u4Addr[i]) <=
 		(FDVT_ADDR + FDVT_MAX_OFFSET)) {
 		/*LOG_DBG("Write: FDVT[0x%03lx](0x%08lx) = 0x%08lx\n",*/
@@ -600,6 +600,8 @@ static int FDVT_ReadRegHW(FDVTRegIO *a_pstCfg)
 	}
 
 	size = a_pstCfg->u4Count * 4;
+	if (size == 0)
+		LOG_DBG("Size is 0,size(%d)\n", size);
 
 	if (copy_from_user(pFDVTReadBuffer.u4Addr, a_pstCfg->pAddr,
 		size) != 0) {
@@ -650,7 +652,7 @@ static int FDVT_WaitIRQ(u32 *u4IRQMask)
 	timeout = wait_event_interruptible_timeout
 		(g_FDVTWQ,
 		(g_FDVTIRQMSK & g_FDVTIRQ),
-		us_to_jiffies(15 * 1000000));
+		us_to_jiffies(3 * 1000000));
 
 	if (timeout == 0) {
 		LOG_ERR("wait_event_interruptible_timeout timeout, %d, %d\n",
@@ -658,18 +660,18 @@ static int FDVT_WaitIRQ(u32 *u4IRQMask)
 			g_FDVTIRQ);
 		FDVT_WR32(0x00030000, FDVT_START);  /* LDVT Disable */
 		FDVT_WR32(0x00000000, FDVT_START);  /* LDVT Disable */
+		FDVT_basic_config();
 		return -EAGAIN;
-	}
-
-	*u4IRQMask = g_FDVTIRQ;
-	/*LOG_DBG("[FDVT] IRQ : 0x%8x\n",g_FDVTIRQ);*/
-
+	} else if (timeout != 0 && !(g_FDVTIRQMSK & g_FDVTIRQ)) {
 	/* check if user is interrupted by system signal */
-	if (timeout != 0 && !(g_FDVTIRQMSK & g_FDVTIRQ)) {
+
 		LOG_ERR("interrupted by system signal,return value(%d)\n",
 			timeout);
 		return -ERESTARTSYS; /* actually it should be -ERESTARTSYS */
 	}
+
+	*u4IRQMask = g_FDVTIRQ;
+	/*LOG_DBG("[FDVT] IRQ : 0x%8x\n",g_FDVTIRQ);*/
 
 	if (!(g_FDVTIRQMSK & g_FDVTIRQ)) {
 		LOG_ERR("wait_event_interruptible Not FDVT, %d, %d\n",
@@ -1274,6 +1276,9 @@ static int FDVT_remove(struct platform_device *dev)
 	unregister_chrdev_region(FDVT_devno, 1);
 
 	i4IRQ = platform_get_irq(dev, 0);
+	if (i4IRQ == 0)
+		LOG_DBG("[FDVT_DEBUG] Irq Num is 0\n");
+
 	free_irq(i4IRQ, NULL);
 
 	/*if (pBuff) {*/

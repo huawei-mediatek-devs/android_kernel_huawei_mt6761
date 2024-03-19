@@ -24,11 +24,7 @@
 #include "ccci_modem.h"
 #include "ccci_hif_internal.h"
 
-#if (MD_GENERATION >= 6295)
-#define QUEUE_NUM   16
-#else
 #define QUEUE_NUM   8
-#endif
 
 /*#define FLOW_CTRL_ENABLE*/
 #define FLOW_CTRL_HEAD		0x464C4F57	/*FLOW*/
@@ -232,18 +228,11 @@ static inline int ccci_ccif_hif_set_wakeup_src(unsigned char hif_id, int value)
 {
 	struct md_ccif_ctrl *md_ctrl =
 		(struct md_ccif_ctrl *)ccci_hif_get_by_id(hif_id);
-	unsigned int que_bitmap;
 
-	if (md_ctrl) {
-		que_bitmap = ccif_read32(md_ctrl->ccif_ap_base, APCCIF_RCHNUM);
-		pr_notice("[ccci1/cif] CCIF wakeup channel: 0x%0x\n",
-			que_bitmap);
-		if (que_bitmap != 0x1 << AP_MD_PEER_WAKEUP &&
-			que_bitmap != 0x0)
-			return atomic_set(&md_ctrl->wakeup_src, value);
-	}
-
-	return -1;
+	if (md_ctrl)
+		return atomic_set(&md_ctrl->wakeup_src, value);
+	else
+		return -1;
 }
 
 void *ccif_hif_fill_rt_header(unsigned char hif_id, int packet_size,

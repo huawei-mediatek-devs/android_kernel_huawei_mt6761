@@ -90,7 +90,7 @@ static unsigned int pmic_write_device(unsigned int RegNum,
 #if defined(CONFIG_PMIC_HW_ACCESS_EN)
 #ifndef IPIMB
 	unsigned int pmic_reg = 0;
-	unsigned int rdata = 0;
+	unsigned int rdata;
 
 	return_value = pwrap_read((RegNum), &rdata);
 	pmic_reg = rdata;
@@ -517,11 +517,6 @@ void __attribute__ ((weak)) record_md_vosel(void)
 
 void __attribute__ ((weak)) pmic_enable_smart_reset(unsigned char smart_en,
 	unsigned char smart_sdn_en)
-{
-	pr_notice("[%s] smart reset not support!\n", __func__);
-}
-
-void __attribute__ ((weak)) enable_bat_temp_det(bool en)
 {
 	pr_notice("[%s] smart reset not support!\n", __func__);
 }

@@ -28,7 +28,7 @@
 #include <linux/kthread.h>
 #include <linux/cpu.h>
 #include <linux/version.h>
-#include <linux/pm_wakeup.h>
+#include <linux/wakelock.h>
 
 #include "inc/pd_dbg_info.h"
 #include "inc/tcpci.h"
@@ -375,8 +375,8 @@ static int rt5081_regmap_init(struct rt5081_chip *chip)
 	if ((!props->name) || (!props->aliases))
 		return -ENOMEM;
 
-	strlcpy((char *)props->name, name, len+1);
-	strlcpy((char *)props->aliases, name, len+1);
+	strlcpy((char *)props->name, name, strlen(name)+1);
+	strlcpy((char *)props->aliases, name, strlen(name)+1);
 	props->io_log_en = 0;
 
 	chip->m_dev = rt_regmap_device_register(props,
@@ -817,30 +817,6 @@ int rt5081_fault_status_clear(struct tcpc_device *tcpc, uint8_t status)
 	return 0;
 }
 
-
-int rt5081_get_alert_mask(struct tcpc_device *tcpc, uint32_t *mask)
-{
-	int ret;
-#ifdef CONFIG_TCPC_VSAFE0V_DETECT_IC
-	uint8_t v2;
-#endif
-
-	ret = rt5081_i2c_read16(tcpc, TCPC_V10_REG_ALERT_MASK);
-	if (ret < 0)
-		return ret;
-	*mask = (uint16_t) ret;
-
-#ifdef CONFIG_TCPC_VSAFE0V_DETECT_IC
-	ret = rt5081_i2c_read8(tcpc, RT5081_REG_RT_MASK);
-	if (ret < 0)
-		return ret;
-
-	v2 = (uint8_t) ret;
-	*mask |= v2 << 16;
-#endif
-	return 0;
-}
-
 int rt5081_get_alert_status(struct tcpc_device *tcpc, uint32_t *alert)
 {
 	int ret;
@@ -1182,8 +1158,8 @@ static int rt5081_set_bist_carrier_mode(
 	return 0;
 }
 
-/* transmit count (1byte) + message header (2byte) + data object (4byte * 7) */
-#define RT5081_TRANSMIT_MAX_SIZE (1 + sizeof(uint16_t) + sizeof(uint32_t) * 7)
+/* message header (2byte) + data object (7*4) */
+#define RT5081_TRANSMIT_MAX_SIZE	(sizeof(uint16_t) + sizeof(uint32_t)*7)
 
 #ifdef CONFIG_USB_PD_RETRY_CRC_DISCARD
 static int rt5081_retransmit(struct tcpc_device *tcpc)
@@ -1243,7 +1219,6 @@ static struct tcpc_ops rt5081_tcpc_ops = {
 	.init = rt5081_tcpc_init,
 	.alert_status_clear = rt5081_alert_status_clear,
 	.fault_status_clear = rt5081_fault_status_clear,
-	.get_alert_mask = rt5081_get_alert_mask,
 	.get_alert_status = rt5081_get_alert_status,
 	.get_power_status = rt5081_get_power_status,
 	.get_fault_status = rt5081_get_fault_status,
@@ -1432,7 +1407,7 @@ static int rt5081_tcpcdev_init(struct rt5081_chip *chip, struct device *dev)
 	if (!desc->name)
 		return -ENOMEM;
 
-	strlcpy((char *)desc->name, name, len+1);
+	strlcpy((char *)desc->name, name, strlen(name)+1);
 
 	chip->tcpc_desc = desc;
 

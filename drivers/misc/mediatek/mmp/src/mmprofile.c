@@ -89,7 +89,7 @@ static bool mmp_trace_log_on;
 #define MMP_MSG(fmt, arg...) pr_info("MMP: %s(): "fmt"\n", __func__, ##arg)
 
 #define mmp_aee(string, args...) do {	\
-	char disp_name[100];						\
+	char disp_name[100] = { 0 };	\
 	snprintf(disp_name, 100, "[MMP]"string, ##args); \
 	aee_kernel_warning_api(__FILE__, __LINE__, \
 		DB_OPT_DEFAULT | DB_OPT_MMPROFILE_BUFFER | \
@@ -116,9 +116,7 @@ static DEFINE_MUTEX(mmprofile_buffer_init_mutex);
 static DEFINE_MUTEX(mmprofile_regtable_mutex);
 static DEFINE_MUTEX(mmprofile_meta_buffer_mutex);
 static struct mmprofile_event_t *p_mmprofile_ring_buffer;
-#ifdef CONFIG_MTK_ENG_BUILD
 static unsigned char *p_mmprofile_meta_buffer;
-#endif
 
 static struct mmp_static_event_t mmprofile_static_events[] = {
 	{MMP_ROOT_EVENT, "Root_Event", MMP_INVALID_EVENT},
@@ -325,9 +323,7 @@ void mmprofile_get_dump_buffer(unsigned int start, unsigned long *p_addr,
 static void mmprofile_init_buffer(void)
 {
 	unsigned int b_reset_ring_buffer = 0;
-#ifdef CONFIG_MTK_ENG_BUILD
 	unsigned int b_reset_meta_buffer = 0;
-#endif
 
 	if (!mmprofile_globals.enable)
 		return;
@@ -380,7 +376,6 @@ static void mmprofile_init_buffer(void)
 	MMP_LOG(ANDROID_LOG_DEBUG, "p_mmprofile_ring_buffer=0x%08lx",
 		(unsigned long)p_mmprofile_ring_buffer);
 
-#ifdef CONFIG_MTK_ENG_BUILD
 	if (!p_mmprofile_meta_buffer) {
 		mmprofile_globals.meta_buffer_size =
 			mmprofile_globals.new_meta_buffer_size;
@@ -403,8 +398,8 @@ static void mmprofile_init_buffer(void)
 	    vmalloc(mmprofile_globals.meta_buffer_size);
 #endif
 	}
-
-	MMP_LOG(ANDROID_LOG_DEBUG, "p_mmprofile_meta_buffer=0x%08lx",
+	MMP_LOG(ANDROID_LOG_DEBUG,
+		"p_mmprofile_meta_buffer=0x%08lx",
 		(unsigned long)p_mmprofile_meta_buffer);
 
 	if ((!p_mmprofile_ring_buffer) || (!p_mmprofile_meta_buffer)) {
@@ -421,19 +416,10 @@ static void mmprofile_init_buffer(void)
 		MMP_LOG(ANDROID_LOG_DEBUG, "Cannot allocate buffer");
 		return;
 	}
-#else
-	if (!p_mmprofile_ring_buffer) {
-		bmmprofile_init_buffer = 0;
-		mutex_unlock(&mmprofile_buffer_init_mutex);
-		MMP_LOG(ANDROID_LOG_DEBUG, "Cannot allocate buffer");
-		return;
-	}
-#endif
 
 	if (b_reset_ring_buffer)
 		memset((void *)(p_mmprofile_ring_buffer), 0,
 		       mmprofile_globals.buffer_size_bytes);
-#ifdef CONFIG_MTK_ENG_BUILD
 	if (b_reset_meta_buffer) {
 		struct mmprofile_meta_datablock_t *p_block;
 
@@ -447,7 +433,6 @@ static void mmprofile_init_buffer(void)
 		INIT_LIST_HEAD(&mmprofile_meta_buffer_list);
 		list_add_tail(&(p_block->list), &mmprofile_meta_buffer_list);
 	}
-#endif
 	bmmprofile_init_buffer = 1;
 
 	mutex_unlock(&mmprofile_buffer_init_mutex);
@@ -816,7 +801,7 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 	 */
 	if (unlikely(event < 2))
 		return;
-	index = ((unsigned int)atomic_inc_return((atomic_t *)
+	index = (atomic_inc_return((atomic_t *)
 			&(mmprofile_globals.write_pointer)) - 1)
 	    % (mmprofile_globals.buffer_size_record);
 	/*check vmalloc address is valid or not*/
@@ -829,7 +814,7 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 			mmprofile_globals.new_buffer_size_record);
 		return;
 	}
-	lock = (unsigned int)atomic_inc_return((atomic_t *)
+	lock = atomic_inc_return((atomic_t *)
 		&(p_mmprofile_ring_buffer[index].lock));
 	/*atomic_t is INT, write_pointer is UINT, avoid convert error*/
 	if (mmprofile_globals.write_pointer ==
@@ -840,10 +825,16 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 		 * to be marked as invalid.
 		 */
 		while (1) {
-			index =
-				((unsigned int)atomic_inc_return((atomic_t *)
+			if (mmprofile_globals.buffer_size_record) {
+				index =
+				(atomic_inc_return((atomic_t *)
 				&(mmprofile_globals.write_pointer)) - 1) %
 				(mmprofile_globals.buffer_size_record);
+			} else {
+				pr_info("error: buffer_size_record is 0!\n");
+				return;
+			}
+
 			if (!pfn_valid(vmalloc_to_pfn
 				((struct mmprofile_event_t *)
 					&(p_mmprofile_ring_buffer[index])))) {
@@ -856,7 +847,7 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 				return;
 			}
 			lock =
-			    (unsigned int)atomic_inc_return((atomic_t *) &
+			    atomic_inc_return((atomic_t *) &
 					(p_mmprofile_ring_buffer[index].lock));
 			/*avoid convert error*/
 			if (mmprofile_globals.write_pointer ==
@@ -1019,7 +1010,7 @@ static long mmprofile_log_meta_int(mmp_event event, enum mmp_log_type type,
 		if (b_from_user) {
 			retn =
 				copy_from_user(p_node->meta_data,
-					p_data, left_size);
+					(void __user *)p_data, left_size);
 			retn =
 			    copy_from_user(p_mmprofile_meta_buffer,
 					(void *)((unsigned long)p_data +
@@ -1140,12 +1131,12 @@ void mmprofile_enable_ftrace_event_recursive(mmp_event event, long enable,
 	index = MMP_ROOT_EVENT;
 	mmprofile_enable_ftrace_event(event, enable, ftrace);
 	list_for_each_entry(p_regtable, &(mmprofile_regtable.list), list) {
-		if (p_regtable->event_info.parent_id != event)
-			continue;
-		mmprofile_enable_ftrace_event_recursive(index, enable, ftrace);
+		if (p_regtable->event_info.parent_id == event)
+			mmprofile_enable_ftrace_event_recursive(index, enable, ftrace);
 
 		index++;
 	}
+
 }
 EXPORT_SYMBOL(mmprofile_enable_ftrace_event_recursive);
 
@@ -2324,23 +2315,23 @@ static int mmprofile_probe(void)
 	if (g_p_debug_fs_dir) {
 		/* Create debugfs files. */
 		g_p_debug_fs_enable =
-		    debugfs_create_file("enable", 0600,
+		    debugfs_create_file("enable", 0x600,
 				g_p_debug_fs_dir, NULL,
 				&mmprofile_dbgfs_enable_fops);
 		g_p_debug_fs_start =
-		    debugfs_create_file("start", 0600,
+		    debugfs_create_file("start", 0x600,
 				g_p_debug_fs_dir, NULL,
 				&mmprofile_dbgfs_start_fops);
 		g_p_debug_fs_buffer =
-		    debugfs_create_file("buffer", 0400,
+		    debugfs_create_file("buffer", 0x400,
 				g_p_debug_fs_dir, NULL,
 				&mmprofile_dbgfs_buffer_fops);
 		g_p_debug_fs_global =
-		    debugfs_create_file("global", 0400,
+		    debugfs_create_file("global", 0x400,
 				g_p_debug_fs_dir, NULL,
 				&mmprofile_dbgfs_global_fops);
 		g_p_debug_fs_reset =
-		    debugfs_create_file("reset", 0200,
+		    debugfs_create_file("reset", 0x200,
 				g_p_debug_fs_dir, NULL,
 				&mmprofile_dbgfs_reset_fops);
 	}

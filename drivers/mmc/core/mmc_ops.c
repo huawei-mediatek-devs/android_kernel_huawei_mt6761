@@ -22,6 +22,12 @@
 #include "host.h"
 #include "mmc_ops.h"
 
+#ifdef CONFIG_HUAWEI_SDCARD_DSM
+#include <linux/mmc/dsm_sdcard.h>
+#endif
+#ifdef CONFIG_HUAWEI_EMMC_DSM
+#include <linux/mmc/dsm_emmc.h>
+#endif
 #define MMC_OPS_TIMEOUT_MS	(10 * 60 * 1000) /* 10 minute timeout */
 
 static const u8 tuning_blk_pattern_4bit[] = {
@@ -90,6 +96,7 @@ int mmc_send_status(struct mmc_card *card, u32 *status)
 
 static int _mmc_select_card(struct mmc_host *host, struct mmc_card *card)
 {
+	int err;
 	struct mmc_command cmd = {0};
 
 	BUG_ON(!host);
@@ -104,7 +111,27 @@ static int _mmc_select_card(struct mmc_host *host, struct mmc_card *card)
 		cmd.flags = MMC_RSP_NONE | MMC_CMD_AC;
 	}
 
-	return mmc_wait_for_cmd(host, &cmd, MMC_CMD_RETRIES);
+	/*We must ensure that the total lossing time in sd suspend is less then
+	12s,so we just retry once instead of four for damaged sd cards*/
+	err = mmc_wait_for_cmd(host, &cmd, MMC_CMD_RETRIES);
+#ifdef CONFIG_HUAWEI_SDCARD_DSM
+	if (!strcmp(mmc_hostname(host), "mmc1"))
+		 dsm_sdcard_cmd_logs[DSM_SDCARD_CMD7].value = cmd.resp[0];
+
+	if (err) {
+		if (-ENOMEDIUM != err && -ETIMEDOUT != err
+				&& !strcmp(mmc_hostname(host), "mmc1")) {
+			dsm_sdcard_report(DSM_SDCARD_CMD7, DSM_SDCARD_CMD7_RESP_ERR);
+			printk(KERN_ERR "%s:send cmd7 fail ,err=%d !!!!\n",mmc_hostname(host),err);
+		}
+		return err;
+	}
+#else
+	if (err)
+		return err;
+#endif
+
+	return 0;
 }
 
 int mmc_select_card(struct mmc_card *card)
@@ -229,8 +256,32 @@ int mmc_all_send_cid(struct mmc_host *host, u32 *cid)
 	cmd.flags = MMC_RSP_R2 | MMC_CMD_BCR;
 
 	err = mmc_wait_for_cmd(host, &cmd, MMC_CMD_RETRIES);
-	if (err)
+#ifdef CONFIG_HUAWEI_SDCARD_DSM
+	if (!strcmp(mmc_hostname(host), "mmc1")) {
+		 dsm_sdcard_cmd_logs[DSM_SDCARD_CMD2_R0].value = cmd.resp[0];
+		 dsm_sdcard_cmd_logs[DSM_SDCARD_CMD2_R1].value = cmd.resp[1];
+		 dsm_sdcard_cmd_logs[DSM_SDCARD_CMD2_R2].value = cmd.resp[2];
+		 dsm_sdcard_cmd_logs[DSM_SDCARD_CMD2_R3].value = cmd.resp[3];
+	}
+
+	if (err) {
+		if (-ENOMEDIUM != err && -ETIMEDOUT != err
+			&& !strcmp(mmc_hostname(host), "mmc1"))
+			dsm_sdcard_report(DSM_SDCARD_CMD2_R3, DSM_SDCARD_CMD2_RESP_ERR);
+
+		if (!strcmp(mmc_hostname(host),"mmc1"))
+			printk(KERN_ERR "%s:send cmd2 fail,err=%d\n",mmc_hostname(host),err);
+
 		return err;
+	}
+#else
+	if (err) {
+	    if (!strcmp(mmc_hostname(host),"mmc1"))
+		   printk(KERN_ERR "%s:send cmd2 fail,err=%d\n", mmc_hostname(host), err);
+
+		return err;
+	}
+#endif
 
 	memcpy(cid, cmd.resp, sizeof(u32) * 4);
 
@@ -319,6 +370,14 @@ mmc_send_cxd_data(struct mmc_card *card, struct mmc_host *host,
 
 	mmc_wait_for_req(host, &mrq);
 
+#ifdef CONFIG_HUAWEI_EMMC_DSM
+	if (cmd.error || data.error)
+		if (!strcmp(mmc_hostname(host), "mmc0")) {
+			DSM_EMMC_LOG(card, DSM_EMMC_SEND_CXD_ERR,
+				"opcode:%d failed, cmd.error:%d, data.error:%d\n",
+				opcode, cmd.error, data.error);
+		}
+#endif
 	if (cmd.error)
 		return cmd.error;
 	if (data.error)
@@ -454,47 +513,6 @@ int mmc_switch_status_error(struct mmc_host *host, u32 status)
 	}
 	return 0;
 }
-
-#ifdef CONFIG_MTK_EMMC_HW_CQ
-/**
- *	mmc_prepare_switch - helper; prepare to modify EXT_CSD register
- *	@card: the MMC card associated with the data transfer
- *	@set: cmd set values
- *	@index: EXT_CSD register index
- *	@value: value to program into EXT_CSD register
- *	@tout_ms: timeout (ms) for operation performed by register write,
- *                   timeout of zero implies maximum possible timeout
- *	@use_busy_signal: use the busy signal as response type
- *
- *	Helper to prepare to modify EXT_CSD register for selected card.
- */
-
-static inline void mmc_prepare_switch(struct mmc_command *cmd, u8 index,
-				      u8 value, u8 set, unsigned int tout_ms,
-				      bool use_busy_signal)
-{
-	cmd->opcode = MMC_SWITCH;
-	cmd->arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) |
-		  (index << 16) |
-		  (value << 8) |
-		  set;
-	cmd->flags = MMC_CMD_AC;
-	cmd->busy_timeout = tout_ms;
-	if (use_busy_signal)
-		cmd->flags |= MMC_RSP_SPI_R1B | MMC_RSP_R1B;
-	else
-		cmd->flags |= MMC_RSP_SPI_R1 | MMC_RSP_R1;
-}
-
-int __mmc_switch_cmdq_mode(struct mmc_command *cmd, u8 set, u8 index, u8 value,
-			   unsigned int timeout_ms, bool use_busy_signal,
-			   bool ignore_timeout)
-{
-	mmc_prepare_switch(cmd, index, value, set, timeout_ms, use_busy_signal);
-	return 0;
-}
-EXPORT_SYMBOL(__mmc_switch_cmdq_mode);
-#endif
 
 /**
  *	__mmc_switch - modify EXT_CSD register
@@ -838,23 +856,3 @@ int mmc_can_ext_csd(struct mmc_card *card)
 {
 	return (card && card->csd.mmca_vsn > CSD_SPEC_VER_3);
 }
-
-#ifdef CONFIG_MTK_EMMC_HW_CQ
-int mmc_discard_queue(struct mmc_host *host, u32 tasks)
-{
-	struct mmc_command cmd = {0};
-
-	cmd.opcode = MMC_CMDQ_TASK_MGMT;
-	if (tasks) {
-		cmd.arg = DISCARD_TASK;
-		cmd.arg |= (tasks << 16);
-	} else {
-		cmd.arg = DISCARD_QUEUE;
-	}
-
-	cmd.flags = MMC_RSP_R1B | MMC_CMD_AC;
-
-	return mmc_wait_for_cmd(host, &cmd, 0);
-}
-EXPORT_SYMBOL(mmc_discard_queue);
-#endif

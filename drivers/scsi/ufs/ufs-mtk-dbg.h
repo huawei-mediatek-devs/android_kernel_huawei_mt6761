@@ -20,35 +20,18 @@ struct ufs_cmd_hlist_struct {
 	enum ufs_trace_event event;
 	u8 opcode;
 	u8 lun;
-	u8 crypted;
-	u8 keyslot;
-	pid_t pid;
 	u32 tag;
 	u32 transfer_len;
 	sector_t lba;
 	u64 time;
 	u64 duration;
-	struct request *rq;
-#if defined(CONFIG_UFSHPB)
-	unsigned long long ppn;
-	u32 region;
-	u32 subregion;
-	u32 resv;
-#endif
 };
 
-/*
- * snprintf may return a value of size or "more" to indicate
- * that the output was truncated, thus be careful of "more"
- * case.
- */
 #define SPREAD_PRINTF(buff, size, evt, fmt, args...) \
 do { \
 	if (buff && size && *(size)) { \
 		unsigned long var = snprintf(*(buff), *(size), fmt, ##args); \
 		if (var > 0) { \
-			if (var > *(size)) \
-				var = *(size); \
 			*(size) -= var; \
 			*(buff) += var; \
 		} \
@@ -79,9 +62,7 @@ do { \
 enum {
 	UFS_CMDS_DUMP = 0,
 	UFS_GET_PWR_MODE = 1,
-	UFS_DUMP_HEALTH_DESCRIPTOR = 2,
-	UFS_CMD_HIST_BEGIN = 3,
-	UFS_CMD_HIST_STOP = 4
+	UFS_DUMP_HEALTH_DESCRIPTOR = 2
 };
 
 #define UFS_PRINFO_PROC_MSG(evt, fmt, args...) \
@@ -126,10 +107,8 @@ do {	\
 } while (0)
 
 int ufs_mtk_debug_proc_init(void);
-void ufs_mtk_dbg_add_trace(struct ufs_hba *hba,
-	enum ufs_trace_event event, u32 tag,
-	u8 lun, u32 transfer_len, sector_t lba, u8 opcode,
-	unsigned long long ppn, u32 region, u32 subregion, u32 resv);
+void ufs_mtk_dbg_add_trace(enum ufs_trace_event event, u32 tag,
+	u8 lun, u32 transfer_len, sector_t lba, u8 opcode);
 void ufs_mtk_dbg_hang_detect_dump(void);
 void ufs_mtk_dbg_proc_dump(struct seq_file *m);
 

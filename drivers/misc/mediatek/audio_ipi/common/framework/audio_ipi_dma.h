@@ -43,9 +43,9 @@ enum { /* audio_ipi_dma_path_t */
 struct aud_ptr_t {
 	union {
 		uint8_t *addr;
-		uint64_t addr_val; /* the value of address */
+		unsigned long addr_val; /* the value of address */
 
-		uint32_t dummy[2]; /* work between 32/64 bit environment */
+		uint32_t dummy[2];      /* work between 32/64 bit environment */
 	};
 };
 
@@ -67,12 +67,12 @@ struct ipi_msg_t;
  */
 
 /* kernel */
-int init_audio_ipi_dma(const uint32_t dsp_id);
+int init_audio_ipi_dma(void);
 
-int deinit_audio_ipi_dma(const uint32_t dsp_id);
+int deinit_audio_ipi_dma(void);
 
 /* dsp */
-int audio_ipi_dma_init_dsp(const uint32_t dsp_id);
+int audio_ipi_dma_init_dsp(void);
 
 
 
@@ -82,14 +82,12 @@ int audio_ipi_dma_init_dsp(const uint32_t dsp_id);
  * =============================================================================
  */
 
-int audio_ipi_dma_alloc(const uint8_t task,
-			phys_addr_t *phy_addr,
-			void **virt_addr,
-			const uint32_t size);
+int audio_ipi_dma_alloc(struct aud_ptr_t *phy_addr, const uint32_t size);
 
-int audio_ipi_dma_free(const uint8_t task,
-		       phys_addr_t phy_addr,
-		       const uint32_t size);
+int audio_ipi_dma_free(struct aud_ptr_t *phy_addr, const uint32_t size);
+
+
+void *get_audio_ipi_dma_vir_addr(unsigned long phy_addr_val);
 
 
 /*
@@ -103,7 +101,6 @@ int audio_ipi_dma_alloc_region(const uint8_t task,
 			       const uint32_t dsp_to_ap_size);
 
 int audio_ipi_dma_free_region(const uint8_t task);
-int audio_ipi_dma_free_region_all_task(uint32_t dsp_id);
 
 
 

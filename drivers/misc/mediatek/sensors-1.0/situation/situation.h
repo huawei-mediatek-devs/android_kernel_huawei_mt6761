@@ -91,5 +91,4 @@ extern int situation_register_control_path(
 extern int situation_register_data_path(struct situation_data_path *data,
 	int handle);
 extern int sar_data_report(int32_t value[3]);
-
 #endif

@@ -32,12 +32,6 @@ enum flashlight_mode {
 	FLASHLIGHT_MODE_FLASH,
 	/* MIXED mode means TORCH + FLASH */
 	FLASHLIGHT_MODE_MIXED,
-	/* DUAL_FLASH mode means turn on FCS_ENx & strobe simultaneously */
-	FLASHLIGHT_MODE_DUAL_FLASH,
-	/* DUAL_TORCH mode means turn on FCS_ENx & torch simultaneously */
-	FLASHLIGHT_MODE_DUAL_TORCH,
-	/* DUAL_OFF mode means turn off FCS_ENx simultaneously */
-	FLASHLIGHT_MODE_DUAL_OFF,
 	FLASHLIGHT_MODE_MAX,
 };
 
@@ -59,6 +53,8 @@ struct flashlight_ops {
 	int (*is_ready)(struct flashlight_device *dev);
 	int (*suspend)(struct flashlight_device *dev, pm_message_t state);
 	int (*resume)(struct flashlight_device *dev);
+	int (*set_fled_en)(struct flashlight_device *dev, bool en);
+	int (*check_fled_en)(struct flashlight_device *dev);
 };
 
 struct flashlight_properties {
@@ -119,8 +115,17 @@ extern int flashlight_strobe(struct flashlight_device *flashlight_dev);
  * return : 0 means not ready, 1 means ready, otherwise, reutrn negative value,
  *	    for the negative value, see definitions in errno.h
  */
+extern int flashlight_set_fled_en(struct flashlight_device *flashlight_dev,bool en);
+extern int flashlight_check_fled_en(struct flashlight_device *flashlight_dev);
 extern int flashlight_is_ready(struct flashlight_device *flashlight_dev);
-
+#ifdef CONFIG_RT_FLASHLIGHT
+extern void mt6370_rt_bled_restore(void);
+#else
+static inline void mt6370_rt_bled_restore(void)
+{
+	return ;
+}
+#endif
 /* flashlight_charge_event_cb(void *data, int remains)
  * description :
  *   callback function of flashlight charging progress

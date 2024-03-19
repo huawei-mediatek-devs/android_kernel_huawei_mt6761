@@ -30,6 +30,10 @@
 #include <mt-plat/mtk_usb2jtag.h>
 #endif
 
+#ifdef CONFIG_LOG_JANK
+#include <huawei_platform/log/log_jank.h>
+#endif
+
 /* #define __FORCE_USB_TYPE__ */
 #ifndef CONFIG_TCPC_CLASS
 #define __SW_CHRDET_IN_PROBE_PHASE__
@@ -172,7 +176,6 @@ static unsigned int hw_bc11_DCD(void)
 	return wChargerAvail;
 }
 
-#if 0 /* If need to detect apple adapter, please enable this code section */
 static unsigned int hw_bc11_stepA1(void)
 {
 	unsigned int wChargerAvail = 0;
@@ -192,7 +195,6 @@ static unsigned int hw_bc11_stepA1(void)
 	bc11_set_register_value(PMIC_RG_BC11_CMP_EN, 0x0);
 	return wChargerAvail;
 }
-#endif
 
 static unsigned int hw_bc11_stepA2(void)
 {
@@ -308,14 +310,10 @@ int hw_charging_get_charger_type(void)
 	hw_bc11_init();
 
 	if (hw_bc11_DCD()) {
-#if 0 /* If need to detect apple adapter, please enable this code section */
 		if (hw_bc11_stepA1())
 			CHR_Type_num = APPLE_2_1A_CHARGER;
 		else
 			CHR_Type_num = NONSTANDARD_CHARGER;
-#else
-		CHR_Type_num = NONSTANDARD_CHARGER;
-#endif
 	} else {
 		if (hw_bc11_stepA2()) {
 			if (hw_bc11_stepB2())
@@ -342,15 +340,15 @@ int hw_charging_get_charger_type(void)
 	return CHR_Type_num;
 }
 
+#define START_CHARGING      (0x40)
+extern void charge_event_notify(unsigned int event);
 void mtk_pmic_enable_chr_type_det(bool en)
 {
-#ifndef CONFIG_TCPC_CLASS
 	if (!mt_usb_is_device()) {
 		g_chr_type = CHARGER_UNKNOWN;
 		pr_info("charger type: UNKNOWN, Now is usb host mode. Skip detection\n");
 		return;
 	}
-#endif
 
 	mutex_lock(&chrdet_lock);
 
@@ -362,11 +360,18 @@ void mtk_pmic_enable_chr_type_det(bool en)
 			chrdet_inform_psy_changed(g_chr_type, 1);
 		} else {
 			pr_info("charger type: charger IN\n");
+#ifdef CONFIG_LOG_JANK
+			LOG_JANK_D(JLID_USBCHARGING_START, "JL_USBCHARGING_START");
+#endif
 			g_chr_type = hw_charging_get_charger_type();
 			chrdet_inform_psy_changed(g_chr_type, 1);
+			charge_event_notify(START_CHARGING);
 		}
 	} else {
 		pr_info("charger type: charger OUT\n");
+#ifdef CONFIG_LOG_JANK
+		LOG_JANK_D(JLID_USBCHARGING_END, "JL_USBCHARGING_END");
+#endif
 		g_chr_type = CHARGER_UNKNOWN;
 		chrdet_inform_psy_changed(g_chr_type, 0);
 	}
@@ -399,12 +404,8 @@ void chrdet_int_handler(void)
 		if (boot_mode == KERNEL_POWER_OFF_CHARGING_BOOT
 		    || boot_mode == LOW_POWER_OFF_CHARGING_BOOT) {
 			pr_info("[chrdet_int_handler] Unplug Charger/USB\n");
-
 #ifndef CONFIG_TCPC_CLASS
-			pr_info("%s: system_state=%d\n", __func__,
-				system_state);
-			if (system_state != SYSTEM_POWER_OFF)
-				kernel_power_off();
+			//orderly_poweroff(true);
 #else
 			return;
 #endif

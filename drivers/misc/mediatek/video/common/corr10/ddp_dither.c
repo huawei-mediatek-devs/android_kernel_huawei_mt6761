@@ -147,7 +147,7 @@ void disp_dither_init(enum DISP_MODULE_ENUM module, int width, int height,
 	DISP_REG_MASK(cmdq, DISP_REG_DITHER_CFG + offset, 0 << 8, 1 << 8);
 #endif
 	DISP_REG_SET(cmdq, DISP_REG_DITHER_SIZE + offset,
-		(width << 16) | height);
+		((unsigned int)width << 16) | (unsigned int)height);
 
 #ifdef DISP_PLATFORM_HAS_SHADOW_REG
 	if (disp_helper_get_option(DISP_OPT_SHADOW_REGISTER)) {
@@ -197,7 +197,7 @@ static int disp_dither_bypass(enum DISP_MODULE_ENUM module, int bypass)
 	}
 
 	DISP_REG_MASK(NULL, DISP_REG_DITHER_CFG + dither_get_offset(module),
-		relay, 0x1);
+		(unsigned int)relay, 0x1);
 
 	DITHER_DBG("Module(%d) (bypass = %d)", module, bypass);
 
@@ -274,7 +274,7 @@ static int _dither_partial_update(enum DISP_MODULE_ENUM module, void *arg,
 	int height = roi->height;
 
 	DISP_REG_SET(cmdq, DISP_REG_DITHER_SIZE + dither_get_offset(module),
-		(width << 16) | height);
+		((unsigned int)width << 16) | (unsigned int)height);
 	return 0;
 }
 

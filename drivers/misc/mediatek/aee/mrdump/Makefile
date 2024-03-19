@@ -20,9 +20,12 @@ mrdump-objs-y := \
 	mrdump_control.o \
 	mrdump_hw.o \
 	mrdump_full.o \
-	mrdump_key_setup.o \
 	mrdump_mini.o \
 	mrdump_panic.o
+
+ifneq ($(FINAL_RELEASE),true)
+mrdump-objs-y += mrdump_key_setup.o
+endif
 
 mrdump-objs-$(CONFIG_ARM) += mrdump_arm.o
 mrdump-objs-$(CONFIG_ARM_PSCI) += mrdump_panic_wdt.o

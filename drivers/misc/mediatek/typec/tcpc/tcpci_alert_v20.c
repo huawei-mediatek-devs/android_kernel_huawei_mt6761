@@ -359,6 +359,7 @@ static inline int __tcpci_alert(struct tcpc_device *tcpc_dev)
 	int rv, i;
 	uint32_t alert_status;
 	uint32_t alert_mask;
+	int org_vbus_level = tcpc_dev->vbus_level;
 
 	rv = tcpci_get_alert_status(tcpc_dev, &alert_status);
 	if (rv)
@@ -372,8 +373,6 @@ static inline int __tcpci_alert(struct tcpc_device *tcpc_dev)
 	if (alert_status != 0)
 		TCPC_INFO("Alert:0x%04x\r\n", alert_status);
 #endif /* CONFIG_USB_PD_DBG_ALERT_STATUS */
-
-	alert_status &= alert_mask;
 
 	tcpci_alert_status_clear(tcpc_dev,
 		alert_status & (~TCPC_REG_ALERT_RX_MASK));
@@ -400,7 +399,8 @@ static inline int __tcpci_alert(struct tcpc_device *tcpc_dev)
 #endif /* CONFIG_USB_PD_DBG_SKIP_ALERT_HANDLER */
 
 	tcpci_vbus_level_refresh(tcpc_dev);
-	tcpci_vbus_level_changed(tcpc_dev);
+	if (org_vbus_level != tcpc_dev->vbus_level)
+		tcpci_vbus_level_changed(tcpc_dev);
 	return 0;
 }
 
@@ -429,7 +429,7 @@ static inline void tcpci_attach_wake_lock(struct tcpc_device *tcpc)
 {
 #ifdef CONFIG_TCPC_ATTACH_WAKE_LOCK_TOUT
 	__pm_wakeup_event(&tcpc->attach_wake_lock,
-					     CONFIG_TCPC_ATTACH_WAKE_LOCK_TOUT);
+		CONFIG_TCPC_ATTACH_WAKE_LOCK_TOUT * HZ);
 #else
 	__pm_stay_awake(&tcpc->attach_wake_lock);
 #endif	/* CONFIG_TCPC_ATTACH_WAKE_LOCK_TOUT */
@@ -483,7 +483,7 @@ static inline int tcpci_set_wake_lock_pd(
 		wake_lock_pd--;
 
 	if (wake_lock_pd == 0)
-		__pm_wakeup_event(&tcpc->dettach_temp_wake_lock, 5000);
+		__pm_wakeup_event(&tcpc->dettach_temp_wake_lock, 5 * HZ);
 
 	tcpci_set_wake_lock(tcpc, wake_lock_pd, tcpc->wake_lock_user);
 
@@ -502,7 +502,6 @@ static inline int tcpci_report_usb_port_attached(struct tcpc_device *tcpc)
 #ifdef CONFIG_DUAL_ROLE_USB_INTF
 	switch (tcpc->typec_attach_new) {
 	case TYPEC_ATTACHED_SNK:
-	case TYPEC_ATTACHED_CUSTOM_SRC:
 		tcpc->dual_role_pr = DUAL_ROLE_PROP_PR_SNK;
 		tcpc->dual_role_dr = DUAL_ROLE_PROP_DR_DEVICE;
 		tcpc->dual_role_mode = DUAL_ROLE_PROP_MODE_UFP;

@@ -22,15 +22,12 @@ subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/
 subdir-ccflags-y += -I$(srctree)/drivers/mmc/host/mediatek/$(MTK_PLATFORM)
 
 obj-$(CONFIG_MTK_EMI) += emi/
-obj-$(CONFIG_MTK_EMI_BWL) += emi_bwl/
-obj-y += emi_mbw/
 obj-$(CONFIG_MTK_EMI_MPU) += emi_mpu/
 obj-$(CONFIG_MTK_ICE_DEBUG) +=ice_debug/
 obj-$(CONFIG_MTK_BASE_POWER) += base/
 
 obj-$(CONFIG_MTK_ACCDET) += accdet/
 obj-$(CONFIG_MEDIATEK_SOLUTION) += sched/
-obj-$(CONFIG_MTK_SERIAL)	+= uart/
 obj-$(CONFIG_MTK_FREQ_HOPPING) += freqhopping/
 obj-$(CONFIG_MMC_MTK_SDIO) += mtk_sdio/
 obj-$(CONFIG_MTK_COMBO) += connectivity/
@@ -40,6 +37,7 @@ obj-$(CONFIG_MTK_UNIFIED_DEBUG_INTERFACE) += udi/
 obj-$(CONFIG_MTK_DEVAPC_DRIVER) += devapc/
 obj-$(CONFIG_MTK_TRNG_DRIVER) += trng/
 obj-$(CONFIG_MTK_MEM) += mem/
+obj-$(CONFIG_NFC_CHIP_NXP) += nfc/
 obj-$(CONFIG_MTK_MEMORY_LOWPOWER) += memory-lowpower/
 obj-y += memory-amms/
 obj-$(CONFIG_MTK_AUXADC)	+= auxadc/
@@ -59,17 +57,14 @@ obj-$(CONFIG_MTK_LEDS)	+= leds/
 obj-$(CONFIG_MTK_BOOT) += boot/
 obj-$(CONFIG_MTK_BOOT_REASON) += boot_reason/
 obj-$(CONFIG_MTK_CHIP) += chip/
-ifneq ($(wildcard $(srctree)/../vendor/mediatek/internal/selinux_warning_enable),)
 obj-$(CONFIG_MTK_SELINUX_AEE_WARNING)	+= selinux_warning/
-endif
 obj-y += power/
 obj-$(CONFIG_MTK_PMIC_NEW_ARCH)	+= pmic/
 obj-$(CONFIG_MTK_AUDIODSP_SUPPORT) += adsp/
 obj-$(CONFIG_MTK_AUDIODSP_SUPPORT) += audio_ipi/
+obj-$(CONFIG_MTK_TINYSYS_SCP_SUPPORT) += scp/
 obj-$(CONFIG_MTK_TINYSYS_SCP_SUPPORT) += audio_ipi/
 obj-$(CONFIG_MTK_SENSORS_1_0) += sensors-1.0/
-obj-$(CONFIG_MTK_TINYSYS_SCP_SUPPORT) += audio_scp/
-obj-$(CONFIG_MTK_TINYSYS_SCP_SUPPORT) += scp/
 obj-y += devinfo/
 obj-$(CONFIG_MTK_GPU_SUPPORT) += gpu/
 obj-$(CONFIG_MTK_LCM) += lcm/
@@ -96,7 +91,6 @@ endif
 obj-$(CONFIG_TRUSTONIC_TEE_SUPPORT) += gud/
 obj-$(CONFIG_MTK_TRUSTED_MEMORY_SUBSYSTEM) += trusted_mem/
 obj-$(CONFIG_MTK_GZ_KREE) += geniezone/
-obj-$(CONFIG_MTK_DEVMPU) += devmpu/
 obj-y += sspm/
 obj-$(CONFIG_MMPROFILE) += mmp/
 obj-$(CONFIG_MTK_M4U)	+= m4u/
@@ -107,7 +101,6 @@ obj-$(CONFIG_MTK_GPU_SUPPORT) += gpu/
 obj-$(CONFIG_MTK_VPU_SUPPORT) += vpu/
 obj-$(CONFIG_MTK_MDLA_SUPPORT) += mdla/
 obj-$(CONFIG_MTK_CCU)	+= ccu/src/
-
 obj-$(CONFIG_MTK_RTC)	+= rtc/
 obj-y += mtprintk/
 obj-$(CONFIG_MTK_XO)	+= xo/
@@ -118,7 +111,6 @@ obj-$(CONFIG_MEDIATEK_SOLUTION)	+= aee/
 obj-$(CONFIG_MTK_MLOG) += mlog/
 obj-y += cameraisp/
 obj-$(CONFIG_MTK_CMDQ) += cmdq/
-obj-$(CONFIG_MTK_CMDQ) += mdp/
 obj-$(CONFIG_MTK_CMDQ_TAB) += cmdq/
 obj-$(CONFIG_MTK_CQDMA) += cqdma/
 obj-$(CONFIG_MTK_LCM) += lcm/
@@ -137,7 +129,7 @@ obj-$(CONFIG_MD32_SUPPORT)     += md32/
 obj-$(CONFIG_USB)	+= usb_boost/
 obj-$(CONFIG_MU3_PHY)   += mu3phy/
 obj-$(CONFIG_USB_MU3D_DRV)	+= mu3d/
-obj-$(CONFIG_USB_MTK_DUALMODE)	+= xhci/
+obj-$(CONFIG_MTK_SMARTPA_SOUND)	+= smartpa/
 obj-$(CONFIG_MTK_SYS_CIRQ) += cirq/
 obj-y += atf/
 obj-$(CONFIG_THERMAL)   += thermal/
@@ -158,11 +150,8 @@ obj-$(CONFIG_MTK_USB2JTAG_SUPPORT) += usb2jtag/
 obj-$(CONFIG_MTK_WATCHPOINT) += watchpoint/
 
 obj-$(CONFIG_TRUSTKERNEL_TEE_SUPPORT) += tkcore/
-obj-y += perf/
+obj-$(CONFIG_MTK_PERF_TRACKER) += perf/
 
 #io boost
 obj-y += io_boost/
-
-ifeq ($(CONFIG_MTK_HAVE_EXTERNAL_VENDOR_PATH),y)
-obj-y += ../../../../$(subst $\",,$(CONFIG_MTK_EXTERNAL_VENDOR_PATH))
-endif
+obj-y += mach/

@@ -109,8 +109,13 @@ extern enum charger_type mt_get_charger_type(void);
 #define PHY_DEV_ACTIVE      1
 #define PHY_HOST_ACTIVE     2
 void set_usb_phy_mode(int mode);
+bool get_usb_eye_pattern(void);
+#define USE_EYE_NUM2 2
+#define USE_EYE_NUM4 4
+
 #ifdef CONFIG_USB_MTK_OTG
 extern bool usb20_check_vbus_on(void);
+bool musb_hal_is_vbus_exist(void);
 #endif
 extern bool usb_prepare_clock(bool enable);
 extern void usb_prepare_enable_clock(bool enable);

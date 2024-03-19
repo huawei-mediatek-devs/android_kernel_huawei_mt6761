@@ -884,9 +884,7 @@ static inline void check_cable_type(void)
 		break;
 
 	case MIC_BIAS:
-		/* ALPS00038030:reduce the time of remote button pressed during
-		 * incoming call
-		 */
+		
 		/* solution: resume hook switch debounce time */
 		pmic_pwrap_write(ACCDET_DEBOUNCE0,
 				 cust_headset_settings->debounce0);
@@ -1077,9 +1075,7 @@ static inline void check_cable_type(void)
 					"[Accdet] Headset has plugged out\n");
 			}
 			mutex_unlock(&accdet_eint_irq_sync_mutex);
-			/* ALPS00038030:reduce the time of remote button pressed
-			 * during incoming call
-			 */
+			
 			/* solution: reduce hook switch debounce time to 0x400
 			 */
 			pmic_pwrap_write(ACCDET_DEBOUNCE0,

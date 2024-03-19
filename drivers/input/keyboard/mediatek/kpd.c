@@ -28,9 +28,24 @@
 
 #define KPD_NAME	"mtk-kpd"
 
+#ifdef CONFIG_HW_ZEROHUNG
+#include "chipset_common/hwzrhung/hung_wp_screen.h"
+#endif
+
+#ifdef CONFIG_HW_BFMR_MTK
+#include <chipset_common/bfmr/bfm/core/bfm_core.h>
+#include <chipset_common/bfmr/bfm/chipsets/bfm_chipsets.h>
+#include <chipset_common/bfmr/bfm/chipsets/mtk/bfm_mtk.h>
+#endif
+
 #ifdef CONFIG_LONG_PRESS_MODE_EN
 struct timer_list Long_press_key_timer;
 atomic_t vol_down_long_press_flag = ATOMIC_INIT(0);
+#endif
+#ifdef CONFIG_HW_BFMR_MTK
+struct timer_list Long_press_pwrkey_timer;
+struct work_struct pwrkey_long_press_work;
+static bool pwrkey_long_press_work_init = false;
 #endif
 
 int kpd_klog_en;
@@ -153,7 +168,50 @@ void vol_down_long_press(unsigned long pressed)
 }
 #endif
 /*****************************************/
+#ifdef CONFIG_HW_BFMR_MTK
+static void pwrkey_long_press_work_func(struct work_struct *work)
+{
+	kpd_print("pwrkey_long_press_work_func\n");
+	if (STAGE_BOOT_SUCCESS == get_boot_stage()){
+		return;
+	}
+	boot_fail_err(KERNEL_PRESS10S, DO_NOTHING, NULL);
+	return;
+}
+static void pwrkey_long_press(unsigned long pressed)
+{
+	kpd_print("pwrkey_long_press \n");
+	if(pwrkey_long_press_work_init){
+		schedule_work(&pwrkey_long_press_work);
+	}
 
+}
+static void hw_bootfail_long_press(unsigned long pressed)
+{
+	if (!bfmr_has_been_enabled())
+	{
+		pr_err("%s:bfmr disabled,skip!\n", __func__);
+		return;
+	}
+	if (STAGE_BOOT_SUCCESS == get_boot_stage()){
+		return;
+	}
+	if (pressed) {
+		init_timer(&Long_press_pwrkey_timer);
+		Long_press_pwrkey_timer.expires = jiffies + 5*HZ;
+		Long_press_pwrkey_timer.data =
+			(unsigned long)pressed;
+		Long_press_pwrkey_timer.function =
+			pwrkey_long_press;
+		add_timer(&Long_press_pwrkey_timer);
+		kpd_print("pwrkey_long_press add_timer\n");
+	} else {
+		kpd_print("pwrkey_long_press del_timer_sync\n");
+		del_timer_sync(&Long_press_pwrkey_timer);
+	}
+
+}
+#endif
 #ifdef CONFIG_KPD_PWRKEY_USE_PMIC
 void kpd_pwrkey_pmic_handler(unsigned long pressed)
 {
@@ -163,6 +221,12 @@ void kpd_pwrkey_pmic_handler(unsigned long pressed)
 		return;
 	}
 	kpd_pmic_pwrkey_hal(pressed);
+#ifdef CONFIG_HW_BFMR_MTK
+	hw_bootfail_long_press(pressed);
+#endif
+#ifdef CONFIG_HW_ZEROHUNG
+	hung_wp_screen_powerkey_ncb(pressed);
+#endif
 }
 #endif
 
@@ -217,7 +281,9 @@ static void kpd_keymap_handler(unsigned long data)
 			input_report_key(kpd_input_dev, linux_keycode, pressed);
 			input_sync(kpd_input_dev);
 			kpd_print("report Linux keycode = %d\n", linux_keycode);
-
+#ifdef CONFIG_HW_ZEROHUNG
+hung_wp_screen_vkeys_cb((unsigned int)linux_keycode,0);
+#endif
 #ifdef CONFIG_LONG_PRESS_MODE_EN
 			if (pressed) {
 				init_timer(&Long_press_key_timer);
@@ -447,6 +513,11 @@ static int kpd_pdrv_probe(struct platform_device *pdev)
 #ifdef CONFIG_MTK_PMIC_NEW_ARCH
 	long_press_reboot_function_setting();
 #endif
+#ifdef CONFIG_HW_BFMR_MTK
+	INIT_WORK(&pwrkey_long_press_work,pwrkey_long_press_work_func);
+	pwrkey_long_press_work_init = true;
+#endif
+
 	err = kpd_create_attr(&kpd_pdrv.driver);
 	if (err) {
 		kpd_notice("create attr file fail\n");

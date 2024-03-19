@@ -37,22 +37,6 @@
 #include <fde_aes_dbg.h>
 #endif
 
-#if defined(CONFIG_MTK_EMMC_CQ_SUPPORT) && defined(CONFIG_MTK_EMMC_HW_CQ)
-#error "MTK_EMMC_CQ_SUPPORT & MTK_EMMC_HW_CQ cannot define at the same time."
-#endif
-
-#ifdef CONFIG_PWR_LOSS_MTK_TEST
-#include <mach/power_loss_test.h>
-#else
-#define MVG_EMMC_CHECK_BUSY_AND_RESET(...) do {} while (0)
-#define MVG_EMMC_SETUP(...) do {} while (0)
-#define MVG_EMMC_RESET(...) do {} while (0)
-#define MVG_EMMC_WRITE_MATCH(...) do {} while (0)
-#define MVG_EMMC_ERASE_MATCH(...) do {} while (0)
-#define MVG_EMMC_ERASE_RESET(...) do {} while (0)
-#define MVG_EMMC_DECLARE_INT32(...)
-#endif
-
 /* #define MSDC_SWITCH_MODE_WHEN_ERROR */
 #define TUNE_NONE                (0)        /* No need tune */
 #define TUNE_ASYNC_CMD           (0x1 << 0) /* async transfer cmd crc */
@@ -66,19 +50,12 @@
 
 #ifdef CONFIG_MTK_MMC_DEBUG
 #define MSDC_DMA_ADDR_DEBUG
-#define MTK_MSDC_LOW_IO_DEBUG
-
-#ifdef CONFIG_MTK_EMMC_HW_CQ
-#undef MTK_MSDC_LOW_IO_DEBUG
-#endif
-
 #endif
 /* #define MTK_MMC_SDIO_DEBUG */
 
 
 #define MTK_MSDC_USE_CMD23
-#if !defined(CONFIG_PWR_LOSS_MTK_TEST) && defined(MTK_MSDC_USE_CMD23) \
-	|| defined(CONFIG_MTK_EMMC_HW_CQ)
+#if !defined(CONFIG_PWR_LOSS_MTK_TEST) && defined(MTK_MSDC_USE_CMD23)
 #define MTK_MSDC_USE_CACHE
 #endif
 
@@ -175,10 +152,7 @@ enum {
 #define REQ_CRC_STATUS_ERR (0x1 << 7)
 
 typedef void (*sdio_irq_handler_t)(void *);  /* external irq handler */
-#ifndef CONFIG_MTK_COMBO_COMM
-/* prevent type redefinition in mtk_wcn_cmb_stub.h */
 typedef void (*pm_callback_t)(pm_message_t state, void *data);
-#endif
 
 #define MSDC_CD_PIN_EN      (1 << 0)  /* card detection pin is wired   */
 #define MSDC_WP_PIN_EN      (1 << 1)  /* write protection pin is wired */
@@ -338,7 +312,7 @@ struct msdc_host {
 	 * race condition with hot-plug enable
 	 */
 	spinlock_t              remove_bad_card;
-	spinlock_t              cmd_dump_lock;
+
 	 /* avoid race condition at DAT1 interrupt case*/
 	spinlock_t              sdio_irq_lock;
 	int                     clk_gate_count;
@@ -366,7 +340,6 @@ struct msdc_host {
 	struct completion       autok_done;
 
 	struct completion       xfer_done;
-	struct pm_message       pm_state;
 
 	u32                     mclk;           /* mmc subsystem clock */
 	u32                     hclk;           /* host clock speed */
@@ -375,7 +348,6 @@ struct msdc_host {
 	u8                      power_mode;     /* host power mode */
 	u8                      bus_width;
 	u8                      card_inserted;  /* card inserted ? */
-	u8                      suspend;        /* host suspended ? */
 	u8                      autocmd;
 	u8                      app_cmd;        /* for app command */
 	u32                     app_cmd_arg;
@@ -426,6 +398,8 @@ struct msdc_host {
 	u32                     power_io;
 	u32                     power_flash;
 
+	struct msdc_iomt_info iomt_info;
+
 	struct clk              *clk_ctl;
 	struct clk              *aes_clk_ctl;
 	struct clk              *hclk_ctl;
@@ -447,11 +421,6 @@ struct msdc_host {
 	u64                     stop_dma_time;
 	/* flag to record if eMMC will enter hs400 mode */
 	bool                    hs400_mode;
-#ifdef CONFIG_MTK_EMMC_HW_CQ
-	struct cmdq_host *cq_host;
-#endif
-	/* For sd vmch and vmc oc callback */
-	struct notifier_block sd_oc_nb;
 };
 
 enum {
@@ -700,7 +669,7 @@ int sdcard_hw_reset(struct mmc_host *mmc);
 int sdcard_reset_tuning(struct mmc_host *mmc);
 int emmc_reinit_tuning(struct mmc_host *mmc);
 void msdc_restore_timing_setting(struct msdc_host *host);
-void msdc_save_timing_setting(struct msdc_host *host, int save_mode);
+void msdc_save_timing_setting(struct msdc_host *host);
 
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
 unsigned int msdc_do_cmdq_command(struct msdc_host *host,

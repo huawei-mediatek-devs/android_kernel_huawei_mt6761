@@ -194,15 +194,8 @@ static void __iomem *conn_mcu_base; /* connsys MCU */
 
 /* fix with infra config address */
 #define INFRA_TOPAXI_SI0_STA		INFRA_REG(0x0000)
-#define INFRA_TOPAXI_SI1_STA		INFRA_REG(0x0004)
-#define INFRA_TOPAXI_SI2_STA		INFRA_REG(0x0028)
-#define INFRA_TOPAXI_SI3_STA		INFRA_REG(0x002C)
-#define INFRA_TOPAXI_SI4_STA		INFRA_REG(0x0030)
-#define INFRA_TOPAXI_MI_STA		INFRA_REG(0x0008)
-#define INFRA_MCI_SI0_STA		INFRA_REG(0x0010)
-#define INFRA_MCI_SI2_STA		INFRA_REG(0x0018)
 #define INFRA_BUS_IDLE_STA4		INFRA_REG(0x018C)
-
+#define INFRA_TOPAXI_SI3_STA		INFRA_REG(0x002C)
 
 /* SMI COMMON */
 #define SMI_COMMON_SMI_CLAMP		SMI_COMMON_REG(0x03C0)
@@ -224,7 +217,6 @@ static void __iomem *conn_mcu_base; /* connsys MCU */
 #define CONN_MCU_DEBUG_STATUS		CONN_MCU_REG(0x040C)
 #define CONN_MCU_BUSHANGCR		CONN_MCU_REG(0x0440)
 #define CONN_MCU_BUSHANGADDR		CONN_MCU_REG(0x0444)
-
 /* Define MTCMOS Bus Protect Mask */
 #define MD1_PROT_STEP1_0_MASK		((0x1 << 7))
 #define MD1_PROT_STEP1_0_ACK_MASK	((0x1 << 7))
@@ -531,7 +523,6 @@ static int DBG_STEP;
 static void ram_console_update(void)
 {
 #ifdef CONFIG_MTK_RAM_CONSOLE
-	struct pg_callbacks *pgcb;
 	u32 data[8] = {0x0};
 	u32 i = 0, j = 0;
 	static u32 pre_data;
@@ -562,74 +553,63 @@ static void ram_console_update(void)
 		print_once = false;
 		k = 0;
 		if (DBG_ID == DBG_ID_CONN_BUS) {
-			if (DBG_STEP <= 1 && DBG_STA == STA_POWER_DOWN) {
+			if (DBG_STEP == 1 && DBG_STA == STA_POWER_DOWN) {
 				/* TINFO="Release bus protect - step1 : 0" */
 				spm_write(INFRA_TOPAXI_PROTECTEN_CLR,
 						CONN_PROT_STEP1_0_MASK);
 			}
-		}
+			/* Space for clk in AEE is not enough,
+			 * use printk instead.
+			 */
+			pr_notice("CONN_HIF_TOP_MISC=0x%08x\n",
+				clk_readl(CONN_HIF_TOP_MISC));
+			pr_notice("CONN_HIF_BUSY_STATUS=0x%08x\n",
+				clk_readl(CONN_HIF_BUSY_STATUS));
+			pr_notice("CONN_HIF_PDMA_BUSY_STATUS=0x%08x\n",
+				clk_readl(CONN_HIF_PDMA_BUSY_STATUS));
 
-		print_enabled_clks_once();
+			clk_writel(CONN_HIF_DBG_IDX, 0x2222);
+			pr_notice("CONN_HIF_DBG_PROBE=0x%08x\n",
+				clk_readl(CONN_HIF_DBG_PROBE));
+			clk_writel(CONN_HIF_DBG_IDX, 0x3333);
+			pr_notice("CONN_HIF_DBG_PROBE=0x%08x\n",
+				clk_readl(CONN_HIF_DBG_PROBE));
+			clk_writel(CONN_HIF_DBG_IDX, 0x4444);
+			pr_notice("CONN_HIF_DBG_PROBE=0x%08x\n",
+				clk_readl(CONN_HIF_DBG_PROBE));
 
-		/* Space for clk in AEE is not enough,
-		 * use pr log instead.
-		 */
-		pr_notice("CONN_HIF_TOP_MISC=0x%08x\n",
-			clk_readl(CONN_HIF_TOP_MISC));
-		pr_notice("CONN_HIF_BUSY_STATUS=0x%08x\n",
-			clk_readl(CONN_HIF_BUSY_STATUS));
-		pr_notice("CONN_HIF_PDMA_BUSY_STATUS=0x%08x\n",
-			clk_readl(CONN_HIF_PDMA_BUSY_STATUS));
+			pr_notice("CONN_MCU_EMI_CONTROL=0x%08x\n",
+				clk_readl(CONN_MCU_EMI_CONTROL));
+			pr_notice("CONN_MCU_CLOCK_CONTROL=0x%08x\n",
+				clk_readl(CONN_MCU_CLOCK_CONTROL));
+			pr_notice("CONN_MCU_BUS_CONTROL=0x%08x\n",
+				clk_readl(CONN_MCU_BUS_CONTROL));
+			pr_notice("CONN_MCU_BUSHANGCR=0x%08x\n",
+				clk_readl(CONN_MCU_BUSHANGCR));
+			pr_notice("CONN_MCU_BUSHANGADDR=0x%08x\n",
+				clk_readl(CONN_MCU_BUSHANGADDR));
 
-		clk_writel(CONN_HIF_DBG_IDX, 0x2222);
-		pr_notice("CONN_HIF_DBG_PROBE=0x%08x\n",
-			clk_readl(CONN_HIF_DBG_PROBE));
-		clk_writel(CONN_HIF_DBG_IDX, 0x3333);
-		pr_notice("CONN_HIF_DBG_PROBE=0x%08x\n",
-			clk_readl(CONN_HIF_DBG_PROBE));
-		clk_writel(CONN_HIF_DBG_IDX, 0x4444);
-		pr_notice("CONN_HIF_DBG_PROBE=0x%08x\n",
-			clk_readl(CONN_HIF_DBG_PROBE));
+			clk_writel(CONN_MCU_DEBUG_SELECT, 0x003e3d00);
+			pr_notice("CONN_MCU_DEBUG_STATUS=0x%08x\n",
+				clk_readl(CONN_MCU_DEBUG_STATUS));
+			clk_writel(CONN_MCU_DEBUG_SELECT, 0x00403f00);
+			pr_notice("CONN_MCU_DEBUG_STATUS=0x%08x\n",
+				clk_readl(CONN_MCU_DEBUG_STATUS));
+			clk_writel(CONN_MCU_DEBUG_SELECT, 0x00424100);
+			pr_notice("CONN_MCU_DEBUG_STATUS=0x%08x\n",
+				clk_readl(CONN_MCU_DEBUG_STATUS));
+			clk_writel(CONN_MCU_DEBUG_SELECT, 0x00444300);
+			pr_notice("CONN_MCU_DEBUG_STATUS=0x%08x\n",
+				clk_readl(CONN_MCU_DEBUG_STATUS));
 
-		pr_notice("CONN_MCU_EMI_CONTROL=0x%08x\n",
-			clk_readl(CONN_MCU_EMI_CONTROL));
-		pr_notice("CONN_MCU_CLOCK_CONTROL=0x%08x\n",
-			clk_readl(CONN_MCU_CLOCK_CONTROL));
-		pr_notice("CONN_MCU_BUS_CONTROL=0x%08x\n",
-			clk_readl(CONN_MCU_BUS_CONTROL));
-		pr_notice("CONN_MCU_BUSHANGCR=0x%08x\n",
-			clk_readl(CONN_MCU_BUSHANGCR));
-		pr_notice("CONN_MCU_BUSHANGADDR=0x%08x\n",
-			clk_readl(CONN_MCU_BUSHANGADDR));
-
-		clk_writel(CONN_MCU_DEBUG_SELECT, 0x003e3d00);
-		pr_notice("CONN_MCU_DEBUG_STATUS=0x%08x\n",
-			clk_readl(CONN_MCU_DEBUG_STATUS));
-		clk_writel(CONN_MCU_DEBUG_SELECT, 0x00403f00);
-		pr_notice("CONN_MCU_DEBUG_STATUS=0x%08x\n",
-			clk_readl(CONN_MCU_DEBUG_STATUS));
-		clk_writel(CONN_MCU_DEBUG_SELECT, 0x00424100);
-		pr_notice("CONN_MCU_DEBUG_STATUS=0x%08x\n",
-			clk_readl(CONN_MCU_DEBUG_STATUS));
-		clk_writel(CONN_MCU_DEBUG_SELECT, 0x00444300);
-		pr_notice("CONN_MCU_DEBUG_STATUS=0x%08x\n",
-			clk_readl(CONN_MCU_DEBUG_STATUS));
-
-		list_for_each_entry_reverse(pgcb, &pgcb_list, list) {
-			if (pgcb->debug_dump)
-				pgcb->debug_dump(DBG_ID);
-		}
-
-		if (DBG_ID == DBG_ID_CONN_BUS) {
-			if (DBG_STEP <= 1 && DBG_STA == STA_POWER_DOWN) {
-				/* TINFO="Set bus protect - step1 : 0" */
+			if (DBG_STEP == 1 && DBG_STA == STA_POWER_DOWN) {
+				/* TINFO="Release bus protect - step1 : 0" */
 				spm_write(INFRA_TOPAXI_PROTECTEN_SET,
-					CONN_PROT_STEP1_0_MASK);
+						CONN_PROT_STEP1_0_MASK);
 				j = 0;
 				while ((spm_read(INFRA_TOPAXI_PROTECTEN_STA1)
 					& CONN_PROT_STEP1_0_ACK_MASK)
 					!= CONN_PROT_STEP1_0_ACK_MASK) {
-					udelay(1);
 					if (j > 1000)
 						break;
 					j++;
@@ -643,9 +623,9 @@ static void ram_console_update(void)
 				data[0] = ((DBG_ID << 24) & ID_MADK)
 					| ((DBG_STA << 20) & STA_MASK)
 					| (DBG_STEP & STEP_MASK);
-				pre_data = data[0];
 			}
-		}
+		} else
+			print_enabled_clks_once();
 
 		if (DBG_ID >= (DBG_ID_NUM / 2))
 			pr_notice("%s %s MTCMOS PWR hang at %s flow step %d\n",
@@ -662,23 +642,6 @@ static void ram_console_update(void)
 
 		for (j = 1; j <= i; j++)
 			pr_notice("%s: clk[%d] = 0x%x\n", __func__, j, data[j]);
-
-		pr_notice("INFRA_TOPAXI_SI0_STA =0x%x\n",
-			spm_read(INFRA_TOPAXI_SI0_STA));
-		pr_notice("INFRA_TOPAXI_SI1_STA =0x%x\n",
-			spm_read(INFRA_TOPAXI_SI1_STA));
-		pr_notice("INFRA_TOPAXI_SI2_STA =0x%x\n",
-			spm_read(INFRA_TOPAXI_SI2_STA));
-		pr_notice("INFRA_TOPAXI_SI3_STA =0x%x\n",
-			spm_read(INFRA_TOPAXI_SI3_STA));
-		pr_notice("INFRA_TOPAXI_SI4_STA =0x%x\n",
-			spm_read(INFRA_TOPAXI_SI4_STA));
-		pr_notice("INFRA_TOPAXI_MI_STA =0x%x\n",
-			spm_read(INFRA_TOPAXI_MI_STA));
-		pr_notice("INFRA_MCI_SI0_STA =0x%x\n",
-			spm_read(INFRA_MCI_SI0_STA));
-		pr_notice("INFRA_MCI_SI2_STA =0x%x\n",
-			spm_read(INFRA_MCI_SI2_STA));
 	}
 
 	for (j = 0; j <= i; j++)
@@ -870,7 +833,7 @@ int spm_mtcmos_ctrl_conn_bus_prot(int state)
 #ifndef IGNORE_MTCMOS_CHECK
 		while ((spm_read(INFRA_TOPAXI_PROTECTEN_STA1_1)
 			& CONN_PROT_STEP1_1_ACK_MASK)
-			== CONN_PROT_STEP1_1_ACK_MASK) {
+			!= CONN_PROT_STEP1_1_ACK_MASK) {
 			ram_console_update();
 			if (DBG_STEP == CONN_TIMEOUT_RECOVERY)
 				break;
@@ -2471,10 +2434,7 @@ static int subsys_is_on(enum subsys_id id)
 	int r;
 	struct subsys *sys = id_to_sys(id);
 
-	if (!sys) {
-		WARN_ON(!sys);
-		return -EINVAL;
-	}
+	WARN_ON(!sys);
 
 	r = sys->ops->get_state(sys);
 
@@ -2507,10 +2467,7 @@ static int enable_subsys(enum subsys_id id, enum mtcmos_op action)
 	struct subsys *sys = id_to_sys(id);
 	struct pg_callbacks *pgcb;
 
-	if (!sys) {
-		WARN_ON(!sys);
-		return -EINVAL;
-	}
+	WARN_ON(!sys);
 
 	if (!mtk_is_mtcmos_enable()) {
 #if MT_CCF_DEBUG
@@ -2573,10 +2530,7 @@ static int disable_subsys(enum subsys_id id, enum mtcmos_op action)
 	struct subsys *sys = id_to_sys(id);
 	struct pg_callbacks *pgcb;
 
-	if (!sys) {
-		WARN_ON(!sys);
-		return -EINVAL;
-	}
+	WARN_ON(!sys);
 
 	if (!mtk_is_mtcmos_enable()) {
 #if MT_CCF_DEBUG
@@ -2666,13 +2620,13 @@ int pg_prepare(struct clk_hw *hw)
 {
 	int ret1 = 0, ret2 = 0, ret3 = 0, ret4 = 0;
 	int i = 0;
-	unsigned long flags;
 	int skip_pg = 0;
 	struct clk *clk;
 	struct mt_power_gate *pg = to_power_gate(hw);
 	struct subsys *sys =  id_to_sys(pg->pd_id);
 
-	mtk_mtcmos_lock(flags);
+	if (sys == NULL)
+		return -EINVAL;
 #if CHECK_PWR_ST
 	if (sys->ops->get_state(sys) == SUBSYS_PWR_ON)
 		skip_pg = 1;
@@ -2730,33 +2684,26 @@ int pg_prepare(struct clk_hw *hw)
 
 	if (!skip_pg && sys->ops->prepare)
 		ret4 = enable_subsys(pg->pd_id, MTCMOS_BUS_PROT);
-	if (ret2) {
-		mtk_mtcmos_unlock(flags);
+	if (ret2)
 		return ret2;
-	}
-	if (ret3) {
-		mtk_mtcmos_unlock(flags);
+	if (ret3)
 		return ret3;
-	}
-	if (ret4) {
-		mtk_mtcmos_unlock(flags);
+	if (ret4)
 		return ret4;
-	}
 
-	mtk_mtcmos_unlock(flags);
 	return ret1;
 }
 
 void pg_unprepare(struct clk_hw *hw)
 {
 	int i = 0;
-	unsigned long flags;
 	int skip_pg = 0;
 	struct clk *clk;
 	struct mt_power_gate *pg = to_power_gate(hw);
 	struct subsys *sys =  id_to_sys(pg->pd_id);
 
-	mtk_mtcmos_lock(flags);
+	if (sys == NULL)
+		return;
 #if CHECK_PWR_ST
 	if (sys->ops->get_state(sys) == SUBSYS_PWR_DOWN)
 		skip_pg = 1;
@@ -2807,7 +2754,6 @@ void pg_unprepare(struct clk_hw *hw)
 #endif				/* MT_CCF_DEBUG */
 		i++;
 	} while (i < CLK_NUM);
-	mtk_mtcmos_unlock(flags);
 }
 
 static const struct clk_ops mt_power_gate_ops = {

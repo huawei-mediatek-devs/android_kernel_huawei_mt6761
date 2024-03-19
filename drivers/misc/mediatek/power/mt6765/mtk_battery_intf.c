@@ -18,6 +18,12 @@
 #include <mt-plat/upmu_common.h>
 #include <mach/upmu_sw.h>
 
+bool battery_get_bat_current_sign(void)
+{
+	int curr_val;
+
+	return gauge_get_current(&curr_val);
+}
 #if (CONFIG_MTK_GAUGE_VERSION != 30)
 signed int battery_get_bat_voltage(void)
 {

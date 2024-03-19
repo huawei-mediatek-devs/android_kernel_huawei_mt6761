@@ -60,6 +60,8 @@ struct acc_control_path {
 		     int64_t maxBatchReportLatencyNs);
 	int (*flush)(void);
 	int (*set_cali)(uint8_t *data, uint8_t count);
+	int (*do_self_test)(void);
+	int (*get_self_test)(void);
 	bool is_report_input_direct;
 	bool is_support_batch;
 	bool is_use_common_factory;

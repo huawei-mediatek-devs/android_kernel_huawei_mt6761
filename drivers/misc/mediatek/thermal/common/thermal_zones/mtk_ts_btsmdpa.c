@@ -33,6 +33,10 @@
 #include <tmp_bts.h>
 #include <linux/slab.h>
 
+#ifdef CONFIG_OF
+#include <linux/of.h>
+#endif
+
 /*=============================================================
  *Weak functions
  *=============================================================
@@ -56,7 +60,7 @@ static kuid_t uid = KUIDT_INIT(0);
 static kgid_t gid = KGIDT_INIT(1000);
 static DEFINE_SEMAPHORE(sem_mutex);
 
-static unsigned int interval = 1;	/* seconds, 0 : no auto polling */
+static unsigned int interval;	/* seconds, 0 : no auto polling */
 static int trip_temp[10] = { 120000, 110000, 100000, 90000, 80000,
 				70000, 65000, 60000, 55000, 50000 };
 
@@ -66,7 +70,7 @@ static int kernelmode;
 static int g_THERMAL_TRIP[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 static int num_trip;
-static char g_bind0[20] = {"mtk-cl-shutdown02"};
+static char g_bind0[20] = { 0 };
 static char g_bind1[20] = { 0 };
 static char g_bind2[20] = { 0 };
 static char g_bind3[20] = { 0 };
@@ -485,6 +489,83 @@ static struct BTSMDPA_TEMPERATURE BTSMDPA_Temperature_Table7[] = {
 	{125, 2522}
 };
 
+/* NTCG103JF103F (10K) */
+static struct BTSMDPA_TEMPERATURE BTSMDPA_Temperature_Table8[] = {
+	{-40, 188500},
+	{-35, 144300},
+	{-30, 111300},
+	{-25, 86560},
+	{-20, 67790},
+	{-15, 53460},
+	{-10, 42450},
+	{-5, 33930},
+	{0, 27280},
+	{5, 22070},
+	{10, 17960},
+	{15, 14700},
+	{20, 12090},
+	{25, 10000},
+	{30, 8312},
+	{35, 6942},
+	{40, 5826},
+	{41, 5628},
+	{42, 5438},
+	{43, 5255},
+	{44, 5080},
+	{45, 4911},
+	{46, 4749},
+	{47, 4592},
+	{48, 4442},
+	{49, 4297},
+	{50, 4158},
+	{51, 4024},
+	{52, 3895},
+	{53, 3771},
+	{54, 3651},
+	{55, 3536},
+	{56, 3425},
+	{57, 3318},
+	{58, 3215},
+	{59, 3115},
+	{60, 3019},
+	{61, 2927},
+	{62, 2837},
+	{63, 2751},
+	{64, 2668},
+	{65, 2588},
+	{66, 2511},
+	{67, 2436},
+	{68, 2364},
+	{69, 2295},
+	{70, 2227},
+	{71, 2163},
+	{72, 2100},
+	{73, 2039},
+	{74, 1981},
+	{75, 1924},
+	{76, 1869},
+	{77, 1817},
+	{78, 1765},
+	{79, 1716},
+	{80, 1668},
+	{81, 1622},
+	{82, 1577},
+	{83, 1534},
+	{84, 1492},
+	{85, 1451},
+	{86, 1412},
+	{87, 1374},
+	{88, 1337},
+	{89, 1302},
+	{90, 1267},
+	{95, 1110},
+	{100, 975},
+	{105, 859},
+	{110, 760},
+	{115, 673},
+	{120, 599},
+	{125, 534}
+};
 
 /* convert register to temperature  */
 static __s16 mtkts_btsmdpa_thermistor_conver_temp(__s32 Res)
@@ -561,8 +642,7 @@ static __s16 mtkts_btsmdpa_thermistor_conver_temp(__s32 Res)
 static __s16 mtk_ts_btsmdpa_volt_to_temp(__u32 dwVolt)
 {
 	__s32 TRes;
-	__u64 dwVCriAP = 0;
-	__u64 dwVCriAP2 = 0;
+	__s32 dwVCriAP = 0;
 	__s32 BTSMDPA_TMP = -100;
 
 	/* SW workaround-----------------------------------------------------
@@ -571,14 +651,10 @@ static __s16 mtk_ts_btsmdpa_volt_to_temp(__u32 dwVolt)
 	 * dwVCriAP = (TAP_OVER_CRITICAL_LOW * RAP_PULL_UP_VOLT) /
 	 * (TAP_OVER_CRITICAL_LOW + RAP_PULL_UP_R);
 	 */
+	dwVCriAP = (g_TAP_over_critical_low * g_RAP_pull_up_voltage)
+				/ (g_TAP_over_critical_low + g_RAP_pull_up_R);
 
-	dwVCriAP = ((__u64)g_TAP_over_critical_low *
-		(__u64)g_RAP_pull_up_voltage);
-	dwVCriAP2 = (g_TAP_over_critical_low + g_RAP_pull_up_R);
-	do_div(dwVCriAP, dwVCriAP2);
-
-
-	if (dwVolt > ((__u32)dwVCriAP)) {
+	if (dwVolt > dwVCriAP) {
 		TRes = g_TAP_over_critical_low;
 	} else {
 		/* TRes = (39000*dwVolt) / (1800-dwVolt);
@@ -1125,7 +1201,13 @@ void mtkts_btsmdpa_prepare_table(int table_num)
 		BTSMDPA_Temperature_Table = BTSMDPA_Temperature_Table7;
 		ntc_tbl_size = sizeof(BTSMDPA_Temperature_Table7);
 		break;
+	case 8:		/* NTCG103JF103F (10K) */
+		BTSMDPA_Temperature_Table = BTSMDPA_Temperature_Table8;
+		ntc_tbl_size = sizeof(BTSMDPA_Temperature_Table8);
+		break;
 	default:		/* AP_NTC_10 */
+		pr_notice("[Thermal/TZ/BTSMDPA] Table %d doesn't exist.", table_num);
+		pr_notice("[Thermal/TZ/BTSMDPA] Change to the default table");
 		BTSMDPA_Temperature_Table = BTSMDPA_Temperature_Table4;
 		ntc_tbl_size = sizeof(BTSMDPA_Temperature_Table4);
 		break;
@@ -1151,6 +1233,51 @@ void mtkts_btsmdpa_prepare_table(int table_num)
 	}
 #endif
 }
+
+#ifdef CONFIG_OF
+static int dt_ntc_status;
+static int get_ntc_in_dts(void)
+{
+	struct device_node *node = NULL;
+	node = of_find_compatible_node(NULL, NULL, "mediatek,therm_ntc_btsmdpa");
+	if (node) {
+		if (of_property_read_u32(node, "PUP_R", &g_RAP_pull_up_R) >= 0)
+			mtkts_btsmdpa_dprintk("[Thermal/TZ/BTSMDPA] %s PUP_R: %d\n", __func__, g_RAP_pull_up_R);
+		else {
+			mtkts_btsmdpa_dprintk("[Thermal/TZ/BTSMDPA] %s PUP_R read failed\n", __func__);
+			return -1;
+		}
+		if (of_property_read_u32(node, "PUP_VOLT", &g_RAP_pull_up_voltage) >= 0)
+			mtkts_btsmdpa_dprintk("[Thermal/TZ/BTSMDPA] %s PUP_VOLT: %d\n", __func__, g_RAP_pull_up_voltage);
+		else {
+			mtkts_btsmdpa_dprintk("[Thermal/TZ/BTSMDPA] %s PUP_VOLT read failed\n", __func__);
+			return -1;
+		}
+		if (of_property_read_u32(node, "OVER_CRITICAL_L", &g_TAP_over_critical_low) >= 0)
+			mtkts_btsmdpa_dprintk("[Thermal/TZ/BTSMDPA] %s OVER_CRITICAL_L: %d\n", __func__, g_TAP_over_critical_low);
+		else {
+			mtkts_btsmdpa_dprintk("[Thermal/TZ/BTSMDPA] %s OVER_CRITICAL_L read failed\n", __func__);
+			return -1;
+		}
+		if (of_property_read_u32(node, "NTC_TABLE", &g_RAP_ntc_table) >= 0)
+			mtkts_btsmdpa_dprintk("[Thermal/TZ/BTSMDPA] %s NTC_TABLE: %d\n", __func__, g_RAP_ntc_table);
+		else {
+			mtkts_btsmdpa_dprintk("[Thermal/TZ/BTSMDPA] %s NTC_TABLE read failed\n", __func__);
+			return -1;
+		}
+		if (of_property_read_u32(node, "AUXADC_CH", &g_RAP_ADC_channel) >= 0)
+			mtkts_btsmdpa_dprintk("[Thermal/TZ/BTSMDPA] %s AUXADC_CH: %d\n", __func__, g_RAP_ADC_channel);
+		else {
+			mtkts_btsmdpa_dprintk("[Thermal/TZ/BTSMDPA] %s AUXADC_CH read failed\n", __func__);
+			return -1;
+		}
+
+		mtkts_btsmdpa_prepare_table(g_RAP_ntc_table);
+		return 1;
+	}
+	return 0;
+}
+#endif
 
 static int mtkts_btsmdpa_param_read(struct seq_file *m, void *v)
 {
@@ -1180,7 +1307,16 @@ struct file *file, const char __user *buffer, size_t count, loff_t *data)
 	 */
 	unsigned int adc_channel = 11;
 
-	struct param_data *ptr_param_data = kmalloc(
+	struct param_data *ptr_param_data;
+
+#ifdef CONFIG_OF
+	if (dt_ntc_status > 0) {
+		mtkts_btsmdpa_printk("[Thermal/TZ/BTSMDPA] %s dts ntc setting applied\n", __func__);
+		return -EINVAL;
+	}
+#endif
+
+	ptr_param_data = kmalloc(
 					sizeof(*ptr_param_data), GFP_KERNEL);
 
 	if (ptr_param_data == NULL)
@@ -1380,6 +1516,15 @@ static int __init mtkts_btsmdpa_init(void)
 
 	mtkts_btsmdpa_dprintk("[mtkts_btsmdpa_init]\n");
 
+#ifdef CONFIG_OF
+	dt_ntc_status = get_ntc_in_dts();
+	if (dt_ntc_status < 0) {
+		mtkts_btsmdpa_printk("[%s]: ntc not support\n", __func__);
+		return 0;
+	} else if (dt_ntc_status > 0)
+		mtkts_btsmdpa_printk("[%s]: dts ntc setting applied\n", __func__);
+	else
+#endif
 	/* setup default table */
 	mtkts_btsmdpa_prepare_table(g_RAP_ntc_table);
 
@@ -1398,8 +1543,6 @@ static int __init mtkts_btsmdpa_init(void)
 		if (entry)
 			proc_set_user(entry, uid, gid);
 	}
-
-	mtkts_btsmdpa_register_thermal();
 #if 0
 	mtkTTimer_register("mtktsbtsmdpa", mtkts_btsmdpa_start_thermal_timer,
 					mtkts_btsmdpa_cancel_thermal_timer);

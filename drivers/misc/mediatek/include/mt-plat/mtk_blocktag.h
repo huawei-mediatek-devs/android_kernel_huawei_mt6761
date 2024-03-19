@@ -51,9 +51,21 @@ enum {
 	PIDLOG_MODE_MM_FS
 };
 
+enum mtk_btag_dir_enum {
+	btag_dir_r = 0,
+	btag_dir_w,
+	btag_dir_all,
+	btag_dir_unknown = -1
+};
+
 enum mtk_btag_storage_type {
-	BTAG_STORAGE_EMBEDDED = 0,
-	BTAG_STORAGE_EXTERNAL
+	btag_storage_embedded = 0,
+	btag_storage_external
+};
+
+enum mtk_btag_req_status {
+	btag_req_start = 0,
+	btag_req_end
 };
 
 struct mtk_btag_workload {
@@ -199,7 +211,6 @@ struct mtk_blocktag {
 		struct dentry *droot;
 		struct dentry *dklog;
 		struct dentry *dlog;
-		struct dentry *dlog_mictx;
 		struct dentry *dmem;
 	} dentry;
 

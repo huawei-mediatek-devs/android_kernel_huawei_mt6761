@@ -239,6 +239,7 @@ int mmdvfs_set_step(
 	return mmdvfs_set_corse_step(scenario, step);
 }
 
+static bool in_camera_scenario;
 int mmdvfs_internal_set_fine_step(const char *adaptor_name,
 	struct mmdvfs_adaptor *adaptor,
 	struct mmdvfs_step_util *step_util,
@@ -265,8 +266,14 @@ int mmdvfs_internal_set_fine_step(const char *adaptor_name,
 	g_mmdvfs_current_step = final_step;
 	spin_unlock(&g_mmdvfs_mgr->scen_lock);
 
+	if (in_camera_scenario != get_in_camera_scenario()) {
+		in_camera_scenario = get_in_camera_scenario();
+		mmdvfs_set_camera_on(in_camera_scenario);
+	}
+
 	/* Change HW configuration */
-#ifdef MMDVFS_QOS_SUPPORT
+/* #ifdef MMDVFS_QOS_SUPPORT */
+#if 1
 	mmdvfs_qos_update(step_util, final_step);
 #else
 	adaptor->apply_hw_config(adaptor, final_step, original_step);
@@ -328,14 +335,16 @@ void mmdvfs_internal_notify_vcore_calibration(
 	}
 	if (event->event_type == MMDVFS_EVENT_PREPARE_CALIBRATION_START) {
 		g_mmdvfs_mgr->is_mmdvfs_start = 0;
-#ifdef MMDVFS_QOS_SUPPORT
-		mmdvfs_autok_qos_enable(false);
+/* #ifdef MMDVFS_QOS_SUPPORT */
+#if 1
+		mmdvfs_qos_enable(false);
 #endif
 		MMDVFSMSG("mmdvfs service is disabled for vcore calibration\n");
 	} else if (event->event_type  == MMDVFS_EVENT_PREPARE_CALIBRATION_END) {
 		g_mmdvfs_mgr->is_mmdvfs_start = 1;
-#ifdef MMDVFS_QOS_SUPPORT
-		mmdvfs_autok_qos_enable(true);
+/* #ifdef MMDVFS_QOS_SUPPORT */
+#if 1
+		mmdvfs_qos_enable(true);
 #endif
 		MMDVFSMSG("mmdvfs service has been enabled\n");
 	} else {
@@ -752,15 +761,11 @@ void mmdvfs_init(struct MTK_SMI_BWC_MM_INFO *info)
 
 	if (mmdvfs_get_mmdvfs_profile() == MMDVFS_PROFILE_VIN)
 		g_mmdvfs_mgr->is_mmdvfs_start = 1;
-	if (mmdvfs_get_mmdvfs_profile() == MMDVFS_PROFILE_BIA)
-		g_mmdvfs_mgr->is_mmdvfs_start = 1;
 	if (mmdvfs_get_mmdvfs_profile() == MMDVFS_PROFILE_CER)
 		g_mmdvfs_mgr->is_mmdvfs_start = 1;
 	if (mmdvfs_get_mmdvfs_profile() == MMDVFS_PROFILE_MER)
 		g_mmdvfs_mgr->is_mmdvfs_start = 1;
 	if (mmdvfs_get_mmdvfs_profile() == MMDVFS_PROFILE_EIG)
-		g_mmdvfs_mgr->is_mmdvfs_start = 1;
-	if (mmdvfs_get_mmdvfs_profile() == MMDVFS_PROFILE_LAF)
 		g_mmdvfs_mgr->is_mmdvfs_start = 1;
 #if IS_ENABLED(CONFIG_MTK_SMI_EXT)
 	mmdvfs_clks_init();
@@ -1076,16 +1081,12 @@ int mmdvfs_get_mmdvfs_profile(void)
 #endif
 #if defined(SMI_VIN)
 	mmdvfs_profile_id = MMDVFS_PROFILE_VIN;
-#elif defined(SMI_BIA)
-	mmdvfs_profile_id = MMDVFS_PROFILE_BIA;
 #elif defined(SMI_CER)
 	mmdvfs_profile_id = MMDVFS_PROFILE_CER;
 #elif defined(SMI_MER)
 	mmdvfs_profile_id = MMDVFS_PROFILE_MER;
 #elif defined(SMI_EIG)
 	mmdvfs_profile_id = MMDVFS_PROFILE_EIG;
-#elif defined(SMI_LAF)
-	mmdvfs_profile_id = MMDVFS_PROFILE_LAF;
 #endif
 
 	MMDVFSDEBUG(4, "Segment_code=%d,mmdvfs_profile_id=%d\n", segment_code,
@@ -1093,18 +1094,3 @@ int mmdvfs_get_mmdvfs_profile(void)
 	return mmdvfs_profile_id;
 
 }
-
-int mmdvfs_get_stable_isp_clk(void)
-{
-	return MMSYS_CLK_HIGH;
-}
-
-#ifndef MMDVFS_QOS_SUPPORT
-void mmdvfs_print_larbs_info(void)
-{ return; }
-void mmdvfs_set_max_camera_hrt_bw(u32 bw)
-{ return; }
-int mmdvfs_qos_get_freq_steps(u32 pm_qos_class,
-	u64 *freq_steps, u32 *step_size)
-{ *step_size = 0; return 0; }
-#endif

@@ -31,6 +31,10 @@
 #include "slot-gpio.h"
 #include "pwrseq.h"
 
+#ifdef CONFIG_HUAWEI_SDCARD_DSM
+#include <linux/mmc/dsm_sdcard.h>
+#endif
+
 static DEFINE_IDA(mmc_host_ida);
 static DEFINE_SPINLOCK(mmc_host_lock);
 
@@ -352,7 +356,9 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 
 	/* scanning will be enabled when we're ready */
 	host->rescan_disable = 1;
-
+#ifdef CONFIG_HUAWEI_EMMC_DSM
+	host->iomt_info = NULL;
+#endif
 again:
 	if (!ida_pre_get(&mmc_host_ida, GFP_KERNEL)) {
 		kfree(host);
@@ -385,6 +391,9 @@ again:
 
 	spin_lock_init(&host->lock);
 	init_waitqueue_head(&host->wq);
+#ifdef CONFIG_HUAWEI_SDCARD_DSM
+	dsm_sdcard_init();
+#endif
 	INIT_DELAYED_WORK(&host->detect, mmc_rescan);
 	setup_timer(&host->retune_timer, mmc_retune_timer, (unsigned long)host);
 
@@ -400,11 +409,14 @@ again:
 	host->max_blk_count = PAGE_SIZE / 512;
 
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+	host->align_size = 4;
+
 	for (i = 0; i < EMMC_MAX_QUEUE_DEPTH; i++)
 		host->areq_que[i] = NULL;
 	atomic_set(&host->areq_cnt, 0);
 	host->areq_cur = NULL;
 	host->done_mrq = NULL;
+	host->state = 0;
 
 	INIT_LIST_HEAD(&host->cmd_que);
 	INIT_LIST_HEAD(&host->dat_que);

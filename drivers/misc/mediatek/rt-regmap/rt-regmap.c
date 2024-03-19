@@ -373,10 +373,6 @@ static int rt_cache_block_write(struct rt_regmap_device *rd, u32 reg,
 					rm->addr+rio.offset,
 					size,
 					&wdata[count]);
-			if (ret < 0) {
-				dev_err(&rd->dev, "rd->rt_block_write fail\n");
-				goto ERR;
-			}
 			count += size;
 		} else {
 			blk_index = (rd->props.rt_regmap_mode &
@@ -408,7 +404,7 @@ finished:
 	if (rd->props.io_log_en) {
 		j = 0;
 		for (i = 0; i < count; i++)
-			j += snprintf(wri_data + j, sizeof(wri_data) - j,
+			j += snprintf(wri_data + j, PAGE_SIZE,
 			"%02x,", wdata[i]);
 		pr_info("RT_REGMAP [WRITE] reg0x%04x  [Data] 0x%s\n",
 							reg, wri_data);
@@ -480,7 +476,7 @@ finished:
 	if (rd->props.io_log_en) {
 		j = 0;
 		for (i = 0; i < count; i++)
-			j += snprintf(wri_data + j, sizeof(wri_data) - j,
+			j += snprintf(wri_data + j, PAGE_SIZE,
 			"%02x,", wdata[i]);
 		pr_info("RT_REGMAP [WRITE] reg0x%04x  [Data] 0x%s\n",
 								reg, wri_data);
@@ -791,7 +787,7 @@ static int _rt_asyn_regmap_reg_write(struct rt_regmap_device *rd,
 {
 	const rt_register_map_t *rm = rd->props.rm;
 	struct reg_index_offset rio;
-	int ret, tmp_data = 0;
+	int ret, tmp_data;
 
 	rio = find_register_index(rd, rrd->reg);
 	if (rio.index < 0 || rio.offset != 0) {
@@ -1167,14 +1163,29 @@ int rt_regmap_cache_init(struct rt_regmap_device *rd)
 	down(&rd->semaphore);
 	rd->cache_flag = devm_kzalloc(&rd->dev,
 		rd->props.register_num * sizeof(unsigned char), GFP_KERNEL);
+	if (!rd->cache_flag)
+		goto alloc_err;
+
 	rd->cached = devm_kzalloc(&rd->dev,
 		rd->props.register_num * sizeof(unsigned char), GFP_KERNEL);
+	if (!rd->cached) {
+		devm_kfree(&rd->dev, rd->cache_flag);
+		goto alloc_err;
+	}
+
 	rd->cache_data = devm_kzalloc(&rd->dev,
 		rd->props.register_num * sizeof(unsigned char *), GFP_KERNEL);
+	if (!rd->cache_data) {
+		devm_kfree(&rd->dev, rd->cache_flag);
+		devm_kfree(&rd->dev, rd->cached);
+		goto alloc_err;
+	}
 
 	if (rd->props.group == NULL) {
 		rd->props.group = devm_kzalloc(&rd->dev,
 				sizeof(*rd->props.group), GFP_KERNEL);
+		if (!rd->props.group)
+			return -ENOMEM;
 		rd->props.group[0].start = 0x00;
 		rd->props.group[0].end = 0xffff;
 		rd->props.group[0].mode = RT_1BYTE_MODE;
@@ -1207,6 +1218,10 @@ int rt_regmap_cache_init(struct rt_regmap_device *rd)
 	dev_info(&rd->dev, "cache cata init successfully\n");
 	up(&rd->semaphore);
 	return 0;
+
+alloc_err:
+	up(&rd->semaphore);
+	return -ENOMEM;
 }
 EXPORT_SYMBOL(rt_regmap_cache_init);
 
@@ -1491,10 +1506,19 @@ static ssize_t general_write(struct file *file, const char __user *ubuf,
 	struct rt_debug_st *st = file->private_data;
 	struct rt_regmap_device *rd = st->info;
 	struct reg_index_offset rio;
-	long int param[5] = {0};
+	long int param[5];
 	unsigned char *reg_data;
 	int rc, size = 0;
 	char lbuf[128];
+
+#if 0
+	if (count > sizeof(lbuf) - 1)
+		return -EFAULT;
+
+	rc = copy_from_user(lbuf, ubuf, count);
+	if (rc)
+		return -EFAULT;
+#else
 	ssize_t res;
 
 	pr_info("%s @ %p\n", __func__, ubuf);
@@ -1502,7 +1526,7 @@ static ssize_t general_write(struct file *file, const char __user *ubuf,
 	res = simple_write_to_buffer(lbuf, sizeof(lbuf) - 1, ppos, ubuf, count);
 	if (res <= 0)
 		return -EFAULT;
-
+#endif
 	lbuf[count] = '\0';
 
 	switch (st->id) {
@@ -1783,8 +1807,7 @@ static ssize_t eachreg_write(struct file *file, const char __user *ubuf,
 	char lbuf[128];
 	ssize_t res;
 
-	if ((rm->size - 1) * 3 + 5 != count &&
-		(rm->size - 1) * 3 + 4 != count) {
+	if ((rm->size - 1) * 3 + 5 != count) {
 		dev_err(&rd->dev, "wrong input length\n");
 		return -EINVAL;
 	}
@@ -1837,12 +1860,20 @@ static ssize_t eachreg_read(struct file *file, char __user *ubuf,
 	if (rd->props.max_byte_size == 0) {
 		regval = devm_kzalloc(&rd->dev,
 			sizeof(unsigned char)*32, GFP_KERNEL);
+		if (!regval)
+			goto alloc_err_ret;
 		lbuf = devm_kzalloc(&rd->dev, sizeof(char)*200, GFP_KERNEL);
+		if (!lbuf)
+			goto alloc_err;
 	} else {
 		regval = devm_kzalloc(&rd->dev, rd->props.max_byte_size *
 				sizeof(unsigned char), GFP_KERNEL);
+		if (!regval)
+			goto alloc_err_ret;
 		lbuf = devm_kzalloc(&rd->dev,
 			rd->props.max_byte_size*3+2, GFP_KERNEL);
+		if (!lbuf)
+			goto alloc_err;
 	}
 
 	lbuf[0] = '\0';
@@ -1867,6 +1898,11 @@ static ssize_t eachreg_read(struct file *file, char __user *ubuf,
 	devm_kfree(&rd->dev, regval);
 	devm_kfree(&rd->dev, lbuf);
 	return retval;
+
+alloc_err:
+	devm_kfree(&rd->dev, regval);
+alloc_err_ret:
+	return -ENOMEM;
 }
 
 static const struct file_operations eachreg_ops = {
@@ -1884,12 +1920,19 @@ static void rt_create_every_debug(struct rt_regmap_device *rd,
 
 	rd->rt_reg_file = devm_kzalloc(&rd->dev,
 		rd->props.register_num*sizeof(struct dentry *), GFP_KERNEL);
+	if (!rd->rt_reg_file)
+		return;
+
 	rd->reg_st = devm_kzalloc(&rd->dev,
 		rd->props.register_num*sizeof(struct rt_debug_st *),
 								GFP_KERNEL);
+	if (!rd->reg_st) {
+		devm_kfree(&rd->dev, rd->rt_reg_file);
+		return;
+	}
+
 	for (i = 0; i < rd->props.register_num; i++) {
-		snprintf(buf, sizeof(buf),
-			 "reg0x%02x", (rd->props.rm[i])->addr);
+		snprintf(buf, PAGE_SIZE, "reg0x%02x", (rd->props.rm[i])->addr);
 		rd->rt_reg_file[i] = devm_kzalloc(&rd->dev,
 						  sizeof(*rd->rt_reg_file[i]),
 						  GFP_KERNEL);
@@ -2008,7 +2051,7 @@ struct rt_regmap_device *rt_regmap_device_register_ex
 {
 	struct rt_regmap_device *rd;
 	int ret = 0, i;
-	char device_name[32];
+	char device_name[32] = {0};
 	unsigned char data;
 
 	if (!props) {

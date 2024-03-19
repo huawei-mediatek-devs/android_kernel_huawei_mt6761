@@ -1,7 +1,6 @@
 subdir-ccflags-y += -Werror
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/smi
+ccflags-y += -Wno-maybe-uninitialized
 
-mtk-vcu-y += mtk_vcu.o \
-	mtk_vcodec_mem.o \
+mtk-vcu-y += mtk_vcu.o
 
 obj-$(CONFIG_VIDEO_MEDIATEK_VCU) += mtk-vcu.o

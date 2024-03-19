@@ -248,76 +248,6 @@ static int compat_get_ion_mm_config_buffer_param(
 	return err;
 }
 
-static int compat_get_ion_iova_param(
-			struct compat_ion_mm_get_iova_param __user *data32,
-			struct ion_mm_get_iova_param __user *data)
-{
-	compat_int_t handle;
-	compat_uint_t module_id;
-	compat_uint_t security;
-	compat_uint_t coherent;
-	compat_uint_t iova_start;
-	compat_uint_t iova_end;
-	compat_u64 phy_addr;
-	compat_size_t len;
-
-	int err;
-
-	err = get_user(handle, &data32->handle);
-	err |= put_user(handle, &data->handle);
-	err |= get_user(module_id, &data32->module_id);
-	err |= put_user(module_id, &data->module_id);
-	err |= get_user(security, &data32->security);
-	err |= put_user(security, &data->security);
-	err |= get_user(coherent, &data32->coherent);
-	err |= put_user(coherent, &data->coherent);
-	err |= get_user(iova_start, &data32->reserve_iova_start);
-	err |= put_user(iova_start, &data->reserve_iova_start);
-	err |= get_user(iova_end, &data32->reserve_iova_end);
-	err |= put_user(iova_end, &data->reserve_iova_end);
-	err |= get_user(phy_addr, &data32->phy_addr);
-	err |= put_user(phy_addr, &data->phy_addr);
-	err |= get_user(len, &data32->len);
-	err |= put_user(len, &data->len);
-
-	return err;
-}
-
-static int compat_put_ion_iova_param(
-			struct compat_ion_mm_get_iova_param __user *data32,
-			struct ion_mm_get_iova_param __user *data)
-{
-	compat_int_t handle;
-	compat_uint_t module_id;
-	compat_uint_t security;
-	compat_uint_t coherent;
-	compat_uint_t iova_start;
-	compat_uint_t iova_end;
-	compat_u64 phy_addr;
-	compat_size_t len;
-
-	int err;
-
-	err = get_user(handle, &data->handle);
-	err |= put_user(handle, &data32->handle);
-	err |= get_user(module_id, &data->module_id);
-	err |= put_user(module_id, &data32->module_id);
-	err |= get_user(security, &data->security);
-	err |= put_user(security, &data32->security);
-	err |= get_user(coherent, &data->coherent);
-	err |= put_user(coherent, &data32->coherent);
-	err |= get_user(iova_start, &data->reserve_iova_start);
-	err |= put_user(iova_start, &data32->reserve_iova_start);
-	err |= get_user(iova_end, &data->reserve_iova_end);
-	err |= put_user(iova_end, &data32->reserve_iova_end);
-	err |= get_user(phy_addr, &data->phy_addr);
-	err |= put_user(phy_addr, &data32->phy_addr);
-	err |= get_user(len, &data->len);
-	err |= put_user(len, &data32->len);
-
-	return err;
-}
-
 static int compat_get_ion_mm_buf_debug_info_set(
 			struct compat_ion_mm_buf_debug_info __user *data32,
 			struct ion_mm_buf_debug_info __user *data)
@@ -459,14 +389,6 @@ static int compat_get_ion_mm_data(struct compat_ion_mm_data *data32,
 			&data->config_buffer_param);
 		break;
 	}
-	case ION_MM_GET_IOVA:
-	case ION_MM_GET_IOVA_EXT:
-	{
-		err |= compat_get_ion_iova_param(
-			&data32->get_phys_param,
-			&data->get_phys_param);
-		break;
-	}
 	case ION_MM_SET_DEBUG_INFO:
 	{
 		err |= compat_get_ion_mm_buf_debug_info_set(
@@ -509,14 +431,6 @@ static int compat_put_ion_mm_data(struct compat_ion_mm_data *data32,
 		err |= compat_put_ion_mm_buf_debug_info(
 			&data32->buf_debug_info_param,
 			&data->buf_debug_info_param);
-		break;
-	}
-	case ION_MM_GET_IOVA:
-	case ION_MM_GET_IOVA_EXT:
-	{
-		err |= compat_put_ion_iova_param(
-			&data32->get_phys_param,
-			&data->get_phys_param);
 		break;
 	}
 	case ION_MM_ACQ_CACHE_POOL:
@@ -691,6 +605,7 @@ static int compat_get_ion_sys_data(
 			&data->get_phys_param);
 		break;
 	}
+#if 0
 	case ION_SYS_GET_CLIENT:
 	{
 		err |= compat_get_ion_sys_get_client_param(
@@ -698,6 +613,7 @@ static int compat_get_ion_sys_data(
 			&data->get_client_param);
 		break;
 	}
+#endif
 	case ION_SYS_SET_CLIENT_NAME:
 	{
 		err |= compat_get_ion_sys_client_name(
@@ -734,12 +650,14 @@ static int compat_put_ion_sys_data(
 			&data32->get_phys_param, &data->get_phys_param);
 		break;
 	}
+#if 0
 	case ION_SYS_GET_CLIENT:
 	{
 		err |= compat_put_ion_sys_get_client_param(
 			&data32->get_client_param, &data->get_client_param);
 		break;
 	}
+#endif
 	default:
 		err = 0;
 	}
@@ -795,6 +713,13 @@ static int compat_get_ion_custom_data(
 	return err;
 }
 
+#ifdef CONFIG_HUAWEI_SPECIAL_SCENE_POOL
+#define ION_CMD_ENTER_SPECIAL_POOL 0x5555
+#define ION_CMD_EXIT_SPECIAL_POOL  0xaaaa
+#include "hisi_ion_scene_pool.h"
+extern void mtk_ion_pool_wakeup_notify(int flag, int water_mark, int timeout);
+#endif
+
 static int compat_put_ion_custom_data(
 			struct compat_ion_custom_data __user *data32,
 		    struct ion_custom_data __user *data)
@@ -838,6 +763,23 @@ static int compat_put_ion_custom_data(
 		/* err |= put_user((unsigned long)mm_data32, &data32->arg); */
 		break;
 	}
+#ifdef CONFIG_HUAWEI_SPECIAL_SCENE_POOL
+	case ION_CMD_ENTER_SPECIAL_POOL:
+	{
+		int time_out, water_mark;
+		err = get_user(arg, &data32->arg);
+		time_out = (arg>>24);           //timeout in s
+		water_mark = (arg&0xffffff)/4;  //water_mark in kb
+		pr_info("ION_CMD_ENTER_SPECIAL_POOL request %d pages, timeout is %d\n", water_mark,  time_out);
+		mtk_ion_pool_wakeup_notify(F_WAKEUP_AUTOFREE, water_mark, time_out);
+		break;
+	}
+	case ION_CMD_EXIT_SPECIAL_POOL:
+	{
+		mtk_ion_pool_wakeup_notify(F_FORCE_STOP, 0, 0);
+	        break;
+	}
+#endif
 	default:
 		err = 0;
 	}
@@ -875,12 +817,8 @@ long compat_ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		ret = filp->f_op->unlocked_ioctl(filp, ION_IOC_ALLOC,
 							(unsigned long)data);
-		if (ret)
-			IONMSG("COMPAT_ION_IOC_ALLOC unlocked_ioctl fail\n");
 
 		err = compat_put_ion_allocation_data(data32, data);
-		if (err)
-			IONMSG("COMPAT_ION_IOC_ALLOC put fail! err=%d\n", err);
 
 		return ret ? ret : err;
 	}
@@ -905,8 +843,6 @@ long compat_ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		ret =  filp->f_op->unlocked_ioctl(filp, ION_IOC_FREE,
 							(unsigned long)data);
-		if (ret)
-			IONMSG("COMPAT_ION_IOC_FREE unlocked_ioctl fail\n");
 
 		return ret;
 	}

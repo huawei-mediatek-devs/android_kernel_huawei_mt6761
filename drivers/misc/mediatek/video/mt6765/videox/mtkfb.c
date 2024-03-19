@@ -77,10 +77,16 @@
 #include <mt-plat/mtk_ccci_common.h>
 #include "ddp_dsi.h"
 
+#ifdef CONFIG_LOG_JANK
+#include <huawei_platform/log/log_jank.h>
+#endif
+
 #ifdef CONFIG_MTK_SMI_EXT
 #include "smi_public.h"
 #endif
-
+#ifdef CONFIG_LCD_KIT_DRIVER
+#include "lcd_kit_core.h"
+#endif
 /* static variable */
 static u32 MTK_FB_XRES;
 static u32 MTK_FB_YRES;
@@ -197,6 +203,9 @@ static int _parse_tag_videolfb(void);
 static void mtkfb_late_resume(void);
 static void mtkfb_early_suspend(void);
 
+#ifdef CONFIG_LCD_KIT_DRIVER
+extern void lcm_set_panel_state(unsigned int state);
+#endif
 
 void mtkfb_log_enable(int enable)
 {
@@ -214,6 +223,9 @@ static int mtkfb_open(struct fb_info *info, int user)
 {
 	NOT_REFERENCED(info);
 	NOT_REFERENCED(user);
+#ifdef CONFIG_LOG_JANK
+ 		//LOG_JANK_D(JLID_KERNEL_LCD_OPEN,"%s", "JL_KERNEL_LCD_OPEN");
+ #endif
 	DISPFUNC();
 	MSG_FUNC_ENTER();
 	MSG_FUNC_LEAVE();
@@ -234,6 +246,7 @@ static int mtkfb_release(struct fb_info *info, int user)
 	return 0;
 }
 
+#if defined(CONFIG_PM_AUTOSLEEP)
 #if defined(CONFIG_MTK_DUAL_DISPLAY_SUPPORT) && \
 	(CONFIG_MTK_DUAL_DISPLAY_SUPPORT == 2)
 static int mtkfb1_blank(int blank_mode, struct fb_info *info)
@@ -306,6 +319,7 @@ static int mtkfb_blank(int blank_mode, struct fb_info *info)
 
 	return 0;
 }
+#endif
 
 int mtkfb_set_backlight_level(unsigned int level)
 {
@@ -950,7 +964,7 @@ unsigned int mtkfb_fm_auto_test(void)
 	struct fb_var_screeninfo var;
 
 	int idle_state_backup =
-		disp_helper_get_option(DISP_OPT_IDLEMGR_ENTER_ULPS);
+		disp_helper_get_option(DISP_OPT_IDLE_MGR);
 
 	if (primary_display_is_sleepd()) {
 		DISPWARN("primary display path is already sleep, skip\n");
@@ -959,7 +973,7 @@ unsigned int mtkfb_fm_auto_test(void)
 
 	if (idle_state_backup) {
 		primary_display_idlemgr_kick(__func__, 0);
-		disp_helper_set_option(DISP_OPT_IDLEMGR_ENTER_ULPS, 0);
+		disp_helper_set_option(DISP_OPT_IDLE_MGR, 0);
 	}
 	fbVirAddr = (unsigned long)fbdev->fb_va_base;
 	fb_buffer = (unsigned int *)fbVirAddr;
@@ -992,11 +1006,11 @@ unsigned int mtkfb_fm_auto_test(void)
 
 	mtkfb_pan_display_impl(&mtkfb_fbi->var, mtkfb_fbi);
 	msleep(100);
-	primary_display_idlemgr_kick(__func__, 0);
+
 	result = primary_display_lcm_ATA();
 
 	if (idle_state_backup)
-		disp_helper_set_option(DISP_OPT_IDLEMGR_ENTER_ULPS, 1);
+		disp_helper_set_option(DISP_OPT_IDLE_MGR, idle_state_backup);
 
 	if (result == 0)
 		DISPERR("ATA LCM failed\n");
@@ -1183,11 +1197,18 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd,
 	}
 	case MTKFB_CAPTURE_FRAMEBUFFER:
 	{
-#if 0 /* comment this for iofuzzer security issue */
+		unsigned long dst_pbuf = 0;
 		unsigned long *src_pbuf = 0;
 		unsigned int pixel_bpp = primary_display_get_bpp() / 8;
 		unsigned int fbsize = DISP_GetScreenHeight() *
 			DISP_GetScreenWidth() * pixel_bpp;
+
+		if (copy_from_user(&dst_pbuf, (void __user *)arg,
+				sizeof(dst_pbuf))) {
+			MTKFB_LOG("[FB]: copy_from_user failed! line:%d\n",
+				__LINE__);
+			return -EFAULT;
+		}
 
 		src_pbuf = vmalloc(fbsize);
 		if (!src_pbuf) {
@@ -1204,18 +1225,17 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd,
 			DISPERR(
 			"primary display capture framebuffer failed!\n");
 		dprec_logger_done(DPREC_LOGGER_WDMA_DUMP, 0, 0);
-		if (copy_to_user((void __user *)arg, src_pbuf, fbsize)) {
+		if (copy_to_user((unsigned long *)dst_pbuf,
+				src_pbuf, fbsize)) {
 			MTKFB_LOG("[FB]: copy_to_user failed! line:%d\n",
 				__LINE__);
 			r = -EFAULT;
 		}
 		vfree(src_pbuf);
-#endif
 		return r;
 	}
 	case MTKFB_SLT_AUTO_CAPTURE:
 	{
-#if 0 /* please open this when need SLT */
 		struct fb_slt_catpure capConfig;
 		unsigned long *src_pbuf = 0;
 		unsigned int format;
@@ -1272,7 +1292,6 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd,
 			r = -EFAULT;
 		}
 		vfree(src_pbuf);
-#endif
 		return r;
 	}
 	case MTKFB_GET_OVERLAY_LAYER_INFO:
@@ -1696,12 +1715,17 @@ static int mtkfb_compat_ioctl(struct fb_info *info, unsigned int cmd,
 	}
 	case COMPAT_MTKFB_CAPTURE_FRAMEBUFFER:
 	{
-		compat_ulong_t __user *data32;
-		unsigned long *pbuf;
-		compat_ulong_t l;
+		compat_ulong_t __user *data32 = NULL;
+		unsigned long *pbuf = NULL;
+		compat_ulong_t l = 0;
 
 		data32 = compat_ptr(arg);
 		pbuf = compat_alloc_user_space(sizeof(unsigned long));
+		if (pbuf == NULL) {
+			pr_info("compat alloc user space failed\n");
+			ret = -EFAULT;
+			break;
+		}
 		ret = get_user(l, data32);
 		ret |= put_user(l, pbuf);
 		ret = mtkfb_ioctl(info, MTKFB_CAPTURE_FRAMEBUFFER,
@@ -1873,7 +1897,9 @@ static struct fb_ops mtkfb_ops = {
 #ifdef CONFIG_COMPAT
 	.fb_compat_ioctl = mtkfb_compat_ioctl,
 #endif
+#if defined(CONFIG_PM_AUTOSLEEP)
 	.fb_blank = mtkfb_blank,
+#endif
 };
 
 #if defined(CONFIG_MTK_DUAL_DISPLAY_SUPPORT) && \
@@ -1895,7 +1921,9 @@ static struct fb_ops mtkfb1_ops = {
 #ifdef CONFIG_COMPAT
 	.fb_compat_ioctl = NULL,
 #endif
+#if defined(CONFIG_PM_AUTOSLEEP)
 	.fb_blank = mtkfb1_blank,
+#endif
 };
 #endif
 /*
@@ -1906,8 +1934,19 @@ static struct fb_ops mtkfb1_ops = {
 
 static int mtkfb_register_sysfs(struct mtkfb_device *fbdev)
 {
-	NOT_REFERENCED(fbdev);
+#ifdef CONFIG_LCD_KIT_DRIVER
+    struct lcd_kit_ops *lcd_ops = NULL;
+    int ret = 0;
+#endif
 
+#ifdef CONFIG_LCD_KIT_DRIVER
+    lcd_ops = lcd_kit_get_ops();
+    if (lcd_ops && lcd_ops->lcd_kit_support) {
+        if (lcd_ops->lcd_kit_support()) {
+            ret = lcd_ops->create_sysfs(&fbdev->fb_info->dev->kobj);
+        }
+    }
+#endif
 	return 0;
 }
 
@@ -2557,6 +2596,17 @@ static int mtkfb_probe(struct platform_device *pdev)
 		(unsigned long)(fbdev->fb_va_base), fb_pa, fb_base);
 	primary_display_init(mtkfb_find_lcm_driver(), lcd_fps, is_lcm_inited);
 
+#ifdef CONFIG_LCD_KIT_DRIVER
+	if(is_lcm_inited)
+	{
+		lcm_set_panel_state(LCD_POWER_STATE_ON);
+	}
+	else
+	{
+		lcm_set_panel_state(LCD_POWER_STATE_OFF);
+	}
+#endif
+
 	init_state++;		/* 1 */
 	MTK_FB_XRES = DISP_GetScreenWidth();
 	MTK_FB_YRES = DISP_GetScreenHeight();
@@ -2610,11 +2660,6 @@ static int mtkfb_probe(struct platform_device *pdev)
 		_mtkfb_internal_test((unsigned long)(fbdev->fb_va_base),
 			MTK_FB_XRES, MTK_FB_YRES);
 
-	r = mtkfb_register_sysfs(fbdev);
-	if (r) {
-		DISPERR("mtkfb_register_sysfs fail, r = %d\n", r);
-		goto cleanup;
-	}
 	init_state++;		/* 5 */
 	DISPMSG("register_framebuffer start...\n");
 	r = register_framebuffer(fbi);
@@ -2632,6 +2677,12 @@ static int mtkfb_probe(struct platform_device *pdev)
 	register_framebuffer(fb1);
 	DISPMSG("register_ext_framebuffer done\n");
 #endif
+
+	r = mtkfb_register_sysfs(fbdev);
+	if (r) {
+		DISPERR("mtkfb_register_sysfs fail, r = %d\n", r);
+		goto cleanup;
+	}
 
 #ifdef FPGA_DEBUG_PAN
 	test_task = kthread_create(update_test_kthread,

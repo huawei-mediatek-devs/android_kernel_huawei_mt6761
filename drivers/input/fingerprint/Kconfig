@@ -3,12 +3,9 @@
 #
 menu "Fingerprint support"
 	depends on INPUT
-
-config SUNWAVE_TEE_FINGERPRINT
-    bool "SW Fingerprint"
-    default n
-    ---help---
-    SW fingerprint chip.
+config HUAWEI_FINGERPRINT_SUPPORT
+	bool "Huawei Fingerprint"
+	default n
 
 config MTK_FINGERPRINT_SUPPORT
 	bool "Mediatek Fingerprint"
@@ -49,3 +46,4 @@ config GOODIX_SENSOR_TYPE
 endif
 endif
 endmenu
+source "drivers/input/fingerprint/fingerprint/Kconfig"

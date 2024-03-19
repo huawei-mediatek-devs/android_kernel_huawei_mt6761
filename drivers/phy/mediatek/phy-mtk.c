@@ -31,13 +31,12 @@ MODULE_PARM_DESC(phy_debug_level, "Debug Print Log for mtkphy");
 int usb_mtkphy_switch_to_usb(struct phy *phy)
 {
 	int ret = 0;
-	struct mtk_phy_instance *instance;
+	struct mtk_phy_instance *instance = phy_get_drvdata(phy);
 	const struct mtk_phy_interface *phycfg;
 
 	if (!phy)
-		return -EINVAL;
+		ret = -EINVAL;
 
-	instance = phy_get_drvdata(phy);
 	phycfg = instance->phycfg;
 
 	if (phycfg && phycfg->usb_phy_switch_to_usb)
@@ -52,13 +51,12 @@ EXPORT_SYMBOL_GPL(usb_mtkphy_switch_to_usb);
 int usb_mtkphy_switch_to_uart(struct phy *phy)
 {
 	int ret = 0;
-	struct mtk_phy_instance *instance;
+	struct mtk_phy_instance *instance = phy_get_drvdata(phy);
 	const struct mtk_phy_interface *phycfg;
 
 	if (!phy)
-		return -EINVAL;
+		ret = -EINVAL;
 
-	instance = phy_get_drvdata(phy);
 	phycfg = instance->phycfg;
 
 	if (phycfg && phycfg->usb_phy_switch_to_uart)
@@ -73,13 +71,12 @@ EXPORT_SYMBOL_GPL(usb_mtkphy_switch_to_uart);
 int usb_mtkphy_check_in_uart_mode(struct phy *phy)
 {
 	int ret = 0;
-	struct mtk_phy_instance *instance;
+	struct mtk_phy_instance *instance = phy_get_drvdata(phy);
 	const struct mtk_phy_interface *phycfg;
 
 	if (!phy)
-		return -EINVAL;
+		ret = -EINVAL;
 
-	instance = phy_get_drvdata(phy);
 	phycfg = instance->phycfg;
 
 	if (phycfg && phycfg->usb_phy_check_in_uart_mode)
@@ -91,37 +88,15 @@ int usb_mtkphy_check_in_uart_mode(struct phy *phy)
 }
 EXPORT_SYMBOL_GPL(usb_mtkphy_check_in_uart_mode);
 
-int usb_mtkphy_dump_usb2uart_reg(struct phy *phy)
-{
-	int ret = 0;
-	struct mtk_phy_instance *instance;
-	const struct mtk_phy_interface *phycfg;
-
-	if (!phy)
-		return -EINVAL;
-
-	instance = phy_get_drvdata(phy);
-	phycfg = instance->phycfg;
-
-	if (phycfg && phycfg->usb_phy_dump_usb2uart_reg)
-		phycfg->usb_phy_dump_usb2uart_reg(instance);
-	else
-		ret = -ENOTSUPP;
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(usb_mtkphy_dump_usb2uart_reg);
-
 int usb_mtkphy_sib_enable_switch(struct phy *phy, bool enable)
 {
 	int ret = 0;
-	struct mtk_phy_instance *instance;
+	struct mtk_phy_instance *instance = phy_get_drvdata(phy);
 	const struct mtk_phy_interface *phycfg;
 
 	if (!phy)
-		return -EINVAL;
+		ret = -EINVAL;
 
-	instance = phy_get_drvdata(phy);
 	phycfg = instance->phycfg;
 
 	if (phycfg && phycfg->usb_phy_sib_enable_switch)
@@ -133,38 +108,15 @@ int usb_mtkphy_sib_enable_switch(struct phy *phy, bool enable)
 }
 EXPORT_SYMBOL_GPL(usb_mtkphy_sib_enable_switch);
 
-int usb_mtkphy_sib_enable_switch_status(struct phy *phy)
-{
-	int ret = 0;
-	struct mtk_phy_instance *instance;
-	const struct mtk_phy_interface *phycfg;
-
-	if (!phy)
-		return -EINVAL;
-
-	instance = phy_get_drvdata(phy);
-	phycfg = instance->phycfg;
-
-	if (phycfg && phycfg->usb_phy_sib_switch_status)
-		phycfg->usb_phy_sib_switch_status(instance);
-	else
-		ret = -ENOTSUPP;
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(usb_mtkphy_sib_enable_switch_status);
-
-
 int usb_mtkphy_u3_loop_back_test(struct phy *phy)
 {
 	int ret;
-	struct mtk_phy_instance *instance;
+	struct mtk_phy_instance *instance = phy_get_drvdata(phy);
 	const struct mtk_phy_interface *phycfg;
 
 	if (!phy)
-		return -EINVAL;
+		ret = -EINVAL;
 
-	instance = phy_get_drvdata(phy);
 	phycfg = instance->phycfg;
 
 	if (phycfg && phycfg->usb_phy_u3_loop_back_test)
@@ -187,13 +139,12 @@ EXPORT_SYMBOL_GPL(usb_mtkphy_slew_rate_calibration);
 int usb_mtkphy_switch_to_bc11(struct phy *phy, bool on)
 {
 	int ret = 0;
-	struct mtk_phy_instance *instance;
+	struct mtk_phy_instance *instance = phy_get_drvdata(phy);
 	const struct mtk_phy_interface *phycfg;
 
 	if (!phy)
-		return -EINVAL;
+		ret = -EINVAL;
 
-	instance = phy_get_drvdata(phy);
 	phycfg = instance->phycfg;
 
 	if (phycfg && phycfg->usb_phy_switch_to_bc11)
@@ -208,13 +159,12 @@ EXPORT_SYMBOL_GPL(usb_mtkphy_switch_to_bc11);
 int usb_mtkphy_lpm_enable(struct phy *phy, bool on)
 {
 	int ret = 0;
-	struct mtk_phy_instance *instance;
+	struct mtk_phy_instance *instance = phy_get_drvdata(phy);
 	const struct mtk_phy_interface *phycfg;
 
 	if (!phy)
-		return -EINVAL;
+		ret = -EINVAL;
 
-	instance = phy_get_drvdata(phy);
 	phycfg = instance->phycfg;
 
 	if (phycfg && phycfg->usb_phy_lpm_enable)
@@ -253,13 +203,12 @@ EXPORT_SYMBOL_GPL(usb_mtkphy_host_mode);
 int usb_mtkphy_io_read(struct phy *phy, u32 reg)
 {
 	int ret = 0;
-	struct mtk_phy_instance *instance;
+	struct mtk_phy_instance *instance = phy_get_drvdata(phy);
 	const struct mtk_phy_interface *phycfg;
 
 	if (!phy)
-		return -EINVAL;
+		ret = -EINVAL;
 
-	instance = phy_get_drvdata(phy);
 	phycfg = instance->phycfg;
 
 	if (phycfg && phycfg->usb_phy_io_read)
@@ -274,13 +223,12 @@ EXPORT_SYMBOL_GPL(usb_mtkphy_io_read);
 int usb_mtkphy_io_write(struct phy *phy, u32 val, u32 reg)
 {
 	int ret = 0;
-	struct mtk_phy_instance *instance;
+	struct mtk_phy_instance *instance = phy_get_drvdata(phy);
 	const struct mtk_phy_interface *phycfg;
 
 	if (!phy)
-		return -EINVAL;
+		ret = -EINVAL;
 
-	instance = phy_get_drvdata(phy);
 	phycfg = instance->phycfg;
 
 	if (phycfg && phycfg->usb_phy_io_write)

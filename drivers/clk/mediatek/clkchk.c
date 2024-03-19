@@ -138,7 +138,6 @@ static void check_pll_off(void)
 		return;
 
 	/* invalid. output debug info */
-
 	pr_warn("unexpected unclosed PLL: %s\n", buf);
 	print_enabled_clks();
 

@@ -94,7 +94,6 @@ static atomic_t ext_idlemgr_task_wakeup = ATOMIC_INIT(1);
 #ifdef MTK_FB_MMDVFS_SUPPORT
 /* dvfs */
 static atomic_t dvfs_ovl_req_status = ATOMIC_INIT(HRT_LEVEL_LEVEL0);
-static int dvfs_before_idle = HRT_LEVEL_NUM - 1;
 #endif
 static int register_share_sram;
 
@@ -298,11 +297,17 @@ int primary_display_dsi_vfp_change(int state)
 	struct cmdqRecStruct *handle = NULL;
 	struct LCM_PARAMS *params;
 
-	cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
-	cmdqRecReset(handle);
+	ret = cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
+	if (ret < 0)
+		DISPERR(" %s cmdqRecCreate fail\n", __func__);
+	ret = cmdqRecReset(handle);
+	if (ret < 0)
+		DISPERR(" %s cmdqRecReset fail\n", __func__);
 
 	/* make sure token rdma_sof is clear */
-	cmdqRecClearEventToken(handle, CMDQ_EVENT_DISP_RDMA0_SOF);
+	ret = cmdqRecClearEventToken(handle, CMDQ_EVENT_DISP_RDMA0_SOF);
+	if (ret < 0)
+		DISPERR(" %s cmdqRecClearEventToker fail\n", __func__);
 
 	/* for chips later than M17,VFP can be set at anytime
 	 * So don't need to wait-SOF here
@@ -313,27 +318,41 @@ int primary_display_dsi_vfp_change(int state)
 	if (state == 1) {
 		/* need calculate fps by vdo mode params */
 		/* set_fps(55); */
-		dpmgr_path_ioctl(primary_get_dpmgr_handle(), handle,
+		ret = dpmgr_path_ioctl(primary_get_dpmgr_handle(), handle,
 			DDP_DSI_PORCH_CHANGE,
 			&params->dsi.vertical_frontporch_for_low_power);
+			if (ret < 0)
+				DISPERR(" %s dpmgr_path_ioctl fail\n",
+						__func__);
 	} else if (state == 0) {
-		dpmgr_path_ioctl(primary_get_dpmgr_handle(), handle,
+		ret = dpmgr_path_ioctl(primary_get_dpmgr_handle(), handle,
 			DDP_DSI_PORCH_CHANGE, &params->dsi.vertical_frontporch);
+			if (ret < 0)
+				DISPERR("%s dpmgr_path_ioctl fail\n",
+						__func__);
 	}
-	cmdqRecFlushAsync(handle);
+	ret = cmdqRecFlushAsync(handle);
+	if (ret < 0)
+		DISPERR(" %s cmdqRecReset fail\n", __func__);
 	cmdqRecDestroy(handle);
 	return ret;
 }
 
 void _idle_set_golden_setting(void)
 {
-	struct cmdqRecStruct *handle;
+	struct cmdqRecStruct *handle = NULL;
 	struct disp_ddp_path_config *pconfig =
 		dpmgr_path_get_last_config_notclear(primary_get_dpmgr_handle());
+	int ret = 0;
 
 	/* no need lock */
 	/* 1.create and reset cmdq */
-	cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
+	ret = cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
+	if (ret) {
+		DISPERR("%s:%d, create cmdq handle fail!ret=%d\n",
+			__func__, __LINE__, ret);
+		return;
+	}
 	cmdqRecReset(handle);
 
 	/* 2.wait mutex0_stream_eof: only used for video mode */
@@ -351,10 +370,11 @@ void _idle_set_golden_setting(void)
 /* Share wrot sram for vdo mode increase enter sodi ratio */
 void _acquire_wrot_resource_nolock(enum CMDQ_EVENT_ENUM resourceEvent)
 {
-	struct cmdqRecStruct *handle;
-	int32_t acquireResult;
+	struct cmdqRecStruct *handle = NULL;
+	int32_t acquireResult = 0;
 	struct disp_ddp_path_config *pconfig =
 		dpmgr_path_get_last_config_notclear(primary_get_dpmgr_handle());
+	int ret = 0;
 
 	DISPINFO("[disp_lowpower]%s\n", __func__);
 	if (use_wrot_sram())
@@ -364,7 +384,12 @@ void _acquire_wrot_resource_nolock(enum CMDQ_EVENT_ENUM resourceEvent)
 		return;
 
 	/* 1.create and reset cmdq */
-	cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
+	ret = cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
+	if (ret) {
+		DISPERR("%s:%d, create cmdq handle fail!ret=%d\n",
+			__func__, __LINE__, ret);
+		return;
+	}
 	cmdqRecReset(handle);
 
 	/* 2. wait eof */
@@ -415,10 +440,11 @@ static int32_t _acquire_wrot_resource(enum CMDQ_EVENT_ENUM resourceEvent)
 
 void _release_wrot_resource_nolock(enum CMDQ_EVENT_ENUM resourceEvent)
 {
-	struct cmdqRecStruct *handle;
+	struct cmdqRecStruct *handle = NULL;
 	struct disp_ddp_path_config *pconfig =
 		dpmgr_path_get_last_config_notclear(primary_get_dpmgr_handle());
 	unsigned int rdma0_shadow_mode = 0;
+	int ret = 0;
 
 	DISPINFO("[disp_lowpower]%s\n", __func__);
 
@@ -426,9 +452,10 @@ void _release_wrot_resource_nolock(enum CMDQ_EVENT_ENUM resourceEvent)
 		return;
 
 	/* 1.create and reset cmdq */
-	cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
-	if (handle == NULL) {
-		DISPERR(" NULL pointer!!!\n");
+	ret = cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
+	if (ret) {
+		DISPERR("%s:%d, create cmdq handle fail!ret=%d\n",
+			__func__, __LINE__, ret);
 		return;
 	}
 	cmdqRecReset(handle);
@@ -494,7 +521,8 @@ static int32_t _release_wrot_resource(enum CMDQ_EVENT_ENUM resourceEvent)
 int _switch_mmsys_clk(int mmsys_clk_old, int mmsys_clk_new)
 {
 	int ret = 0;
-	struct cmdqRecStruct *handle;
+	int result = 0;
+	struct cmdqRecStruct *handle = NULL;
 	struct disp_ddp_path_config *pconfig =
 		dpmgr_path_get_last_config_notclear(primary_get_dpmgr_handle());
 
@@ -509,10 +537,11 @@ int _switch_mmsys_clk(int mmsys_clk_old, int mmsys_clk_new)
 	}
 
 	/* 1.create and reset cmdq */
-	cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
-	if (handle == NULL) {
-		DISPERR(" NULL pointer!!!\n");
-		return -1;
+	result = cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
+	if (result) {
+		DISPERR("%s:%d, create cmdq handle fail!ret=%d\n",
+			__func__, __LINE__, result);
+		return ret;
 	}
 	cmdqRecReset(handle);
 
@@ -933,8 +962,6 @@ void _cmd_mode_leave_idle(void)
 	mmprofile_log_ex(ddp_mmp_get_events()->primary_pm_qos,
 			MMPROFILE_FLAG_END,
 			!primary_display_is_decouple_mode(), bandwidth);
-	primary_display_request_dvfs_perf(MMDVFS_SCEN_DISP,
-		dvfs_before_idle, 0);
 #endif
 
 }
@@ -1084,7 +1111,6 @@ static int _primary_path_idlemgr_monitor_thread(void *data)
 			primary_display_set_idle_stat(1);
 		}
 #ifdef MTK_FB_MMDVFS_SUPPORT
-		dvfs_before_idle = atomic_read(&dvfs_ovl_req_status);
 		/* when screen idle: LP4 enter ULPM; LP3 enter LPM */
 		primary_display_request_dvfs_perf(SMI_BWC_SCEN_UI_IDLE,
 			HRT_LEVEL_LEVEL0, 0);
@@ -1095,6 +1121,12 @@ static int _primary_path_idlemgr_monitor_thread(void *data)
 		wait_event_interruptible(idlemgr_pgc->idlemgr_wait_queue,
 			!primary_display_is_idle());
 
+#ifdef MTK_FB_MMDVFS_SUPPORT
+		/* when leave screen idle: reset to default */
+		primary_display_request_dvfs_perf(SMI_BWC_SCEN_UI_IDLE,
+			HRT_LEVEL_DEFAULT,
+			layering_rule_get_mm_freq_table(HRT_OPP_LEVEL_LEVEL0));
+#endif
 		if (kthread_should_stop())
 			break;
 	}

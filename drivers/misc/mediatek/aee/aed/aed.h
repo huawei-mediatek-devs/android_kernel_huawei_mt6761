@@ -21,6 +21,12 @@
 #include <linux/kallsyms.h>
 #include <linux/ptrace.h>
 
+#define LOGD(fmt, msg...)	no_printk(fmt, ##msg)
+#define LOGV(fmt, msg...)    no_printk(fmt, ##msg)
+#define LOGI	LOGD
+#define LOGE(fmt, msg...)	no_printk(fmt, ##msg)
+#define LOGW	LOGE
+
 #define AE_INVALID              0xAEEFF000
 #define AE_NOT_AVAILABLE        0xAEE00000
 #define AE_DEFAULT              0xAEE00001
@@ -192,8 +198,6 @@ struct aee_siginfo {
 #define AEEIOCTL_GET_AEE_SIGINFO _IOW('p', 0x10, struct aee_siginfo)
 #define AEEIOCTL_SET_HANG_FLAG _IOW('p', 0x11, int)
 #define AEEIOCTL_SET_HANG_REBOOT _IO('p', 0x12)
-#define AEEIOCTL_GET_THREAD_RMS  _IOW('p', 0x13, struct unwind_info_rms)
-#define AEEIOCTL_GET_THREAD_STACK_RAW  _IOW('p', 0x14, struct unwind_info_stack)
 
 
 #define AED_FILE_OPS(entry) \
@@ -210,7 +214,7 @@ struct aee_siginfo {
 #define  AED_PROC_ENTRY(name, entry, mode)\
 	({if (!proc_create(#name, S_IFREG | mode, aed_proc_dir, \
 		&proc_##entry##_fops)) \
-		pr_info("proc_create %s failed\n", #name); })
+		LOGE("proc_create %s failed\n", #name); })
 
 
 struct proc_dir_entry;

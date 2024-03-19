@@ -148,11 +148,6 @@ GPUOP(SEG4_GPU_DVFS_FREQ0, SEG4_GPU_DVFS_VOLT0, SEG4_GPU_DVFS_VSRAM0, 0),
 GPUOP(SEG4_GPU_DVFS_FREQ1, SEG4_GPU_DVFS_VOLT1, SEG4_GPU_DVFS_VSRAM1, 1),
 GPUOP(SEG4_GPU_DVFS_FREQ2, SEG4_GPU_DVFS_VOLT2, SEG4_GPU_DVFS_VSRAM2, 2),
 };
-static struct g_opp_table_info g_opp_table_segment5[] = {
-GPUOP(SEG5_GPU_DVFS_FREQ0, SEG5_GPU_DVFS_VOLT0, SEG5_GPU_DVFS_VSRAM0, 0),
-GPUOP(SEG5_GPU_DVFS_FREQ1, SEG5_GPU_DVFS_VOLT1, SEG5_GPU_DVFS_VSRAM1, 1),
-GPUOP(SEG5_GPU_DVFS_FREQ2, SEG5_GPU_DVFS_VOLT2, SEG5_GPU_DVFS_VSRAM2, 2),
-};
 static const struct of_device_id g_gpufreq_of_match[] = {
 	{ .compatible = "mediatek,mt6765-gpufreq" },
 	{ /* sentinel */ }
@@ -2269,8 +2264,18 @@ static void __mt_gpufreq_setup_opp_table(struct g_opp_table_info *freqs,
 	g_opp_table = kzalloc((num) * sizeof(*freqs), GFP_KERNEL);
 	g_opp_table_default = kzalloc((num) * sizeof(*freqs), GFP_KERNEL);
 
-	if (g_opp_table == NULL || g_opp_table_default == NULL)
+	if (g_opp_table == NULL) {
+		gpufreq_pr_debug("g_opp_table: mem allocation failed (%lu)",
+		(num) * sizeof(*freqs));
 		return;
+	}
+
+	if (g_opp_table_default == NULL) {
+		kfree(g_opp_table);
+		gpufreq_pr_debug("g_opp_table_default: mem allocation failed (%lu)",
+		(num) * sizeof(*freqs));
+		return;
+	}
 
 	for (i = 0; i < num; i++) {
 		g_opp_table[i].gpufreq_khz = freqs[i].gpufreq_khz;
@@ -2466,16 +2471,12 @@ static int __mt_gpufreq_pdrv_probe(struct platform_device *pdev)
 	if (g_efuse_id == 0x8 || g_efuse_id == 0xf) {
 		/* 6762M */
 		g_segment_id = MT6762M_SEGMENT;
-	} else if (g_efuse_id == 0x1 || g_efuse_id == 0x7
-		|| g_efuse_id == 0x9) {
+	} else if (g_efuse_id == 0x1 || g_efuse_id == 0x7) {
 		/* 6762 */
 		g_segment_id = MT6762_SEGMENT;
 	} else if (g_efuse_id == 0x2 || g_efuse_id == 0x5) {
 		/* SpeedBin */
 		g_segment_id = MT6765T_SEGMENT;
-	} else if (g_efuse_id == 0x20) {
-		/* 6762D */
-		g_segment_id = MT6762D_SEGMENT;
 	} else {
 		/* Other Version, set default segment */
 		g_segment_id = MT6765_SEGMENT;
@@ -2533,10 +2534,6 @@ static int __mt_gpufreq_pdrv_probe(struct platform_device *pdev)
 	} else if (g_segment_id == MT6765T_SEGMENT) {
 		__mt_gpufreq_setup_opp_table(g_opp_table_segment4,
 			ARRAY_SIZE(g_opp_table_segment4));
-		g_fixed_vsram_volt_idx = 2;
-	} else if (g_segment_id == MT6762D_SEGMENT) {
-		__mt_gpufreq_setup_opp_table(g_opp_table_segment5,
-			ARRAY_SIZE(g_opp_table_segment5));
 		g_fixed_vsram_volt_idx = 2;
 	}
 

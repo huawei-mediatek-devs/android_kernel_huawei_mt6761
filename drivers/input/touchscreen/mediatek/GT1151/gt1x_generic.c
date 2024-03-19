@@ -118,9 +118,6 @@ static ssize_t gt1x_debug_read_proc(struct file *file, char __user *page,
 	if (*ppos)
 		return 0;
 
-	if (size > 1024*1024)
-		return -EMSGSIZE;
-
 	ptr = kzalloc((size + 10), GFP_KERNEL);
 	if (ptr == NULL)
 		return -EMSGSIZE;
@@ -139,7 +136,7 @@ static ssize_t gt1x_debug_read_proc(struct file *file, char __user *page,
 
 	ret += snprintf(ptr + ret, size - ret,
 			"==== GT1X config read from chip====\n");
-	i = gt1x_i2c_read(GTP_REG_CONFIG_DATA,
+	i = mtk_gt1x_i2c_read(GTP_REG_CONFIG_DATA,
 				temp_data, GTP_CONFIG_MAX_LENGTH);
 	GTP_INFO("I2C TRANSFER: %d", i);
 	for (i = 0; i < GTP_CONFIG_MAX_LENGTH; i++) {
@@ -155,7 +152,7 @@ static ssize_t gt1x_debug_read_proc(struct file *file, char __user *page,
 	ret += snprintf(ptr + ret, size - ret,
 			"==== GT1X Version Info ====\n");
 
-	gt1x_i2c_read(GTP_REG_VERSION, temp_data, 12);
+	mtk_gt1x_i2c_read(GTP_REG_VERSION, temp_data, 12);
 	ret += snprintf(ptr + ret, size - ret,
 			"ProductID: GT%c%c%c%c\n",
 			temp_data[0], temp_data[1],
@@ -261,7 +258,7 @@ static ssize_t gt1x_debug_write_proc(struct file *file,
 	}
 
 	if (strcmp(mode_str, "version") == 0) {
-		gt1x_read_version(NULL);
+		mtk_gt1x_read_version(NULL);
 		return count;
 	}
 
@@ -281,7 +278,7 @@ static ssize_t gt1x_debug_write_proc(struct file *file,
 		return ret;
 	}
 	if (strcmp(mode_str, "update") == 0) {
-		gt1x_update_firmware(arg1);
+		mtk_gt1x_update_firmware(arg1);
 		return count;
 	}
 
@@ -382,8 +379,8 @@ s32 gt1x_i2c_test(void)
 
 	GTP_DEBUG_FUNC();
 
-	while (retry++ < 5) {
-		ret = gt1x_i2c_read(GTP_REG_HW_INFO,
+	while (retry++ < 2) {
+		ret = mtk_gt1x_i2c_read(GTP_REG_HW_INFO,
 			(u8 *) &hw_info, sizeof(hw_info));
 		if (!ret) {
 			GTP_INFO("GTP_REG_HW_INFO : %08X", hw_info);
@@ -398,7 +395,7 @@ s32 gt1x_i2c_test(void)
 	return ERROR_RETRY;
 }
 
-s32 gt1x_i2c_read_dbl_check(u16 addr, u8 *buffer, s32 len)
+s32 mtk_gt1x_i2c_read_dbl_check(u16 addr, u8 *buffer, s32 len)
 {
 	u8 buf[16] = { 0 };
 	u8 confirm_buf[16] = { 0 };
@@ -410,12 +407,12 @@ s32 gt1x_i2c_read_dbl_check(u16 addr, u8 *buffer, s32 len)
 	}
 
 	memset(buf, 0xAA, 16);
-	gt1x_i2c_read(addr, buf, len);
+	mtk_gt1x_i2c_read(addr, buf, len);
 
 	msleep(20);
 
 	memset(confirm_buf, 0, 16);
-	gt1x_i2c_read(addr, confirm_buf, len);
+	mtk_gt1x_i2c_read(addr, confirm_buf, len);
 
 	if (!memcmp(buf, confirm_buf, len)) {
 		memcpy(buffer, confirm_buf, len);
@@ -436,14 +433,14 @@ s32 gt1x_get_info(void)
 	u8 opr_buf[4] = { 0 };
 	s32 ret = 0;
 
-	ret = gt1x_i2c_read(GTP_REG_CONFIG_DATA + 1, opr_buf, 4);
+	ret = mtk_gt1x_i2c_read(GTP_REG_CONFIG_DATA + 1, opr_buf, 4);
 	if (ret < 0)
 		return ret;
 
 	gt1x_abs_x_max = (opr_buf[1] << 8) + opr_buf[0];
 	gt1x_abs_y_max = (opr_buf[3] << 8) + opr_buf[2];
 
-	ret = gt1x_i2c_read(GTP_REG_CONFIG_DATA + 6, opr_buf, 1);
+	ret = mtk_gt1x_i2c_read(GTP_REG_CONFIG_DATA + 6, opr_buf, 1);
 	if (ret < 0)
 		return ret;
 	gt1x_int_type = opr_buf[0] & 0x03;
@@ -482,7 +479,7 @@ s32 gt1x_send_cfg(u8 *config, int cfg_len)
 	config[cfg_len - 1] = 0x01;
 
 	while (retry++ < 5) {
-		ret = gt1x_i2c_write(GTP_REG_CONFIG_DATA, config, cfg_len);
+		ret = mtk_gt1x_i2c_write(GTP_REG_CONFIG_DATA, config, cfg_len);
 		if (!ret) {
 			/* must 200ms, wait for storing config into flash. */
 			msleep(200);
@@ -630,7 +627,7 @@ s32 gt1x_init_panel(void)
 
 #else				/* DRIVER NOT SEND CONFIG */
 	cfg_len = GTP_CONFIG_MAX_LENGTH;
-	ret = gt1x_i2c_read(GTP_REG_CONFIG_DATA, gt1x_config, cfg_len);
+	ret = mtk_gt1x_i2c_read(GTP_REG_CONFIG_DATA, gt1x_config, cfg_len);
 	if (ret < 0)
 		return ret;
 #endif				/* END CONFIG_GTP_DRIVER_SEND_CFG */
@@ -726,7 +723,7 @@ s32 gt1x_reset_guitar(void)
  * @ver_info: address to store version info
  * Return 0-succeed.
  */
-s32 gt1x_read_version(struct gt1x_version_info *ver_info)
+s32 mtk_gt1x_read_version(struct gt1x_version_info *ver_info)
 {
 	s32 ret = -1;
 	u8 buf[12] = { 0 };
@@ -741,7 +738,7 @@ s32 gt1x_read_version(struct gt1x_version_info *ver_info)
 	GTP_DEBUG_FUNC();
 
 	while (retry--) {
-		ret = gt1x_i2c_read_dbl_check(GTP_REG_VERSION,
+		ret = mtk_gt1x_i2c_read_dbl_check(GTP_REG_VERSION,
 							buf, sizeof(buf));
 		if (!ret) {
 			checksum = 0;
@@ -805,7 +802,7 @@ s32 gt1x_get_chip_type(void)
 		return 0;
 
 	/* read hardware */
-	ret = gt1x_i2c_read_dbl_check(GTP_REG_HW_INFO,
+	ret = mtk_gt1x_i2c_read_dbl_check(GTP_REG_HW_INFO,
 					opr_buf, sizeof(opr_buf));
 	if (ret) {
 		GTP_ERROR("I2c communication error.");
@@ -953,8 +950,8 @@ s32 gt1x_send_cmd(u8 cmd, u8 data)
 
 	mutex_lock(&cmd_mutex);
 	buffer[2] = (u8) ((0 - cmd - data) & 0xFF);
-	ret = gt1x_i2c_write(GTP_REG_CMD + 1, &buffer[1], 2);
-	ret |= gt1x_i2c_write(GTP_REG_CMD, &buffer[0], 1);
+	ret = mtk_gt1x_i2c_write(GTP_REG_CMD + 1, &buffer[1], 2);
+	ret |= mtk_gt1x_i2c_write(GTP_REG_CMD, &buffer[0], 1);
 	msleep(50);
 	mutex_unlock(&cmd_mutex);
 
@@ -972,7 +969,7 @@ void gt1x_power_reset2(void)
 	s32 i = 0;
 	s32 ret = 0;
 
-	if (is_resetting || update_info.status)
+	if (is_resetting || mtk_update_info.status)
 		return;
 	GTP_INFO("force_reset_guitar");
 	is_resetting = 1;
@@ -992,16 +989,17 @@ void gt1x_power_reset2(void)
 		}
 		break;
 	}
+
 	is_resetting = 0;
 }
 
-void gt1x_power_reset(void)
+int gt1x_power_reset(void)
 {
 	s32 i = 0;
 	s32 ret = 0;
 
-	if (is_resetting || update_info.status)
-		return;
+	if (is_resetting || mtk_update_info.status)
+		return -1;
 	GTP_INFO("force_reset_guitar");
 	is_resetting = 1;
 	gt1x_irq_disable();
@@ -1010,10 +1008,10 @@ void gt1x_power_reset(void)
 	gt1x_power_switch(SWITCH_ON);
 	msleep(30);
 
-	for (i = 0; i < 5; i++) {
+	for (i = 0; i < 2; i++) {
 		ret = gt1x_reset_guitar();
 		if (ret < 0)
-			continue;
+			return -1;
 		ret = gt1x_send_cfg(gt1x_config, gt1x_cfg_length);
 		if (ret < 0) {
 			msleep(500);
@@ -1023,6 +1021,7 @@ void gt1x_power_reset(void)
 	}
 	gt1x_irq_enable();
 	is_resetting = 0;
+	return 0;
 }
 
 s32 gt1x_request_event_handler(void)
@@ -1030,7 +1029,7 @@ s32 gt1x_request_event_handler(void)
 	s32 ret = -1;
 	u8 rqst_data = 0;
 
-	ret = gt1x_i2c_read(GTP_REG_RQST, &rqst_data, 1);
+	ret = mtk_gt1x_i2c_read(GTP_REG_RQST, &rqst_data, 1);
 	if (ret) {
 		GTP_ERROR("I2C transfer error. errno:%d", ret);
 		return -1;
@@ -1045,14 +1044,14 @@ s32 gt1x_request_event_handler(void)
 		} else {
 			GTP_INFO("Send gt1x_config success.");
 			rqst_data = GTP_RQST_RESPONDED;
-			gt1x_i2c_write(GTP_REG_RQST, &rqst_data, 1);
+			mtk_gt1x_i2c_write(GTP_REG_RQST, &rqst_data, 1);
 		}
 		break;
 	case GTP_RQST_RESET:
 		GTP_INFO("Request Reset.");
 		gt1x_reset_guitar();
 		rqst_data = GTP_RQST_RESPONDED;
-		gt1x_i2c_write(GTP_REG_RQST, &rqst_data, 1);
+		mtk_gt1x_i2c_write(GTP_REG_RQST, &rqst_data, 1);
 		break;
 	case GTP_RQST_BAK_REF:
 		GTP_INFO("Request Ref.");
@@ -1108,7 +1107,7 @@ s32 gt1x_touch_event_handler(u8 *data, struct input_dev *dev,
 
 	/* read the remaining coor data */
 	if (touch_num > 1) {
-		ret = gt1x_i2c_read((GTP_READ_COOR_ADDR + 11),
+		ret = mtk_gt1x_i2c_read((GTP_READ_COOR_ADDR + 11),
 					&touch_data[11],
 					1 + 8 * touch_num + 2 - 11);
 		if (ret) {
@@ -1457,7 +1456,7 @@ static s32 gt1x_enable_ps(s32 enable)
 
 	GTP_INFO("TPD proximity function to be %s.", enable ? "on" : "off");
 	state = enable ? 1 : 0;
-	ret = gt1x_i2c_write(GTP_REG_PROXIMITY_ENABLE, &state, 1);
+	ret = mtk_gt1x_i2c_write(GTP_REG_PROXIMITY_ENABLE, &state, 1);
 	if (ret)
 		GTP_ERROR("TPD %s proximity cmd failed.",
 					state ? "enable" : "disable");
@@ -1528,7 +1527,7 @@ s32 gt1x_init_ext_watchdog(void)
 
 	GTP_DEBUG("Init external watchdog.");
 	ret = gt1x_send_cmd(GTP_CMD_ESD, 0);
-	ret |= gt1x_i2c_write(GTP_REG_ESD_CHECK, &value, 1);
+	ret |= mtk_gt1x_i2c_write(GTP_REG_ESD_CHECK, &value, 1);
 	return ret;
 }
 
@@ -1565,7 +1564,7 @@ static void gt1x_esd_check_func(struct work_struct *work)
 	}
 
 	for (i = 0; i < 3; i++) {
-		ret = gt1x_i2c_read(GTP_REG_CMD, esd_buf, 4);
+		ret = mtk_gt1x_i2c_read(GTP_REG_CMD, esd_buf, 4);
 		GTP_DEBUG("[Esd]0x8040 = 0x%02X, 0x8043 = 0x%02X",
 						esd_buf[0], esd_buf[3]);
 		if (!ret && esd_buf[0] != 0xAA && esd_buf[3] == 0xAA)
@@ -1580,7 +1579,7 @@ static void gt1x_esd_check_func(struct work_struct *work)
 		if (esd_running) {
 			GTP_INFO("IC works abnormally! Process reset guitar.");
 			memset(esd_buf, 0x01, sizeof(esd_buf));
-			gt1x_i2c_write(0x4226, esd_buf, sizeof(esd_buf));
+			mtk_gt1x_i2c_write(0x4226, esd_buf, sizeof(esd_buf));
 			msleep(50);
 
 			gt1x_power_reset();
@@ -1735,7 +1734,7 @@ s32 gt1x_init(void)
 			wake_up(&init_waiter);
 		}
 
-		ret = gt1x_i2c_read_dbl_check(0x41E4, reg_val, 1);
+		ret = mtk_gt1x_i2c_read_dbl_check(0x41E4, reg_val, 1);
 		if (ret != 0) {
 			continue;
 		} else if (reg_val[0] != 0xBE) {
@@ -1745,7 +1744,7 @@ s32 gt1x_init(void)
 		}
 
 		/* read version information */
-		ret = gt1x_read_version(&gt1x_version);
+		ret = mtk_gt1x_read_version(&gt1x_version);
 		if (ret != 0) {
 			GTP_ERROR("GTP get verision failed!");
 			gt1x_init_failed = 1;
@@ -1780,7 +1779,7 @@ s32 gt1x_init(void)
 	gt1x_init_debug_node();
 
 #ifdef CONFIG_GTP_CREATE_WR_NODE
-	gt1x_init_tool_node();
+	mtk_gt1x_init_tool_node();
 #endif
 
 #if defined(CONFIG_GTP_GESTURE_WAKEUP) || defined(CONFIG_GTP_HOTKNOT)
@@ -1807,7 +1806,7 @@ s32 gt1x_init(void)
 void gt1x_deinit(void)
 {
 #ifdef CONFIG_GTP_CREATE_WR_NODE
-	gt1x_deinit_tool_node();
+	mtk_gt1x_deinit_tool_node();
 #endif
 
 #ifdef CONFIG_GTP_ESD_PROTECT

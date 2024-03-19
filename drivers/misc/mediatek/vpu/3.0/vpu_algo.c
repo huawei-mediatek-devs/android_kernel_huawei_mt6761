@@ -86,72 +86,7 @@ int vpu_add_algo_to_pool(int core, struct vpu_algo *algo)
 	return 0;
 }
 
-int vpu_add_algo_to_user_pool(struct vpu_algo *algo, struct vpu_user *user)
-{
-	LOG_DBG("[vpu] %s +\n", __func__);
-	list_add_tail(vlist_link(algo, struct vpu_algo), &user->algo_list);
-
-	return 0;
-}
-
-int vpu_free_algo_from_user_pool(int core, vpu_id_t id, struct vpu_user *user)
-{
-	struct list_head *head, *temp;
-	struct vpu_algo *algo_tmp;
-
-	LOG_DBG("[vpu] %s +\n", __func__);
-	list_for_each_safe(head, temp, &user->algo_list) {
-		algo_tmp = vlist_node_of(head, struct vpu_algo);
-		if (algo_tmp->id[core] == id) {
-			list_del(head);
-			vpu_free_algo(algo_tmp);
-			return 0;
-		}
-	}
-
-	return 0;
-}
-
-int vpu_find_algo_by_id_from_user(int core, vpu_id_t id,
-	struct vpu_algo **ralgo, struct vpu_user *user)
-{
-	struct vpu_algo *algo;
-	struct list_head *head;
-
-	list_for_each(head, &user->algo_list)
-	{
-		algo = vlist_node_of(head, struct vpu_algo);
-		if (algo->id[core] == id) {
-			*ralgo = algo;
-			return 0;
-		}
-	}
-
-	*ralgo = NULL;
-	return -ENOENT;
-}
-
-int vpu_find_algo_by_name_from_user(int core, char *name,
-	struct vpu_algo **ralgo, struct vpu_user *user)
-{
-	struct vpu_algo *algo;
-	struct list_head *head;
-
-	list_for_each(head, &user->algo_list)
-	{
-		algo = vlist_node_of(head, struct vpu_algo);
-		if (!strcmp(name, algo->name) && algo->id[core]) {
-			*ralgo = algo;
-			return 0;
-		}
-	}
-
-	*ralgo = NULL;
-	return -ENOENT;
-}
-
-int vpu_find_algo_by_id(int core, vpu_id_t id,
-	struct vpu_algo **ralgo, struct vpu_user *user)
+int vpu_find_algo_by_id(int core, vpu_id_t id, struct vpu_algo **ralgo)
 {
 	struct vpu_algo *algo;
 	struct list_head *head;
@@ -159,7 +94,6 @@ int vpu_find_algo_by_id(int core, vpu_id_t id,
 
 	if (id < 1)
 		goto err;
-
 
 	list_for_each(head, &vpu_algo_pool[core])
 	{
@@ -169,10 +103,6 @@ int vpu_find_algo_by_id(int core, vpu_id_t id,
 			return 0;
 		}
 	}
-
-	if (user != NULL &&
-		vpu_find_algo_by_id_from_user(core, id, ralgo, user) == 0)
-		return 0;
 
 	if (vpu_get_name_of_algo(core, id, &name))
 		goto err;
@@ -189,7 +119,7 @@ err:
 }
 
 int vpu_find_algo_by_name(int core, char *name,
-	struct vpu_algo **ralgo, bool needload, struct vpu_user *user)
+	struct vpu_algo **ralgo, bool needload)
 {
 	struct vpu_algo *algo;
 	struct list_head *head;
@@ -198,9 +128,6 @@ int vpu_find_algo_by_name(int core, char *name,
 
 	if (name == NULL)
 		goto err;
-
-	if (vpu_find_algo_by_name_from_user(core, name, ralgo, user) == 0)
-		return 0;
 
 	list_for_each(head, &vpu_algo_pool[core])
 	{
@@ -223,9 +150,9 @@ err:
 	return -ENOENT;
 }
 
-int vpu_get_algo_id_by_name(int core, char *name, struct vpu_user *user)
+int vpu_get_algo_id_by_name(int core, char *name)
 {
-	struct vpu_algo *algo = NULL;
+	struct vpu_algo *algo;
 	int algo_id = -1;
 	int ret = 0;
 
@@ -233,9 +160,9 @@ int vpu_get_algo_id_by_name(int core, char *name, struct vpu_user *user)
 		goto out;
 
 	LOG_DBG("%s core:%d\n", __func__, core);
-	ret = vpu_find_algo_by_name(core, name, &algo, false, user);
+	ret = vpu_find_algo_by_name(core, name, &algo, false);
 	LOG_DBG("ret:%d\n", ret);
-	if (ret || !algo) {
+	if (ret) {
 		LOG_ERR("vpu_find_algo_by_name fail, name=%s\n", name);
 		goto out;
 	}
@@ -369,48 +296,6 @@ out:
 	if (algo != NULL)
 		vpu_free_algo(algo);
 	return ret;
-}
-
-int vpu_add_algo_to_user(struct vpu_user *user,
-	struct vpu_create_algo *create_algo)
-{
-	int ret = 0;
-	uint32_t core = create_algo->core;
-	struct vpu_algo *algo = NULL;
-	vpu_id_t algo_num;
-
-	ret = vpu_alloc_algo(&algo);
-	if (ret) {
-		LOG_ERR("vpu_alloc_algo failed!\n");
-		goto out;
-	}
-
-	strlcpy(algo->name, create_algo->name, (sizeof(char)*32));
-	vpu_get_default_algo_num(core, &algo_num);
-
-	user->algo_num++;
-	algo->id[core] = user->algo_num + algo_num;
-	algo->bin_ptr = create_algo->algo_ptr;
-	algo->bin_length = create_algo->algo_length;
-	vpu_add_algo_to_user_pool(algo, user);
-out:
-	return ret;
-}
-
-int vpu_free_algo_from_user(struct vpu_user *user,
-	struct vpu_create_algo *create_algo)
-{
-	int core = (int)create_algo->core;
-	struct vpu_algo *ralgo;
-	vpu_id_t id;
-
-	if (vpu_find_algo_by_name_from_user(core,
-		create_algo->name, &ralgo, user) == 0) {
-		id = ralgo->id[core];
-		return vpu_free_algo_from_user_pool(core, id, user);
-	}
-
-	return 0;
 }
 
 int vpu_alloc_algo(struct vpu_algo **ralgo)

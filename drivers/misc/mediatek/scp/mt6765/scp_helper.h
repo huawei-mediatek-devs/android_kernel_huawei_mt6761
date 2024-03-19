@@ -22,14 +22,12 @@
 /* scp config reg. definition*/
 #define SCP_TCM_SIZE		(scpreg.total_tcmsize)
 #define SCP_A_TCM_SIZE		(scpreg.scp_tcmsize)
-#define SCP_TCM			(scpreg.sram)	/* virtual address */
-#define SCP_REGION_INFO_OFFSET	0x400
-#define SCP_RTOS_START		0x800
+#define SCP_TCM			(scpreg.sram)
+#define SCP_REGION_INFO_OFFSET 0x400
+#define SCP_RTOS_START		(0x800)
 #define SCP_A_SHARE_BUFFER	(scpreg.sram + \
-				SCP_RTOS_START - SHARE_BUF_SIZE * 2)
-
+					SCP_RTOS_START -  SHARE_BUF_SIZE*2)
 #define OFF_PARAM_START         0x30
-
 /* scp dvfs return status flag */
 #define SET_PLL_FAIL		(1)
 #define SET_PMIC_VOLT_FAIL	(2)
@@ -51,10 +49,10 @@ enum SCP_NOTIFY_EVENT {
 };
 
 /* reset ID */
-#define SCP_ALL_ENABLE		0x00
-#define SCP_ALL_REBOOT		0x01
-#define SCP_A_ENABLE		0x10
-#define SCP_A_REBOOT		0x11
+#define SCP_ALL_ENABLE	0x00
+#define SCP_ALL_REBOOT	0x01
+#define SCP_A_ENABLE	0x10
+#define SCP_A_REBOOT	0x11
 
 
 /* scp semaphore definition*/
@@ -117,11 +115,8 @@ enum scp_reserve_mem_id_t {
 	AUDIO_IPI_MEM_ID,
 #ifdef CONFIG_MTK_AUDIO_SCP_SPKPROTECT_SUPPORT
 	SPK_PROTECT_MEM_ID,
-	SPK_PROTECT_DUMP_MEM_ID,
 #endif
-#ifdef SCP_PARAMS_TO_SCP_SUPPORT
-	SCP_DRV_PARAMS_MEM_ID,
-#endif
+    SCP_DRV_PARAMS_MEM_ID,
 	NUMS_MEM_ID,
 };
 
@@ -152,8 +147,6 @@ struct scp_region_info_st {
 	uint32_t TaskContext_ptr;
 	uint32_t Il1c_con;
 	uint32_t Dl1c_con;
-	uint32_t scpctl;
-	uint32_t ap_params_start;
 };
 
 /* scp device attribute */
@@ -168,9 +161,11 @@ extern struct device_attribute dev_attr_scp_A_status;
 extern struct bin_attribute bin_attr_scp_dump;
 
 /* scp loggger */
-int scp_logger_init(phys_addr_t start, phys_addr_t limit);
-void scp_logger_uninit(void);
+extern int scp_logger_init(phys_addr_t start, phys_addr_t limit);
+extern void scp_logger_uninit(void);
 
+extern void scp_logger_stop(void);
+extern void scp_logger_cleanup(void);
 
 /* scp exception */
 extern int scp_excep_init(void);
@@ -188,8 +183,8 @@ extern void scp_A_register_notify(struct notifier_block *nb);
 extern void scp_A_unregister_notify(struct notifier_block *nb);
 extern void scp_schedule_work(struct scp_work_struct *scp_ws);
 extern void scp_schedule_logger_work(struct scp_work_struct *scp_ws);
-extern int get_scp_semaphore(int flag);
-extern int release_scp_semaphore(int flag);
+extern int get_scp_semaphore(unsigned int flag);
+extern int release_scp_semaphore(unsigned int flag);
 extern int scp_get_semaphore_3way(int flag);
 extern int scp_release_semaphore_3way(int flag);
 
@@ -208,7 +203,6 @@ extern phys_addr_t scp_mem_base_phys;
 extern phys_addr_t scp_mem_base_virt;
 extern phys_addr_t scp_mem_size;
 extern atomic_t scp_reset_status;
-extern spinlock_t scp_awake_spinlock;
 
 /*extern scp notify*/
 extern void scp_send_reset_wq(enum SCP_RESET_TYPE type);
@@ -227,10 +221,6 @@ extern unsigned int scp_reset_by_cmd;
 extern struct scp_region_info_st scp_region_info_copy;
 extern struct scp_region_info_st *scp_region_info;
 extern void __iomem *scp_l1c_start_virt;
+__attribute__((weak)) int sensor_params_to_scp(u64 addr_vir, size_t size);
 #endif
-
-__attribute__((weak))
-int sensor_params_to_scp(phys_addr_t addr_vir, size_t size);
-
 #endif
-

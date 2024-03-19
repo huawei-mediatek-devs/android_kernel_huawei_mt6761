@@ -186,6 +186,7 @@ spinlock_t cm_mgr_cpu_mask_lock;
 
 #define CM_MGR_MAX(a, b) (((a) > (b)) ? (a) : (b))
 
+#define USE_TIME_NS
 /* #define USE_DEBUG_LOG */
 
 struct stall_s {
@@ -321,7 +322,9 @@ int cm_mgr_check_stall_ratio(int mp0, int mp1)
 	unsigned int i;
 	unsigned int clustor;
 	unsigned int stall_val_new;
+#ifdef USE_TIME_NS
 	unsigned long long time_ns_new;
+#endif /* USE_TIME_NS */
 
 	pstall_all->clustor[0] = mp0;
 	pstall_all->cpu = 0;
@@ -334,9 +337,6 @@ int cm_mgr_check_stall_ratio(int mp0, int mp1)
 		pstall_all->ratio[i] = 0;
 		clustor = i / CM_MGR_CPU_LIMIT;
 
-		if (pstall_all->clustor[clustor] == 0)
-			continue;
-
 		stall_val_new = cm_mgr_read_stall(i);
 
 		if (stall_val_new == 0 || stall_val_new == 0xdeadbeef) {
@@ -348,12 +348,12 @@ int cm_mgr_check_stall_ratio(int mp0, int mp1)
 			continue;
 		}
 
+#ifdef USE_TIME_NS
 		time_ns_new = sched_clock();
 		pstall_all->time_ns_diff[i] =
 			time_ns_new - pstall_all->time_ns[i];
 		pstall_all->time_ns[i] = time_ns_new;
-		if (pstall_all->time_ns_diff[i] == 0)
-			continue;
+#endif /* USE_TIME_NS */
 
 		diff_value_overflow(pstall_all->stall_val_diff[i],
 				stall_val_new, pstall_all->stall_val[i]);
@@ -747,9 +747,7 @@ int cm_mgr_platform_init(void)
 	cm_mgr_ratio_timer.function = cm_mgr_ratio_timer_fn;
 	cm_mgr_ratio_timer.data = 0;
 
-#ifdef CONFIG_MTK_CPU_FREQ
 	mt_cpufreq_set_governor_freq_registerCB(check_cm_mgr_status);
-#endif /* CONFIG_MTK_CPU_FREQ */
 
 	pm_qos_add_request(&ddr_opp_req, PM_QOS_DDR_OPP,
 			PM_QOS_DDR_OPP_DEFAULT_VALUE);
@@ -766,13 +764,7 @@ int cm_mgr_platform_init(void)
 
 void cm_mgr_set_dram_level(int level)
 {
-	int dram_level;
-
-	if (cm_mgr_disable_fb == 1 && cm_mgr_blank_status == 1 && level != 0)
-		dram_level = 0;
-	else
-		dram_level = level;
-	dvfsrc_set_power_model_ddr_request(dram_level);
+	dvfsrc_set_power_model_ddr_request(level);
 }
 
 int cm_mgr_get_dram_opp(void)
@@ -786,17 +778,8 @@ int cm_mgr_get_dram_opp(void)
 	return dram_opp_cur;
 }
 
-int cm_mgr_check_bw_status(void)
+void cm_mgr_emi_latency(int enable)
 {
-	if (cm_mgr_get_bw() > CM_MGR_BW_VALUE)
-		return 1;
-	else
-		return 0;
-}
-
-int cm_mgr_get_bw(void)
-{
-	return dvfsrc_get_emi_bw(QOS_EMI_BW_TOTAL);
 }
 
 #ifdef USE_CPU_TO_DRAM_MAP
@@ -805,12 +788,12 @@ static int cm_mgr_cpu_opp_to_dram[CM_MGR_CPU_OPP_SIZE] = {
 	0,
 	0,
 	0,
-	0,
 	1,
 	1,
 	1,
 	1,
-	1,
+	2,
+	2,
 	2,
 	2,
 	2,

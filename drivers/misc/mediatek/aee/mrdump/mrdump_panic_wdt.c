@@ -45,9 +45,14 @@
 #ifdef CONFIG_MTK_EIC_HISTORY_DUMP
 #include <linux/irqchip/mtk-eic.h>
 #endif
+#ifdef CONFIG_MTK_RAM_CONSOLE
+#include <mt-plat/mtk_ram_console.h>
+#endif
 #include <mrdump_private.h>
 #include <mt-plat/upmu_common.h>
-
+#ifdef CONFIG_HW_BFMR_MTK
+#include <chipset_common/bfmr/bfm/chipsets/mtk/bfm_mtk.h>
+#endif
 #define THREAD_INFO(sp) ((struct thread_info *) \
 				((unsigned long)(sp) & ~(THREAD_SIZE - 1)))
 
@@ -69,6 +74,15 @@ wdt_percpu_stackframe[AEE_MTK_CPU_NUMS][MAX_EXCEPTION_FRAME];
 static int wdt_log_length;
 static atomic_t wdt_enter_fiq;
 static char str_buf[AEE_MTK_CPU_NUMS][PRINTK_BUFFER_SIZE];
+
+#ifndef CONFIG_MTK_RAM_CONSOLE
+__weak void aee_sram_fiq_save_bin(const char *msg, size_t len)
+{
+}
+__weak void aee_sram_fiq_log(const char *msg)
+{
+}
+#endif
 
 #define ATF_AEE_DEBUG_BUF_LENGTH	0x4000
 static void *atf_aee_debug_virt_addr;
@@ -373,8 +387,10 @@ void aee_wdt_atf_info(unsigned int cpu, struct pt_regs *regs)
 	int res = 0;
 	struct wd_api *wd_api = NULL;
 #endif
-
-	aee_wdt_percpu_printf(cpu, "===> %s : cpu %d\n", __func__, cpu);
+#ifdef CONFIG_HW_BFMR_MTK
+    set_boot_fail_flag(KERNEL_AP_WDT);
+#endif
+	aee_wdt_percpu_printf(cpu, "===> aee_wdt_atf_info : cpu %d\n", cpu);
 	if (!cpu_possible(cpu)) {
 		aee_wdt_printf("FIQ: Watchdog time out at incorrect CPU %d ?\n",
 				cpu);
@@ -534,7 +550,7 @@ void notrace aee_wdt_atf_entry(void)
 	/* for per-cpu control registers */
 	mrdump_save_ctrlreg(cpu);
 
-	dis_D_inner_flush_all();
+	dis_D_inner_fL1L2();
 
 	if (atf_aee_debug_virt_addr && cpu >= 0) {
 		regs = (void *)(atf_aee_debug_virt_addr +

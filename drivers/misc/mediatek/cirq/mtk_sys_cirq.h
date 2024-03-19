@@ -43,7 +43,6 @@
 #define  CIRQ_CON_EN_BITS           (0)
 #define  CIRQ_CON_EDGE_ONLY_BITS    (1)
 #define  CIRQ_CON_FLUSH_BITS        (2)
-#define  CIRQ_CON_SW_RST_BITS       (20)
 #define  CIRQ_CON_EVENT_BITS        (31)
 #define  CIRQ_CON_BITS_MASK         (0x7)
 
@@ -53,7 +52,6 @@
 #define  CIRQ_CON_EN            (0x1)
 #define  CIRQ_CON_EDGE_ONLY     (0x1)
 #define  CIRQ_CON_FLUSH         (0x1)
-#define  CIRQ_SW_RESET		(0x1)
 
 /*
  * Define constant

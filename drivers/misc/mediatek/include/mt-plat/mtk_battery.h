@@ -37,7 +37,7 @@ struct gauge_consumer {
 	int (*callback)(struct gauge_consumer *);
 	struct list_head list;
 };
-
+extern bool battery_get_bat_current_sign(void);
 extern void gauge_coulomb_service_init(void);
 extern void gauge_coulomb_consumer_init(struct gauge_consumer *coulomb,
 	struct device *dev, char *name);
@@ -70,6 +70,6 @@ extern signed int battery_get_bat_temperature(void);
 extern signed int battery_get_ibus(void);
 extern signed int battery_get_vbus(void);
 extern signed int battery_get_bat_avg_current(void);
-extern signed int battery_meter_get_charger_voltage(void);
+extern char * huawei_get_battery_type(void);
 
 #endif /* End of _FUEL_GAUGE_GM_30_H */

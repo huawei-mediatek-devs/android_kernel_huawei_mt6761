@@ -136,8 +136,8 @@ struct mt_gpt_device {
 	unsigned int clkdiv;
 	unsigned int cmp[2];
 	void (*func)(unsigned long);
-	int flags;
-	int features;
+	unsigned int flags;
+	unsigned int features;
 	void __iomem *base_addr;
 };
 

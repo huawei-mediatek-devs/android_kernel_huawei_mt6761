@@ -12,14 +12,11 @@
 #
 
 
-ifeq ($(CONFIG_SND_SOC_MTK_SCP_SMARTPA),y)
-
-MTK_PLATFORM := $(subst ",,$(CONFIG_MTK_PLATFORM))
+ifeq ($(CONFIG_MTK_AUDIO_SCP_SPKPROTECT_SUPPORT),y)
 
 ccflags-y += \
 	-I$(srctree)/drivers/misc/mediatek/audio_ipi/common/utility \
-	-I$(srctree)/drivers/misc/mediatek/audio_ipi/common/framework \
-	-I$(srctree)/drivers/misc/mediatek/scp/$(MTK_PLATFORM)
+	-I$(srctree)/drivers/misc/mediatek/audio_ipi/common/framework
 
 obj-y += audio_ipi_client_spkprotect.o
 

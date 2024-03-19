@@ -25,9 +25,6 @@
 #include "mtu3.h"
 #include "mtu3_dr.h"
 #include "mtu3_hal.h"
-#ifdef CONFIG_MTK_BOOT
-#include <mt-plat/mtk_boot_common.h>
-#endif
 
 u32 mtu3_debug_level = K_EMERG | K_ALET | K_CRIT;
 
@@ -63,248 +60,6 @@ static struct kernel_param_ops musb_speed_param_ops = {
 module_param_cb(speed, &musb_speed_param_ops, &mtu3_speed, 0644);
 MODULE_PARM_DESC(debug, "USB speed configuration. default = 1, spuper speed.");
 
-
-#ifdef CONFIG_SYSFS
-const char *const mtu3_mode_str[CABLE_MODE_MAX] = { "CHRG_ONLY",
-	"NORMAL", "HOST_ONLY", "FORCE_ON" };
-unsigned int mtu3_cable_mode = CABLE_MODE_NORMAL;
-
-#if !defined(CONFIG_USB_MU3D_DRV)
-const struct attribute_group mtu3_attr_group;
-
-ssize_t musb_cmode_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	if (!dev) {
-		pr_info("dev is null!!\n");
-		return 0;
-	}
-	return sprintf(buf, "%d\n", mtu3_cable_mode);
-}
-
-ssize_t musb_cmode_store(struct device *dev, struct device_attribute *attr,
-			 const char *buf, size_t count)
-{
-	unsigned int cmode;
-	struct ssusb_mtk *ssusb;
-	struct extcon_dev *edev;
-
-	if (!dev) {
-		pr_info("dev is null!!\n");
-		return count;
-	}
-
-	ssusb = dev_to_ssusb(dev);
-
-	if (!ssusb) {
-		pr_info("ssusb is null!!\n");
-		return count;
-	}
-
-	edev = (&ssusb->otg_switch)->edev;
-
-	if (sscanf(buf, "%ud", &cmode) == 1) {
-		if (cmode >= CABLE_MODE_MAX)
-			cmode = CABLE_MODE_NORMAL;
-
-		if (mtu3_cable_mode != cmode) {
-			pr_info("%s %s --> %s\n", __func__,
-				mtu3_mode_str[mtu3_cable_mode],
-				mtu3_mode_str[cmode]);
-			mtu3_cable_mode = cmode;
-
-			/* IPO shutdown, disable USB */
-			if (cmode == CABLE_MODE_CHRG_ONLY) {
-				ssusb_set_mailbox(&ssusb->otg_switch,
-					MTU3_VBUS_OFF);
-			} else if (cmode == CABLE_MODE_HOST_ONLY) {
-				ssusb_set_mailbox(&ssusb->otg_switch,
-					MTU3_VBUS_OFF);
-			} else if (cmode == CABLE_MODE_FORCEON) {
-				ssusb_set_mailbox(&ssusb->otg_switch,
-					MTU3_VBUS_VALID);
-			} else {	/* IPO bootup, enable USB */
-				if (extcon_get_state(edev, EXTCON_USB_HOST))
-					ssusb_set_mailbox(&ssusb->otg_switch,
-						   MTU3_ID_GROUND);
-				else
-					ssusb_set_mailbox(&ssusb->otg_switch,
-						   MTU3_CMODE_VBUS_VALID);
-			}
-			msleep(200);
-		}
-	}
-	return count;
-}
-
-static bool saving_mode;
-ssize_t musb_saving_mode_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	if (!dev) {
-		pr_info("dev is null!!\n");
-		return 0;
-	}
-	return scnprintf(buf, PAGE_SIZE, "%d\n", saving_mode);
-}
-
-ssize_t musb_saving_mode_store(struct device *dev,
-	struct device_attribute *attr, const char *buf, size_t count)
-{
-	int saving;
-	long tmp_val;
-
-	if (!dev) {
-		pr_info("dev is null!!\n");
-		return count;
-	/* } else if (1 == sscanf(buf, "%d", &saving)) { */
-	} else if (kstrtol(buf, 10, (long *)&tmp_val) == 0) {
-		saving = tmp_val;
-		pr_info("old=%d new=%d\n", saving, saving_mode);
-		if (saving_mode == (!saving))
-			saving_mode = !saving_mode;
-	}
-	return count;
-}
-
-bool is_saving_mode(void)
-{
-	pr_info("saving_mode : %d\n", saving_mode);
-	return saving_mode;
-}
-
-
-DEVICE_ATTR(cmode, 0664, musb_cmode_show, musb_cmode_store);
-DEVICE_ATTR(saving, 0664, musb_saving_mode_show, musb_saving_mode_store);
-
-#ifdef CONFIG_MTK_UART_USB_SWITCH
-#include <linux/phy/mediatek/mtk_usb_phy.h>
-
-ssize_t musb_portmode_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct ssusb_mtk *ssusb;
-	bool portmode;
-
-	if (!dev) {
-		pr_debug("dev is null!!\n");
-		return 0;
-	}
-
-	ssusb  = dev_to_ssusb(dev);
-	portmode = usb_mtkphy_check_in_uart_mode(ssusb->phys[0]);
-
-	if (portmode == PORT_MODE_USB)
-		pr_debug("\nUSB Port mode -> USB\n");
-	else if (portmode == PORT_MODE_UART)
-		pr_debug("\nUSB Port mode -> UART\n");
-
-	usb_mtkphy_dump_usb2uart_reg(ssusb->phys[0]);
-
-	return scnprintf(buf, PAGE_SIZE, "%d\n", portmode);
-}
-
-ssize_t musb_portmode_store(struct device *dev,
-	struct device_attribute *attr, const char *buf, size_t count)
-{
-	struct ssusb_mtk *ssusb;
-	unsigned short portmode_new, portmode_old;
-
-	if (!dev) {
-		pr_debug("dev is null!!\n");
-		return count;
-	} else if (sscanf(buf, "%ud", &portmode_new) == 1) {
-
-		ssusb = dev_to_ssusb(dev);
-		portmode_old = usb_mtkphy_check_in_uart_mode(ssusb->phys[0]);
-
-		pr_debug("\nPortmode: %d=>%d\n", portmode_old, portmode_new);
-		if (portmode_new >= PORT_MODE_MAX)
-			portmode_new = PORT_MODE_USB;
-
-		if (portmode_old != portmode_new) {
-			if (portmode_new == PORT_MODE_USB) {
-				/* Changing to USB Mode */
-				pr_debug("USB Port mode -> USB\n");
-				usb_mtkphy_switch_to_usb(ssusb->phys[0]);
-			} else if (portmode_new == PORT_MODE_UART) {
-				/* Changing to UART Mode */
-				pr_debug("USB Port mode -> UART\n");
-				usb_mtkphy_switch_to_uart(ssusb->phys[0]);
-			}
-			usb_mtkphy_dump_usb2uart_reg(ssusb->phys[0]);
-			portmode_old = portmode_new;
-		}
-	}
-	return count;
-}
-
-DEVICE_ATTR(portmode, 0664, musb_portmode_show, musb_portmode_store);
-#endif
-
-
-#ifdef CONFIG_MTK_SIB_USB_SWITCH
-#include <linux/phy/mediatek/mtk_usb_phy.h>
-
-ssize_t musb_sib_enable_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	int ret;
-	struct ssusb_mtk *ssusb;
-
-	if (!dev) {
-		pr_debug("dev is null!!\n");
-		return 0;
-	}
-
-	ssusb = dev_to_ssusb(dev);
-
-	ret = usb_mtkphy_sib_enable_switch_status(ssusb->phys[0]);
-	return scnprintf(buf, PAGE_SIZE, "%d\n", ret);
-}
-
-ssize_t musb_sib_enable_store(struct device *dev, struct device_attribute *attr,
-			    const char *buf, size_t count)
-{
-	unsigned int mode;
-	struct ssusb_mtk *ssusb;
-
-	if (!dev) {
-		pr_debug("dev is null!!\n");
-		return count;
-	}
-
-	ssusb = dev_to_ssusb(dev);
-
-	if (!kstrtouint(buf, 0, &mode)) {
-		pr_debug("USB sib_enable: %d\n", mode);
-		usb_mtkphy_sib_enable_switch(ssusb->phys[0], mode);
-	}
-	return count;
-}
-
-DEVICE_ATTR(sib_enable, 0664, musb_sib_enable_show, musb_sib_enable_store);
-#endif
-
-
-struct attribute *mtu3_attributes[] = {
-	&dev_attr_cmode.attr,
-	&dev_attr_saving.attr,
-#ifdef CONFIG_MTK_UART_USB_SWITCH
-	&dev_attr_portmode.attr,
-#endif
-#ifdef CONFIG_MTK_SIB_USB_SWITCH
-	&dev_attr_sib_enable.attr,
-#endif
-	NULL
-};
-
-const struct attribute_group mtu3_attr_group = {
-	.attrs = mtu3_attributes,
-};
-#endif
-#endif
-
 /* u2-port0 should be powered on and enabled; */
 int ssusb_check_clocks(struct ssusb_mtk *ssusb, u32 ex_clks)
 {
@@ -312,18 +67,21 @@ int ssusb_check_clocks(struct ssusb_mtk *ssusb, u32 ex_clks)
 	u32 value, check_val;
 	int ret;
 
-	check_val = ex_clks | SSUSB_SYS125_RST_B_STS;
+	check_val = ex_clks | SSUSB_SYS125_RST_B_STS | SSUSB_SYSPLL_STABLE |
+			SSUSB_REF_RST_B_STS;
 
 	ret = readl_poll_timeout(ibase + U3D_SSUSB_IP_PW_STS1, value,
 			(check_val == (value & check_val)), 100, 20000);
 	if (ret) {
 		dev_err(ssusb->dev, "clks of sts1 are not stable!\n");
+		return ret;
 	}
 
 	ret = readl_poll_timeout(ibase + U3D_SSUSB_IP_PW_STS2, value,
 			(value & SSUSB_U2_MAC_SYS_RST_B_STS), 100, 10000);
 	if (ret) {
 		dev_err(ssusb->dev, "mac2 clock is not stable\n");
+		return ret;
 	}
 
 	return 0;
@@ -360,7 +118,6 @@ static int ssusb_phy_exit(struct ssusb_mtk *ssusb)
 	return 0;
 }
 
-#if !defined(CONFIG_USB_MU3D_DRV)
 static int ssusb_phy_power_on(struct ssusb_mtk *ssusb)
 {
 	int i;
@@ -379,7 +136,6 @@ power_off_phy:
 
 	return ret;
 }
-#endif
 
 static void ssusb_phy_power_off(struct ssusb_mtk *ssusb)
 {
@@ -399,10 +155,6 @@ static int ssusb_rscs_init(struct ssusb_mtk *ssusb)
 		dev_err(ssusb->dev, "failed to enable vusb33\n");
 		goto vusb33_err;
 	}
-
-	ret = ssusb_ext_pwr_on(ssusb, ssusb->is_host);
-	if (ret)
-		dev_info(ssusb->dev, "failed to enable vusb10\n");
 
 	ret = ssusb_clk_on(ssusb, ssusb->is_host);
 	if (ret) {
@@ -438,7 +190,6 @@ vusb33_err:
 static void ssusb_rscs_exit(struct ssusb_mtk *ssusb)
 {
 	regulator_disable(ssusb->vusb33);
-	ssusb_ext_pwr_off(ssusb, ssusb->is_host);
 	ssusb_phy_power_off(ssusb);
 	ssusb_phy_exit(ssusb);
 }
@@ -461,22 +212,22 @@ static int get_ssusb_rscs(struct platform_device *pdev, struct ssusb_mtk *ssusb)
 	struct resource *res;
 	int i;
 
-	ssusb->vusb33 = devm_regulator_get(&pdev->dev, "vusb");
+	ssusb->vusb33 = devm_regulator_get(&pdev->dev, "vusb33");
 	if (IS_ERR(ssusb->vusb33)) {
 		dev_err(dev, "failed to get vusb33\n");
 		return PTR_ERR(ssusb->vusb33);
+	}
+
+	ssusb->ssusb_clk = devm_clk_get(dev, "ssusb_clk");
+	if (IS_ERR(ssusb->ssusb_clk)) {
+		dev_info(dev, "failed to get ssusb clock\n");
+		return PTR_ERR(ssusb->ssusb_clk);
 	}
 
 	ssusb->sys_clk = devm_clk_get(dev, "sys_ck");
 	if (IS_ERR(ssusb->sys_clk)) {
 		dev_err(dev, "failed to get sys clock\n");
 		return PTR_ERR(ssusb->sys_clk);
-	}
-
-	ssusb->ref_clk = devm_clk_get(dev, "rel_clk");
-	if (IS_ERR(ssusb->ref_clk)) {
-		dev_info(dev, "failed to get ref clock\n");
-		return PTR_ERR(ssusb->ref_clk);
 	}
 
 	ssusb->num_phys = of_count_phandle_with_args(node,
@@ -501,7 +252,7 @@ static int get_ssusb_rscs(struct platform_device *pdev, struct ssusb_mtk *ssusb)
 	}
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "ippc");
-	ssusb->ippc_base = devm_ioremap(dev, res->start, resource_size(res));
+	ssusb->ippc_base = devm_ioremap_resource(dev, res);
 	if (IS_ERR(ssusb->ippc_base)) {
 		dev_err(dev, "failed to map memory for ippc\n");
 		return PTR_ERR(ssusb->ippc_base);
@@ -562,8 +313,6 @@ static int mtu3_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, ssusb);
 	ssusb->dev = dev;
-
-	dev_set_name(dev, "musb-hdrc");
 
 	ret = get_ssusb_rscs(pdev, ssusb);
 	if (ret)
@@ -628,21 +377,6 @@ static int mtu3_probe(struct platform_device *pdev)
 		goto comm_exit;
 	}
 
-#ifdef CONFIG_SYSFS
-#if !defined(CONFIG_USB_MU3D_DRV)
-	ret = sysfs_create_group(&dev->kobj, &mtu3_attr_group);
-	if (ret)
-		dev_info(dev, "failed to create group\n");
-#endif
-#endif
-
-#ifdef CONFIG_MTK_BOOT
-	if (get_boot_mode() == META_BOOT) {
-		dev_info(dev, "in special mode %d\n", get_boot_mode());
-		/*mtu3_cable_mode = CABLE_MODE_FORCEON;*/
-	}
-#endif
-
 	return 0;
 
 gadget_exit:
@@ -701,9 +435,9 @@ static int __maybe_unused mtu3_suspend(struct device *dev)
 	if (!ssusb->is_host)
 		return 0;
 
-	ssusb_host_disable(ssusb, ssusb->is_host);
-	/* ssusb_phy_power_off(ssusb); */
-	ssusb_clk_off(ssusb, ssusb->is_host);
+	ssusb_host_disable(ssusb, true);
+	ssusb_phy_power_off(ssusb);
+	clk_disable_unprepare(ssusb->sys_clk);
 	usb_wakeup_enable(ssusb);
 	return 0;
 }
@@ -719,8 +453,8 @@ static int __maybe_unused mtu3_resume(struct device *dev)
 		return 0;
 
 	usb_wakeup_disable(ssusb);
-	ssusb_clk_on(ssusb, ssusb->is_host);
-	/* ssusb_phy_power_on(ssusb); */
+	clk_prepare_enable(ssusb->sys_clk);
+	ssusb_phy_power_on(ssusb);
 	ssusb_host_enable(ssusb);
 	return 0;
 }
@@ -736,7 +470,6 @@ static const struct dev_pm_ops mtu3_pm_ops = {
 static const struct of_device_id mtu3_of_match[] = {
 	{.compatible = "mediatek,mt6758-mtu3",},
 	{.compatible = "mediatek,mt3967-mtu3",},
-	{.compatible = "mediatek,mt6779-mtu3",},
 	{},
 };
 

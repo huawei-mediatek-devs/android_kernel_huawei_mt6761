@@ -25,36 +25,6 @@
 struct mmdvfs_profile_mask qos_apply_profiles[] = {
 /* #ifdef MMDVFS_QOS_SUPPORT */
 #if 1
-	/* ISP for opp0 */
-	{"ISP",
-		SMI_BWC_SCEN_CAM_PV,
-		MMDVFS_FINE_STEP_OPP0},
-	{"ISP",
-		SMI_BWC_SCEN_CAM_CP,
-		MMDVFS_FINE_STEP_OPP0},
-	{"ISP",
-		SMI_BWC_SCEN_VR,
-		MMDVFS_FINE_STEP_OPP0},
-	/* ISP for opp1 */
-	{"ISP",
-		SMI_BWC_SCEN_CAM_PV,
-		MMDVFS_FINE_STEP_OPP1},
-	{"ISP",
-		SMI_BWC_SCEN_CAM_CP,
-		MMDVFS_FINE_STEP_OPP1},
-	{"ISP",
-		SMI_BWC_SCEN_VR,
-		MMDVFS_FINE_STEP_OPP1},
-	/* ISP for opp2 */
-	{"ISP",
-		SMI_BWC_SCEN_CAM_PV,
-		MMDVFS_FINE_STEP_OPP2},
-	{"ISP",
-		SMI_BWC_SCEN_CAM_CP,
-		MMDVFS_FINE_STEP_OPP2},
-	{"ISP",
-		SMI_BWC_SCEN_VR,
-		MMDVFS_FINE_STEP_OPP2},
 	/* ICFP for opp0 */
 	{"ICFP",
 		SMI_BWC_SCEN_ICFP,
@@ -104,13 +74,18 @@ struct mmdvfs_profile mt6761_mmdvfs_opp1_profiles[MT6761_MMDVFS_OPP1_NUM] = {
 };
 
 /* OPP 2 scenarios */
-#define MT6761_MMDVFS_OPP2_NUM 0
+#define MT6761_MMDVFS_OPP2_NUM 5
 struct mmdvfs_profile mt6761_mmdvfs_opp2_profiles[MT6761_MMDVFS_OPP2_NUM] = {
-/*
- *	{"Camera Preview", SMI_BWC_SCEN_CAM_PV, {0, 0, 0}, {0, 0, 0 } },
- *	{"Camera Capture", SMI_BWC_SCEN_CAM_CP, {0, 0, 0}, {0, 0, 0 } },
- *	{"Video Recording", SMI_BWC_SCEN_VR, {0, 0, 0}, {0, 0, 0 } },
- */
+	{"Camera Preview", SMI_BWC_SCEN_CAM_PV,
+		{0, 0, 0}, {0, 0, 0 } },
+	{"Camera Capture", SMI_BWC_SCEN_CAM_CP,
+		{0, 0, 0}, {0, 0, 0 } },
+	{"Video Recording", SMI_BWC_SCEN_VR,
+		{0, 0, 0}, {0, 0, 0 } },
+	{"Video Snap Shot", SMI_BWC_SCEN_VSS,
+		{0, 0, 0}, {0, 0, 0 } },
+	{"VR Slow", SMI_BWC_SCEN_VR_SLOW,
+		{0, 0, 0}, {0, 0, 0 } },
 };
 
 struct mmdvfs_step_to_qos_step legacy_to_qos_step[MT6761_MMDVFS_OPP_MAX] = {

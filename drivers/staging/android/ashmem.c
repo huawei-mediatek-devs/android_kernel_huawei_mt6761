@@ -34,6 +34,12 @@
 #include <linux/shmem_fs.h>
 #include "ashmem.h"
 
+#define CREATE_TRACE_POINTS
+#include "trace/ashmem.h"
+#ifdef CONFIG_HW_FDLEAK
+#include <chipset_common/hwfdleak/fdleak.h>
+#endif
+
 #define ASHMEM_NAME_PREFIX "dev/ashmem/"
 #define ASHMEM_NAME_PREFIX_LEN (sizeof(ASHMEM_NAME_PREFIX) - 1)
 #define ASHMEM_FULL_NAME_LEN (ASHMEM_NAME_LEN + ASHMEM_NAME_PREFIX_LEN)
@@ -262,6 +268,9 @@ static int ashmem_open(struct inode *inode, struct file *file)
 	asma->prot_mask = PROT_MASK;
 	file->private_data = asma;
 
+#ifdef CONFIG_HW_FDLEAK
+	fdleak_report(FDLEAK_WP_ASHMEM, 0);
+#endif
 	return 0;
 }
 
@@ -287,6 +296,9 @@ static int ashmem_release(struct inode *ignored, struct file *file)
 		fput(asma->file);
 	kmem_cache_free(ashmem_area_cachep, asma);
 
+#ifdef CONFIG_HW_FDLEAK
+	fdleak_report(FDLEAK_WP_ASHMEM, 1);
+#endif
 	return 0;
 }
 
@@ -370,23 +382,8 @@ static inline vm_flags_t calc_vm_may_flags(unsigned long prot)
 	       _calc_vm_trans(prot, PROT_EXEC,  VM_MAYEXEC);
 }
 
-static int ashmem_vmfile_mmap(struct file *file, struct vm_area_struct *vma)
-{
-	/* do not allow to mmap ashmem backing shmem file directly */
-	return -EPERM;
-}
-
-static unsigned long
-ashmem_vmfile_get_unmapped_area(struct file *file, unsigned long addr,
-				unsigned long len, unsigned long pgoff,
-				unsigned long flags)
-{
-	return current->mm->get_unmapped_area(file, addr, len, pgoff, flags);
-}
-
 static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	static struct file_operations vmfile_fops;
 	struct ashmem_area *asma = file->private_data;
 	int ret = 0;
 
@@ -394,12 +391,6 @@ static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 
 	/* user needs to SET_SIZE before mapping */
 	if (unlikely(!asma->size)) {
-		ret = -EINVAL;
-		goto out;
-	}
-
-	/* requested mapping size larger than object size */
-	if (vma->vm_end - vma->vm_start > PAGE_ALIGN(asma->size)) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -427,19 +418,6 @@ static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 		}
 		vmfile->f_mode |= FMODE_LSEEK;
 		asma->file = vmfile;
-		/*
-		 * override mmap operation of the vmfile so that it can't be
-		 * remapped which would lead to creation of a new vma with no
-		 * asma permission checks. Have to override get_unmapped_area
-		 * as well to prevent VM_BUG_ON check for f_ops modification.
-		 */
-		if (!vmfile_fops.mmap) {
-			vmfile_fops = *vmfile->f_op;
-			vmfile_fops.mmap = ashmem_vmfile_mmap;
-			vmfile_fops.get_unmapped_area =
-					ashmem_vmfile_get_unmapped_area;
-		}
-		vmfile->f_op = &vmfile_fops;
 	}
 	get_file(asma->file);
 
@@ -569,8 +547,10 @@ static int set_name(struct ashmem_area *asma, void __user *name)
 	/* cannot change an existing mapping's name */
 	if (unlikely(asma->file))
 		ret = -EINVAL;
-	else
+	else {
 		strcpy(asma->name + ASHMEM_NAME_PREFIX_LEN, local_name);
+		trace_ashmem_set_name(local_name, current->tgid);
+	}
 
 	mutex_unlock(&ashmem_mutex);
 	return ret;

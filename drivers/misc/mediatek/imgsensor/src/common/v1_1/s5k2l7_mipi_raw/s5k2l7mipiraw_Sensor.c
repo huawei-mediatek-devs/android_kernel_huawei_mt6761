@@ -30,8 +30,6 @@
  * Upper this line, this part is controlled by CC/CQ. DO NOT MODIFY!!
  *============================================================================
  ****************************************************************************/
-#undef USE_OIS
-#undef CAPTURE_WDR
 /*******************Modify Following Strings for Debug*************************/
 #define PFX "s5k2l7_camera_sensor"
 #define pr_fmt(fmt) PFX "[%s] " fmt, __func__
@@ -65,7 +63,7 @@
 /* #define TEST_PATTERN_EN */
 /*WDR auto ration mode*/
 /* #define ENABLE_WDR_AUTO_RATION */
-#undef ENABLE_WDR_AUTO_RATION
+
 
 #define MULTI_WRITE 1
 
@@ -153,7 +151,6 @@ static struct imgsensor_info_struct imgsensor_info = {
 		.grabwindow_height = 1512,
 
 		.mipi_data_lp2hs_settle_dc = 85,	/* unit , ns */
-		.mipi_pixel_rate = 281000000,
 		.max_framerate = 300},
 	.cap = {
 		.pclk = 960000000,	/* record different mode's pclk */
@@ -168,7 +165,6 @@ static struct imgsensor_info_struct imgsensor_info = {
 		.grabwindow_height = 3024,
 
 		.mipi_data_lp2hs_settle_dc = 85,	/* unit , ns */
-		.mipi_pixel_rate = 512000000,
 		.max_framerate = 300},
 	.cap1 = {
 		.pclk = 960000000,	/* record different mode's pclk  */
@@ -182,7 +178,6 @@ static struct imgsensor_info_struct imgsensor_info = {
 		/* record different mode's height of grabwindow */
 		.grabwindow_height = 3024,
 		.mipi_data_lp2hs_settle_dc = 85,	/* unit , ns */
-		.mipi_pixel_rate = 512000000,
 		.max_framerate = 300},
 
 	.normal_video = {
@@ -198,7 +193,6 @@ static struct imgsensor_info_struct imgsensor_info = {
 		/* record different mode's height of grabwindow */
 		.grabwindow_height = 3024,
 		.mipi_data_lp2hs_settle_dc = 85,	/* unit , ns */
-		.mipi_pixel_rate = 512000000,
 		.max_framerate = 300},
 
 	.hs_video = {
@@ -214,7 +208,6 @@ static struct imgsensor_info_struct imgsensor_info = {
 		.grabwindow_height = 756,
 
 		.mipi_data_lp2hs_settle_dc = 85,	/* unit , ns */
-		.mipi_pixel_rate = 361000000,
 		.max_framerate = 1200,
 	},
 
@@ -231,7 +224,6 @@ static struct imgsensor_info_struct imgsensor_info = {
 		.grabwindow_height = 756,
 
 		.mipi_data_lp2hs_settle_dc = 85,	/* unit , ns */
-		.mipi_pixel_rate = 361000000,
 		.max_framerate = 300,
 
 	},
@@ -261,7 +253,6 @@ static struct imgsensor_info_struct imgsensor_info = {
 	.sensor_output_dataformat = SENSOR_OUTPUT_FORMAT_RAW_Gr,
 	.mclk = 24,
 	.mipi_lane_num = SENSOR_MIPI_4_LANE,
-	/* should list all v1/v2 module possible i2c addr here. */
 	.i2c_addr_table = {0x20, 0x5A, 0xFF},
 	.i2c_speed = 300,
 };
@@ -485,7 +476,7 @@ static kal_uint16 read_cmos_sensor(kal_uint32 addr)
 static kal_uint16 read_cmos_sensor_twobyte(kal_uint32 addr)
 {
 	kal_uint16 get_byte = 0;
-	char get_word[2] = { 0, 0};
+	char get_word[2];
 	char pu_send_cmd[2] = { (char)(addr >> 8), (char)(addr & 0xFF) };
 	/* iReadRegI2C(pu_send_cmd, 2, get_word, 2, imgsensor.i2c_write_id); */
 	iReadRegI2CTiming(pu_send_cmd, 2, get_word, 2, imgsensor.i2c_write_id,
@@ -547,16 +538,12 @@ static kal_uint16 table_write_cmos_sensor(kal_uint16 *para, kal_uint32 len)
 		}
 #if MULTI_WRITE
 
-		if ((I2C_BUFFER_LEN - tosend) < 4 ||
-			len == IDX ||
-			addr != addr_last) {
-			iBurstWriteReg_multi(puSendCmd,
-					tosend,
-					imgsensor.i2c_write_id,
-					4,
-					imgsensor_info.i2c_speed);
+	if (tosend >= I2C_BUFFER_LEN || IDX == len || addr != addr_last) {
+		iBurstWriteReg_multi(puSendCmd, tosend,
+			imgsensor.i2c_write_id, 4, imgsensor_info.i2c_speed);
+
 			tosend = 0;
-		}
+	}
 #else
 		iWriteRegI2CTiming(puSendCmd, 4,
 			imgsensor.i2c_write_id, imgsensor_info.i2c_speed);
@@ -657,7 +644,7 @@ static void set_shutter(kal_uint16 shutter)
 	imgsensor.shutter = shutter;
 	spin_unlock_irqrestore(&imgsensor_drv_lock, flags);
 
-	pr_debug("%s =%d\n", __func__, shutter);
+	pr_debug("set_shutter =%d\n", shutter);
 	/* OV Recommend Solution */
   /* if shutter bigger than frame_length, should extend frame length first */
 	if (!shutter)
@@ -800,21 +787,16 @@ static kal_uint16 set_gain(kal_uint16 leGain, kal_uint16 seGain)
 	/* [4:9] = M meams M X           */
 	/* Total gain = M + N /16 X   */
 
-	if (leGain < S5K2L7_GAIN_MIN) {
+	if (leGain < S5K2L7_GAIN_MIN || leGain > S5K2L7_GAIN_MAX) {
 		pr_debug("Error gain setting:LE=%x\n", leGain);
-		leGain = S5K2L7_GAIN_MIN;
+		leGain = (leGain < S5K2L7_GAIN_MIN) ? S5K2L7_GAIN_MIN :
+			(leGain > S5K2L7_GAIN_MAX) ? S5K2L7_GAIN_MAX : leGain;
 	}
-	if (leGain > S5K2L7_GAIN_MAX) {
-		pr_debug("Error gain setting:LE=%x\n", leGain);
-		leGain = S5K2L7_GAIN_MAX;
-	}
-	if (seGain < S5K2L7_GAIN_MIN) {
+
+	if (seGain < S5K2L7_GAIN_MIN || seGain > S5K2L7_GAIN_MAX) {
 		pr_debug("Error gain setting:SE=%x\n", seGain);
-		seGain = S5K2L7_GAIN_MIN;
-	}
-	if (seGain > S5K2L7_GAIN_MAX) {
-		pr_debug("Error gain setting:SE=%x\n", seGain);
-		seGain = S5K2L7_GAIN_MAX;
+		seGain = (seGain < S5K2L7_GAIN_MIN) ? S5K2L7_GAIN_MIN :
+			(seGain > S5K2L7_GAIN_MAX) ? S5K2L7_GAIN_MAX : seGain;
 	}
 #ifdef S5K2L7_DIGITAL_GAIN
 	write_cmos_sensor_twobyte(0x6028, 0x4000);
@@ -882,20 +864,44 @@ static BOOL is_module_v2(void)
 {
 	static UINT32 module_id;
 
-	/* If never read module id */
-	if (module_id == 0) {
-		/* Read from sensor */
-		module_id = read_cmos_sensor_twobyte(0x0002);
+	kal_uint8 i = 0;
+	kal_uint8 retry = 3;
 
-		pr_debug("i2c write id: 0x%x, module id: 0x%x\n",
-			 imgsensor.i2c_write_id,
-			 module_id);
+	/* Read from cache */
+	if (module_id != 0) {
+		if (module_id == MODULE_V2_ID) {
+			pr_debug("It is module v2");
+			return TRUE;
+		}
+
+		pr_debug("It is module v1");
+		return FALSE;
 	}
 
-	if (module_id == MODULE_V2_ID) {
-		pr_debug("It is module v2");
+	/* Read from sensor */
+	while (_imgsensor_info_m1_v2.i2c_addr_table[i] != 0xff) {
+		spin_lock(&imgsensor_drv_lock);
 
-		return TRUE;
+		imgsensor.i2c_write_id =
+			_imgsensor_info_m1_v2.i2c_addr_table[i];
+
+		spin_unlock(&imgsensor_drv_lock);
+		do {
+			module_id = read_cmos_sensor_twobyte(0x0002);
+
+			pr_debug("i2c write id: 0x%x, module id: 0x%x\n",
+				imgsensor.i2c_write_id,
+				module_id);
+
+			if (module_id == MODULE_V2_ID) {
+				pr_debug("It is module v2");
+
+				return TRUE;
+			}
+			retry--;
+		} while (retry > 0);
+		i++;
+		retry = 3;
 	}
 	pr_debug("It is module v1");
 	return FALSE;
@@ -967,7 +973,7 @@ static void night_mode(kal_bool enable)
 static void sensor_WDR_zhdr(void)
 {
 	if (imgsensor.hdr_mode == 9) {
-		pr_debug("%s\n", __func__);
+		pr_debug("sensor_WDR_zhdr\n");
 		/*it would write 0x21E = 0x1, 0x21F=0x00 */
 		/*0x21E=1 , Enable WDR */
 		/*0x21F=0x00, Use Manual mode to set short /long exp */
@@ -1022,7 +1028,7 @@ static void sensor_init_11_new(void)
 		else
 			_S5K2L7_MODE3_INIT_;
 	}
-	KD_SENSOR_PROFILE("S5k2L7 sensor init");
+	KD_SENSOR_PROFILE("sensor_init_11_new");
 }
 
 static void preview_setting_11_new(void)
@@ -1125,7 +1131,7 @@ static void hs_video_setting_11(void)
 		else
 			_S5K2L7_MODE3_HS_VIDEO_;
 	}
-	KD_SENSOR_PROFILE("2l7 hs video");
+	KD_SENSOR_PROFILE("hs_video_setting_11");
 }
 
 
@@ -1151,7 +1157,7 @@ static void slim_video_setting(void)
 		else
 			_S5K2L7_MODE3_SLIM_VIDEO_;
 	}
-	KD_SENSOR_PROFILE("S5k2L7 slim video setting");
+	KD_SENSOR_PROFILE("slim_video_setting");
 }
 
 static kal_uint32 set_test_pattern_mode(kal_bool enable)
@@ -1197,48 +1203,9 @@ static kal_uint32 get_imgsensor_id(UINT32 *sensor_id)
 	kal_uint8 i = 0;
 	kal_uint8 retry = 5;
 
-	/* query sensor id */
-	while (imgsensor_info.i2c_addr_table[i] != 0xff) {
-		spin_lock(&imgsensor_drv_lock);
-		imgsensor.i2c_write_id = imgsensor_info.i2c_addr_table[i];
-		spin_unlock(&imgsensor_drv_lock);
-		do {
-
-			*sensor_id = read_cmos_sensor_twobyte(0x0000);
-
-			if (*sensor_id == imgsensor_info.sensor_id
-			    || *sensor_id == 0x20C1) {
-				pr_debug(
-				    "i2c write id: 0x%x, sensor id: 0x%x\n",
-				    imgsensor.i2c_write_id, *sensor_id);
-
-				break;
-			}
-
-			pr_debug(
-			    "Read sensor id fail, write id: 0x%x, id: 0x%x\n",
-			    imgsensor.i2c_write_id, *sensor_id);
-			retry--;
-		} while (retry > 0);
-
-		if (*sensor_id == imgsensor_info.sensor_id
-		    || *sensor_id == 0x20C1) {
-			break;
-		}
-		i++;
-		retry = 2;
-	}
-	if (*sensor_id != imgsensor_info.sensor_id && *sensor_id != 0x20C1) {
-		/* if Sensor ID is not correct,
-		 * Must set *sensor_id to 0xFFFFFFFF
-		 */
-		*sensor_id = 0xFFFFFFFF;
-		return ERROR_SENSOR_CONNECT_FAIL;
-	}
-
 	pdaf_sensor_mode = proc_pdaf_sensor_mode;
 
-	pr_debug("%s pdaf sensor mode %d\n", __func__, pdaf_sensor_mode);
+	pr_debug("get_imgsensor_id pdaf sensor mode %d\n", pdaf_sensor_mode);
 
 	if (is_module_v2() != FALSE) {
 		if (pdaf_sensor_mode == 1)
@@ -1262,6 +1229,33 @@ static kal_uint32 get_imgsensor_id(UINT32 *sensor_id)
 	imgsensor_info.sensor_output_dataformat = SENSOR_OUTPUT_FORMAT_RAW_Gr;
 #endif
 
+	while (imgsensor_info.i2c_addr_table[i] != 0xff) {
+		spin_lock(&imgsensor_drv_lock);
+		imgsensor.i2c_write_id = imgsensor_info.i2c_addr_table[i];
+		spin_unlock(&imgsensor_drv_lock);
+		do {
+
+			*sensor_id = read_cmos_sensor_twobyte(0x0000);
+
+	if (*sensor_id == imgsensor_info.sensor_id || *sensor_id == 0x20C1) {
+		pr_debug("i2c write id: 0x%x, sensor id: 0x%x\n",
+		imgsensor.i2c_write_id, *sensor_id);
+
+		return ERROR_NONE;
+	}
+
+		    pr_debug("Read sensor id fail, write id: 0x%x, id: 0x%x\n",
+				imgsensor.i2c_write_id, *sensor_id);
+			retry--;
+		} while (retry > 0);
+		i++;
+		retry = 2;
+	}
+	if (*sensor_id != imgsensor_info.sensor_id && *sensor_id != 0x20C1) {
+	  /* if Sensor ID is not correct, Must set *sensor_id to 0xFFFFFFFF */
+		*sensor_id = 0xFFFFFFFF;
+		return ERROR_SENSOR_CONNECT_FAIL;
+	}
 	return ERROR_NONE;
 }
 
@@ -1439,7 +1433,7 @@ static kal_uint32 preview(MSDK_SENSOR_EXPOSURE_WINDOW_STRUCT *image_window,
 
 #ifdef USE_OIS
 	/* OIS_on(RUMBA_OIS_PRE_SETTING);    //pangfei OIS */
-	pr_debug("%s OIS setting\n", __func__);
+	pr_debug("pangfei preview OIS setting\n");
 	OIS_write_cmos_sensor(0x0002, 0x05);
 	OIS_write_cmos_sensor(0x0002, 0x00);
 	OIS_write_cmos_sensor(0x0000, 0x01);
@@ -1506,7 +1500,7 @@ static kal_uint32 capture(MSDK_SENSOR_EXPOSURE_WINDOW_STRUCT *image_window,
 	/* set_mirror_flip(IMAGE_NORMAL); */
 #ifdef	USE_OIS
 	/* OIS_on(RUMBA_OIS_CAP_SETTING);//pangfei OIS */
-	pr_debug("%s OIS setting\n", __func__);
+	pr_debug("pangfei capture OIS setting\n");
 	OIS_write_cmos_sensor(0x0002, 0x05);
 	OIS_write_cmos_sensor(0x0002, 0x00);
 	OIS_write_cmos_sensor(0x0000, 0x01);
@@ -1674,7 +1668,6 @@ static kal_uint32 get_info(enum MSDK_SCENARIO_ID_ENUM scenario_id,
 	sensor_info->IHDR_Support = imgsensor_info.ihdr_support;
 	sensor_info->IHDR_LE_FirstLine = imgsensor_info.ihdr_le_firstline;
 	sensor_info->SensorModeNum = imgsensor_info.sensor_mode_num;
-	sensor_info->TEMPERATURE_SUPPORT = 1;
 
 	/*
 	 * 0: NO PDAF, 1: PDAF Raw Data mode,
@@ -2038,13 +2031,15 @@ static kal_uint32 streaming_control(kal_bool enable)
 static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 				  UINT8 *feature_para, UINT32 *feature_para_len)
 {
-	UINT32 sensor_id = 0;
+	UINT32 sensor_id;
 	UINT16 *feature_return_para_16 = (UINT16 *) feature_para;
 	UINT16 *feature_data_16 = (UINT16 *) feature_para;
 	UINT32 *feature_return_para_32 = (UINT32 *) feature_para;
 	UINT32 *feature_data_32 = (UINT32 *) feature_para;
 	unsigned long long *feature_data = (unsigned long long *)feature_para;
-	UINT32 fps = 0;
+	/* unsigned long long *feature_return_para =
+	 * (unsigned long long *) feature_para;
+	 */
 
 	struct SET_PD_BLOCK_INFO_T *PDAFinfo;
 	struct SENSOR_WINSIZE_INFO_STRUCT *wininfo;
@@ -2058,61 +2053,6 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 	 */
 
 	switch (feature_id) {
-	case SENSOR_FEATURE_GET_PIXEL_CLOCK_FREQ_BY_SCENARIO:
-		switch (*feature_data) {
-		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
-				= imgsensor_info.cap.pclk;
-			break;
-		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
-				= imgsensor_info.normal_video.pclk;
-			break;
-		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
-				= imgsensor_info.hs_video.pclk;
-			break;
-		case MSDK_SCENARIO_ID_SLIM_VIDEO:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
-				= imgsensor_info.slim_video.pclk;
-			break;
-		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
-		default:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
-				= imgsensor_info.pre.pclk;
-			break;
-		}
-		break;
-	case SENSOR_FEATURE_GET_PERIOD_BY_SCENARIO:
-		switch (*feature_data) {
-		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
-			= (imgsensor_info.cap.framelength << 16)
-				+ imgsensor_info.cap.linelength;
-			break;
-		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
-			= (imgsensor_info.normal_video.framelength << 16)
-				+ imgsensor_info.normal_video.linelength;
-			break;
-		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
-			= (imgsensor_info.hs_video.framelength << 16)
-				+ imgsensor_info.hs_video.linelength;
-			break;
-		case MSDK_SCENARIO_ID_SLIM_VIDEO:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
-			= (imgsensor_info.slim_video.framelength << 16)
-				+ imgsensor_info.slim_video.linelength;
-			break;
-		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
-		default:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
-			= (imgsensor_info.pre.framelength << 16)
-				+ imgsensor_info.pre.linelength;
-			break;
-		}
-		break;
 	case SENSOR_FEATURE_GET_PERIOD:
 		*feature_return_para_16++ = imgsensor.line_length;
 		*feature_return_para_16 = imgsensor.frame_length;
@@ -2470,38 +2410,6 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 		if (*feature_data != 0)
 			set_shutter(*feature_data);
 		streaming_control(KAL_TRUE);
-		break;
-	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
-		fps = (MUINT32)(*(feature_data + 2));
-
-		switch (*feature_data) {
-		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
-			if (fps == 240)
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1)) =
-				imgsensor_info.cap1.mipi_pixel_rate;
-			else
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1)) =
-				imgsensor_info.cap.mipi_pixel_rate;
-			break;
-		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1)) =
-				imgsensor_info.normal_video.mipi_pixel_rate;
-			break;
-		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1)) =
-				imgsensor_info.hs_video.mipi_pixel_rate;
-			break;
-		case MSDK_SCENARIO_ID_SLIM_VIDEO:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1)) =
-				imgsensor_info.slim_video.mipi_pixel_rate;
-			break;
-		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
-		default:
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1)) =
-				imgsensor_info.pre.mipi_pixel_rate;
-			break;
-		}
-
 		break;
 	default:
 		break;

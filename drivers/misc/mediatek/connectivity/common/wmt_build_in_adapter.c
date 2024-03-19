@@ -31,11 +31,6 @@
 #define CONNADP_LOG_WARN    1
 #define CONNADP_LOG_ERR     0
 
-#if defined(CONFIG_MACH_MT6779)
-#include <clk-mt6779-pg.h>
-#define DUMP_CLOCK_FAIL_CALLBACK 1
-#endif
-
 /*******************************************************************************
  * Connsys adaptation layer logging utility
  ******************************************************************************/
@@ -73,28 +68,12 @@ do { \
  ******************************************************************************/
 static struct wmt_platform_bridge bridge;
 
-#ifdef DUMP_CLOCK_FAIL_CALLBACK
-static void wmt_clock_debug_dump(enum subsys_id sys)
-{
-	if (sys == SYS_CONN)
-		mtk_wcn_cmb_stub_clock_fail_dump();
-}
-
-static struct pg_callbacks wmt_clk_subsys_handle = {
-	.debug_dump = wmt_clock_debug_dump
-};
-#endif
-
 void wmt_export_platform_bridge_register(struct wmt_platform_bridge *cb)
 {
 	if (unlikely(!cb))
 		return;
 	bridge.thermal_query_cb = cb->thermal_query_cb;
-	bridge.trigger_assert_cb = cb->trigger_assert_cb;
 	bridge.clock_fail_dump_cb = cb->clock_fail_dump_cb;
-#ifdef DUMP_CLOCK_FAIL_CALLBACK
-	register_pg_callback(&wmt_clk_subsys_handle);
-#endif
 	CONNADP_INFO_FUNC("\n");
 }
 EXPORT_SYMBOL(wmt_export_platform_bridge_register);
@@ -114,18 +93,6 @@ int mtk_wcn_cmb_stub_query_ctrl(void)
 		return -1;
 	} else
 		return bridge.thermal_query_cb();
-}
-
-int mtk_wcn_cmb_stub_trigger_assert(void)
-{
-	CONNADP_DBG_FUNC("\n");
-	/* dump backtrace for checking assert reason */
-	dump_stack();
-	if (unlikely(!bridge.trigger_assert_cb)) {
-		CONNADP_WARN_FUNC("Trigger assert not registered\n");
-		return -1;
-	} else
-		return bridge.trigger_assert_cb();
 }
 
 void mtk_wcn_cmb_stub_clock_fail_dump(void)

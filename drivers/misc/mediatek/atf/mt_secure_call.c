@@ -12,7 +12,6 @@
  */
 #include <linux/kernel.h>
 #include <mt-plat/mtk_secure_api.h>
-#include <linux/arm-smccc.h>
 #ifndef CONFIG_ARM64
 #include <asm/opcodes-sec.h>
 #include <asm/opcodes-virt.h>
@@ -40,18 +39,21 @@ size_t mt_secure_call_all(size_t function_id,
 	size_t arg0, size_t arg1, size_t arg2,
 	size_t arg3, size_t *r1, size_t *r2, size_t *r3)
 {
-	struct arm_smccc_res res;
-	unsigned long ret;
+	LOCAL_REG_SET_DECLARE;
 
-	arm_smccc_smc(function_id, arg0,
-				arg1, arg2, arg3, 0, 0, 0,
-				&res);
+#ifdef CONFIG_ARM64
+	__asm__ volatile ("smc #0x0\n" : "+r"(reg0),
+		"+r"(reg1), "+r"(reg2), "+r"(reg3), "+r"(reg4));
+#else
+	__asm__ volatile (__SMC(0) : "+r"(reg0),
+		"+r"(reg1), "+r"(reg2), "+r"(reg3), "+r"(reg4));
+#endif
+	ret = reg0;
 	if (r1 != NULL)
-		*r1 = res.a1;
+		*r1 = reg1;
 	if (r2 != NULL)
-		*r2 = res.a2;
+		*r2 = reg2;
 	if (r3 != NULL)
-		*r3 = res.a3;
-	ret = res.a0;
+		*r3 = reg3;
 	return ret;
 }

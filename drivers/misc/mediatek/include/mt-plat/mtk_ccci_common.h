@@ -400,7 +400,6 @@ enum {
 	LWA_CONTROL_MSG = 0x11E,
 	C2K_PPP_LINE_STATUS = 0x11F,	/*usb bypass for 93 and later*/
 	MD_DISPLAY_DYNAMIC_MIPI = 0x120, /* MIPI for TC16 */
-	MD_RF_HOPPING_NOTIFY = 0x121,
 
 	/*c2k ctrl msg start from 0x200*/
 	C2K_STATUS_IND_MSG = 0x201, /* for usb bypass */
@@ -552,14 +551,6 @@ enum SMEM_USER_ID {
 	SMEM_USER_RAW_MD_CONSYS,
 	SMEM_USER_RAW_PHY_CAP,
 	SMEM_USER_RAW_USIP,
-	SMEM_USER_RESV_0, /* Sync to MT6779 SMEM_USER_MAX_K */
-	SMEM_USER_ALIGN_PADDING, /* Sync to MT6779 SMEM_USER_NON_PADDING */
-	SMEM_USER_RAW_UDC_DATA,
-	SMEM_USER_RAW_UDC_DESCTAB,
-	SMEM_USER_RAW_AMMS_POS,
-	SMEM_USER_RAW_ALIGN_PADDING, /* = SMEM_USER_RAW_AMMS_ALIGN_PADDING */
-	SMEM_USER_MD_WIFI_PROXY,
-	SMEM_USER_MD_NVRAM_CACHE,
 	SMEM_USER_MAX,
 };
 
@@ -607,15 +598,9 @@ int get_md_resv_mem_info(int md_id, phys_addr_t *r_rw_base,
 	unsigned int *r_rw_size, phys_addr_t *srw_base, unsigned int *srw_size);
 int get_md_resv_ccb_info(int md_id, phys_addr_t *ccb_data_base,
 	unsigned int *ccb_data_size);
-int get_md_resv_udc_info(int md_id, unsigned int *udc_noncache_size,
-	unsigned int *udc_cache_size);
 int get_md1_md3_resv_smem_info(int md_id, phys_addr_t *rw_base,
 	unsigned int *rw_size);
 unsigned int get_md_resv_phy_cap_size(int md_id);
-int get_md_smem_dfd_size(int md_id);
-int get_smem_amms_pos_size(int md_id);
-int get_smem_align_padding_size(int md_id);
-int get_md_smem_dfd_size(int md_id);
 unsigned int get_md_smem_cachable_offset(int md_id);
 phys_addr_t get_smem_phy_start_addr(int md_id,
 	enum SMEM_USER_ID user_id, int *size_o);
@@ -690,18 +675,16 @@ struct _mpu_cfg *get_mpu_region_cfg_info(int region_id);
 int ccci_get_opt_val(char *opt_name);
 
 /* RAT configure relate */
+int ccci_get_rat_str_from_drv(int md_id, char rat_str[], int size);
+void ccci_set_rat_str_to_drv(int md_id, char rat_str[]);
 unsigned int get_wm_bitmap_for_ubin(void); /* Universal bin */
 void update_rat_bit_map_to_drv(int md_id, unsigned int val);
 int get_md_img_type(int md_id);
 int get_legacy_md_type(int md_id);
 int check_md_type(int data);
 
-int get_nc_smem_region_info(unsigned int id, unsigned int *ap_off,
-				unsigned int *md_off, unsigned int *size);
 int get_md_resv_csmem_info(int md_id, phys_addr_t *buf_base,
 	unsigned int *buf_size);
 int get_md_cache_region_info(int region_id, unsigned int *buf_base,
 	unsigned int *buf_size);
-void __iomem *ccci_map_phy_addr(phys_addr_t phy_addr, unsigned int size);
-unsigned int get_mtee_is_enabled(void);
 #endif

@@ -101,8 +101,9 @@ static inline unsigned long ovl_layer_num(enum DISP_MODULE_ENUM module)
 		return 2;
 	default:
 		DDPERR("invalid ovl module=%d\n", module);
-		return 0;
+		return -1;
 	}
+	return 0;
 }
 
 enum CMDQ_EVENT_ENUM ovl_to_cmdq_event_nonsec_end(enum DISP_MODULE_ENUM module)
@@ -118,7 +119,7 @@ enum CMDQ_EVENT_ENUM ovl_to_cmdq_event_nonsec_end(enum DISP_MODULE_ENUM module)
 		DDPERR("invalid ovl module=%d, get cmdq event nonsecure fail\n",
 			module);
 		ASSERT(0);
-		return CMDQ_SYNC_TOKEN_INVALID;
+		return DISP_MODULE_UNKNOWN;
 	}
 	return 0;
 }
@@ -394,7 +395,7 @@ static int _ovl_lc_config(enum DISP_MODULE_ENUM module,
 /* only disable L0 dim layer if RPO */
 static void _rpo_disable_dim_L0(enum DISP_MODULE_ENUM module,
 				struct disp_ddp_path_config *pconfig,
-				int *en_layers)
+				unsigned int *en_layers)
 {
 	struct OVL_CONFIG_STRUCT *c = NULL;
 
@@ -417,13 +418,7 @@ int disable_ovl_layers(enum DISP_MODULE_ENUM module, void *handle)
 	unsigned int ovl_idx = ovl_to_index(module);
 
 	/* physical layer control */
-	DISP_REG_SET_FIELD(handle, SRC_CON_FLD_L0_EN,
-		ovl_base_addr(module) + DISP_REG_OVL_SRC_CON, 0);
-	DISP_REG_SET_FIELD(handle, SRC_CON_FLD_L1_EN,
-		ovl_base_addr(module) + DISP_REG_OVL_SRC_CON, 0);
-	DISP_REG_SET_FIELD(handle, SRC_CON_FLD_L2_EN,
-		ovl_base_addr(module) + DISP_REG_OVL_SRC_CON, 0);
-	DISP_REG_SET_FIELD(handle, SRC_CON_FLD_L3_EN,
+	DISP_REG_SET(handle,
 		ovl_base_addr(module) + DISP_REG_OVL_SRC_CON, 0);
 	/* ext layer control */
 	DISP_REG_SET(handle,
@@ -650,7 +645,6 @@ static int ovl_layer_config(enum DISP_MODULE_ENUM module, unsigned int layer,
 	if (!is_engine_sec) {
 		DISP_REG_SET(handle, DISP_REG_OVL_L0_ADDR + layer_offset_addr,
 			cfg->real_addr);
-		DISP_REG_SET(handle, ovl_base + DISP_REG_OVL_SECURE, 0x0);
 	} else {
 		unsigned int size;
 		int m4u_port;
@@ -669,18 +663,6 @@ static int ovl_layer_config(enum DISP_MODULE_ENUM module, unsigned int layer,
 				CMDQ_SAM_NMVA_2_MVA, cfg->addr + offset,
 				0, size, m4u_port);
 
-			if (layer == 0)
-				DISP_REG_SET_FIELD(handle, OVL_SECURE_FLD_L0_EN,
-					ovl_base + DISP_REG_OVL_SECURE, 0);
-			else if (layer == 1)
-				DISP_REG_SET_FIELD(handle, OVL_SECURE_FLD_L1_EN,
-					ovl_base + DISP_REG_OVL_SECURE, 0);
-			else if (layer == 2)
-				DISP_REG_SET_FIELD(handle, OVL_SECURE_FLD_L2_EN,
-					ovl_base + DISP_REG_OVL_SECURE, 0);
-			else if (layer == 3)
-				DISP_REG_SET_FIELD(handle, OVL_SECURE_FLD_L3_EN,
-					ovl_base + DISP_REG_OVL_SECURE, 0);
 		} else {
 			/*
 			 * for sec layer, addr variable stores sec handle
@@ -693,19 +675,6 @@ static int ovl_layer_config(enum DISP_MODULE_ENUM module, unsigned int layer,
 					layer_offset_addr),
 				CMDQ_SAM_H_2_MVA, cfg->addr,
 				offset, size, m4u_port);
-
-			if (layer == 0)
-				DISP_REG_SET_FIELD(handle, OVL_SECURE_FLD_L0_EN,
-					ovl_base + DISP_REG_OVL_SECURE, 1);
-			else if (layer == 1)
-				DISP_REG_SET_FIELD(handle, OVL_SECURE_FLD_L1_EN,
-					ovl_base + DISP_REG_OVL_SECURE, 1);
-			else if (layer == 2)
-				DISP_REG_SET_FIELD(handle, OVL_SECURE_FLD_L2_EN,
-					ovl_base + DISP_REG_OVL_SECURE, 1);
-			else if (layer == 3)
-				DISP_REG_SET_FIELD(handle, OVL_SECURE_FLD_L3_EN,
-					ovl_base + DISP_REG_OVL_SECURE, 1);
 		}
 	}
 	DISP_REG_SET(handle, DISP_REG_OVL_L0_SRCKEY + layer_offset, cfg->key);
@@ -954,12 +923,10 @@ static inline int ovl_switch_to_sec(enum DISP_MODULE_ENUM module, void *handle)
 
 	cmdq_engine = ovl_to_cmdq_engine(module);
 	cmdqRecSetSecure(handle, 1);
-
 	/* set engine as sec port, it will to access
 	 * the sec memory EMI_MPU protected
 	 */
-	//cmdqRecSecureEnablePortSecurity(handle, (1LL << cmdq_engine));
-
+	cmdqRecSecureEnablePortSecurity(handle, (1LL << cmdq_engine));
 	/* Enable DAPC to protect the engine register */
 	/* cmdqRecSecureEnableDAPC(handle, (1LL << cmdq_engine)); */
 	if (ovl_is_sec[ovl_idx] == 0) {
@@ -982,7 +949,7 @@ int ovl_switch_to_nonsec(enum DISP_MODULE_ENUM module, void *handle)
 
 	if (ovl_is_sec[ovl_idx] == 1) {
 		/* ovl is in sec stat, we need to switch it to nonsec */
-		struct cmdqRecStruct *nonsec_switch_handle;
+		struct cmdqRecStruct *nonsec_switch_handle = NULL ;
 		int ret;
 
 		ret = cmdqRecCreate(
@@ -1015,10 +982,9 @@ int ovl_switch_to_nonsec(enum DISP_MODULE_ENUM module, void *handle)
 		 * if we switch ovl to nonsec BUT its setting is still sec
 		 */
 		disable_ovl_layers(module, nonsec_switch_handle);
-
 		/* in fact, dapc/port_sec will be disabled by cmdq */
-		//cmdqRecSecureEnablePortSecurity(
-		//	nonsec_switch_handle, (1LL << cmdq_engine));
+		cmdqRecSecureEnablePortSecurity(
+			nonsec_switch_handle, (1LL << cmdq_engine));
 
 		if (handle != NULL) {
 			/* Async Flush method */
@@ -1611,11 +1577,11 @@ static unsigned long long sbch_calc(enum DISP_MODULE_ENUM module,
 static int ovl_config_l(enum DISP_MODULE_ENUM module,
 	struct disp_ddp_path_config *pConfig, void *handle)
 {
-	int enabled_layers = 0;
+	unsigned int enabled_layers = 0;
 	int has_sec_layer = 0;
 	int layer_id;
 	int ovl_layer = 0;
-	int enabled_ext_layers = 0, ext_sel_layers = 0;
+	unsigned int enabled_ext_layers = 0, ext_sel_layers = 0;
 	struct golden_setting_context *golden_setting =
 		pConfig->p_golden_setting_context;
 	unsigned int Bpp, fps;
@@ -1663,7 +1629,7 @@ static int ovl_config_l(enum DISP_MODULE_ENUM module,
 	for (layer_id = 0; layer_id < TOTAL_REAL_OVL_LAYER_NUM; layer_id++) {
 		struct OVL_CONFIG_STRUCT *ovl_cfg =
 			&pConfig->ovl_config[layer_id];
-		int enable = ovl_cfg->layer_en;
+		unsigned int enable = ovl_cfg->layer_en;
 
 		if (enable == 0)
 			continue;

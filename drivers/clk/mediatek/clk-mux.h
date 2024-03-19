@@ -25,8 +25,8 @@ struct mtk_mux_upd {
 	u32 mux_ofs;
 	u32 upd_ofs;
 
-	s8 mux_shift;
-	s8 mux_width;
+	u8 mux_shift;
+	u8 mux_width;
 	s8 gate_shift;
 	s8 upd_shift;
 
@@ -58,8 +58,8 @@ struct mtk_mux_clr_set_upd {
 	u32 mux_clr_ofs;
 	u32 upd_ofs;
 
-	s8 mux_shift;
-	s8 mux_width;
+	u8 mux_shift;
+	u8 mux_width;
 	s8 gate_shift;
 	s8 upd_shift;
 

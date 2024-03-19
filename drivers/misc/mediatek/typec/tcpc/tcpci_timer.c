@@ -213,18 +213,15 @@ static const char *const tcpc_timer_name[] = {
 #ifdef CONFIG_USB_POWER_DELIVERY
 	"TYPEC_RT_TIMER_PE_IDLE",
 #endif	/* CONFIG_USB_POWER_DELIVERY */
-	"TYPEC_TIMER_ERROR_RECOVERY",
 /* TYPEC-TRY-TIMER */
 	"TYPEC_TRY_TIMER_DRP_TRY",
 	"TYPEC_TRY_TIMER_DRP_TRYWAIT",
 /* TYPEC-DEBOUNCE-TIMER */
 	"TYPEC_TIMER_CCDEBOUNCE",
 	"TYPEC_TIMER_PDDEBOUNCE",
-#ifdef CONFIG_COMPATIBLE_APPLE_TA
-	"TYPEC_TIMER_APPLE_CC_OPEN",
-#endif /* CONFIG_COMPATIBLE_APPLE_TA */
 	"TYPEC_TIMER_TRYCCDEBOUNCE",
 	"TYPEC_TIMER_SRCDISCONNECT",
+	"TYPEC_TIMER_ERROR_RECOVERY",
 	"TYPEC_TIMER_DRP_SRC_TOGGLE",
 #ifdef CONFIG_TYPEC_CAP_NORP_SRC
 	"TYPEC_TIMER_NORP_SRC",
@@ -350,8 +347,6 @@ DECL_TCPC_TIMEOUT(TYPEC_RT_TIMER_LOW_POWER_MODE, 500),
 #ifdef CONFIG_USB_POWER_DELIVERY
 DECL_TCPC_TIMEOUT(TYPEC_RT_TIMER_PE_IDLE, 1),
 #endif	/* CONFIG_USB_POWER_DELIVERY */
-DECL_TCPC_TIMEOUT_RANGE(TYPEC_TIMER_ERROR_RECOVERY, 25, 25),
-
 /* TYPEC-TRY-TIMER */
 DECL_TCPC_TIMEOUT_RANGE(TYPEC_TRY_TIMER_DRP_TRY, 75, 150),
 DECL_TCPC_TIMEOUT_RANGE(TYPEC_TRY_TIMER_DRP_TRYWAIT, 400, 800),
@@ -359,11 +354,9 @@ DECL_TCPC_TIMEOUT_RANGE(TYPEC_TRY_TIMER_DRP_TRYWAIT, 400, 800),
 /* TYPEC-DEBOUNCE-TIMER */
 DECL_TCPC_TIMEOUT_RANGE(TYPEC_TIMER_CCDEBOUNCE, 100, 200),
 DECL_TCPC_TIMEOUT_RANGE(TYPEC_TIMER_PDDEBOUNCE, 10, 10),
-#ifdef CONFIG_COMPATIBLE_APPLE_TA
-DECL_TCPC_TIMEOUT_RANGE(TYPEC_TIMER_APPLE_CC_OPEN, 200, 200),
-#endif /* CONFIG_COMPATIBLE_APPLE_TA */
 DECL_TCPC_TIMEOUT_RANGE(TYPEC_TIMER_TRYCCDEBOUNCE, 10, 10),
 DECL_TCPC_TIMEOUT(TYPEC_TIMER_SRCDISCONNECT, 5),
+DECL_TCPC_TIMEOUT_RANGE(TYPEC_TIMER_ERROR_RECOVERY, 25, 25),
 DECL_TCPC_TIMEOUT(TYPEC_TIMER_DRP_SRC_TOGGLE, 60),
 #ifdef CONFIG_TYPEC_CAP_NORP_SRC
 DECL_TCPC_TIMEOUT(TYPEC_TIMER_NORP_SRC, 300),
@@ -959,6 +952,7 @@ static enum hrtimer_restart tcpc_timer_rt_pe_idle(struct hrtimer *timer)
 	TCPC_TIMER_TRIGGER();
 	return HRTIMER_NORESTART;
 }
+
 #endif	/* CONFIG_USB_POWER_DELIVERY */
 
 /* TYPEC-TRY-TIMER */
@@ -996,16 +990,6 @@ static enum hrtimer_restart tcpc_timer_ccdebounce(struct hrtimer *timer)
 static enum hrtimer_restart tcpc_timer_pddebounce(struct hrtimer *timer)
 {
 	int index = TYPEC_TIMER_PDDEBOUNCE;
-	struct tcpc_device *tcpc_dev =
-		container_of(timer, struct tcpc_device, tcpc_timer[index]);
-
-	TCPC_TIMER_TRIGGER();
-	return HRTIMER_NORESTART;
-}
-
-static enum hrtimer_restart tcpc_timer_apple_cc_open(struct hrtimer *timer)
-{
-	int index = TYPEC_TIMER_APPLE_CC_OPEN;
 	struct tcpc_device *tcpc_dev =
 		container_of(timer, struct tcpc_device, tcpc_timer[index]);
 
@@ -1067,7 +1051,7 @@ static enum alarmtimer_restart
 	struct tcpc_device *tcpc_dev =
 		container_of(alarm, struct tcpc_device, wake_up_timer);
 
-	__pm_wakeup_event(&tcpc_dev->wakeup_wake_lock, 1000);
+	__pm_wakeup_event(&tcpc_dev->wakeup_wake_lock, 1*HZ);
 	schedule_delayed_work(&tcpc_dev->wake_up_work, 0);
 	return ALARMTIMER_NORESTART;
 }
@@ -1168,18 +1152,15 @@ static tcpc_hrtimer_call tcpc_timer_call[PD_TIMER_NR] = {
 #ifdef CONFIG_USB_POWER_DELIVERY
 	tcpc_timer_rt_pe_idle,
 #endif	/* CONFIG_USB_POWER_DELIVERY */
-	tcpc_timer_error_recovery,
 /* TYPEC-TRY-TIMER */
 	tcpc_timer_try_drp_try,
 	tcpc_timer_try_drp_trywait,
 /* TYPEC-DEBOUNCE-TIMER */
 	tcpc_timer_ccdebounce,
 	tcpc_timer_pddebounce,
-#ifdef CONFIG_COMPATIBLE_APPLE_TA
-	tcpc_timer_apple_cc_open,
-#endif /* CONFIG_COMPATIBLE_APPLE_TA */
 	tcpc_timer_tryccdebounce,
 	tcpc_timer_srcdisconnect,
+	tcpc_timer_error_recovery,
 	tcpc_timer_drp_src_toggle,
 #ifdef CONFIG_TYPEC_CAP_NORP_SRC
 	tcpc_timer_norp_src,
@@ -1219,7 +1200,7 @@ static inline void tcpc_reset_timer_range(
 
 	mask = tcpc_get_timer_enable_mask(tcpc);
 
-	for (i = start; i < end; i++) {
+	for (i = start; i <= end; i++) {
 		if (mask & RT_MASK64(i)) {
 			hrtimer_try_to_cancel(&tcpc->tcpc_timer[i]);
 			tcpc_clear_timer_enable_mask(tcpc, i);

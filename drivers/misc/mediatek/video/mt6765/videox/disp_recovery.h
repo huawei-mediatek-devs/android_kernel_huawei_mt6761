@@ -34,7 +34,6 @@ void external_display_esd_check_enable(int enable);
 
 void set_esd_check_mode(unsigned int mode);
 int do_lcm_vdo_lp_read(struct dsi_cmd_desc *cmd_tab, unsigned int count);
-int do_lcm_vdo_lp_read_v1(struct dsi_cmd_desc *cmd_tab);
 int do_lcm_vdo_lp_write(struct dsi_cmd_desc *write_table,
 			unsigned int count);
 

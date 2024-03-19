@@ -98,6 +98,7 @@ static int has_memory_session;
 
 static unsigned int session_config[MAX_SESSION_COUNT];
 static DEFINE_MUTEX(disp_session_lock);
+static DEFINE_MUTEX(disp_layer_lock);
 
 static dev_t mtk_disp_mgr_devno;
 static struct cdev *mtk_disp_mgr_cdev;
@@ -121,6 +122,35 @@ static int mtk_disp_mgr_release(struct inode *inode, struct file *file)
 
 static int mtk_disp_mgr_flush(struct file *a_pstFile, fl_owner_t a_id)
 {
+	return 0;
+}
+
+static int mtk_disp_mgr_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	static const unsigned long addr_min = 0x14000000;
+	static const unsigned long addr_max = 0x14025000;
+	static const unsigned long size = addr_max - addr_min;
+	const unsigned long require_size = vma->vm_end - vma->vm_start;
+	unsigned long pa_start = vma->vm_pgoff << PAGE_SHIFT;
+	unsigned long pa_end = pa_start + require_size;
+
+	DISPDBG("mmap size %ld, vmpg0ff 0x%lx, pastart 0x%lx, paend 0x%lx\n",
+		require_size, vma->vm_pgoff, pa_start, pa_end);
+
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+
+	if (require_size > size || (pa_start < addr_min || pa_end > addr_max
+			|| pa_start > addr_max || pa_end < addr_min)) {
+		DISPERR("mmap size range over flow!pa_start:0x%lx, pa_end:0x%lx\n",
+			pa_start, pa_end);
+		return -EAGAIN;
+	}
+	if (remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
+		(vma->vm_end - vma->vm_start), vma->vm_page_prot)) {
+		DISPERR("display mmap failed!!\n");
+		return -EAGAIN;
+	}
+
 	return 0;
 }
 
@@ -395,6 +425,7 @@ static void _prepare_output_buffer(struct disp_buffer_info *info,
 		if (output_buf != NULL) {
 			info->interface_fence_fd = output_buf->fence;
 			info->interface_index = output_buf->idx;
+			output_buf = NULL;
 		} else {
 			DISPERR("P+ FAIL /%s%d/l%d/e%d/ion%d/c%d/id%d/ffd%d\n",
 				disp_session_mode_spy(info->session_id),
@@ -418,7 +449,7 @@ int _ioctl_prepare_buffer(unsigned long arg, enum PREPARE_FENCE_TYPE type)
 	int ret = 0;
 	void __user *argp = (void __user *)arg;
 	struct disp_buffer_info info;
-	struct mtkfb_fence_buf_info *buf, *buf2;
+	struct mtkfb_fence_buf_info *buf = NULL, *buf2 = NULL;
 
 	if (copy_from_user(&info, (void __user *)arg, sizeof(info))) {
 		pr_info("[FB Driver]: copy_from_user failed! line:%d\n",
@@ -440,6 +471,7 @@ int _ioctl_prepare_buffer(unsigned long arg, enum PREPARE_FENCE_TYPE type)
 		if (buf != NULL) {
 			info.fence_fd = buf->fence;
 			info.index = buf->idx;
+			buf = NULL;
 		} else {
 			DISPERR("P+ FAIL /%s%d/l%d/e%d/ion%d/c%d/id%d/ffd%d\n",
 				disp_session_mode_spy(info.session_id),
@@ -691,7 +723,7 @@ static int input_config_preprocess(struct disp_frame_cfg_t *cfg)
 			"set_%s_buffer, conf_layer_num invalid=%d, max_layer_num=%d!\n",
 			disp_session_mode_spy(session_id), cfg->input_layer_num,
 			_get_max_layer(session_id));
-		return -1;
+		return 0;
 	}
 
 	disp_input_get_dirty_roi(cfg);
@@ -733,7 +765,7 @@ static int input_config_preprocess(struct disp_frame_cfg_t *cfg)
 			dst_mva =
 				(unsigned long)(cfg->input_cfg[i].src_phy_addr);
 			if (!dst_mva) {
-				disp_sync_query_buf_info(
+				disp_sync_query_buf_info_nosync(
 				session_id, layer_id,
 				(unsigned int)cfg->input_cfg[i].next_buff_idx,
 				&dst_mva, &dst_size);
@@ -1005,10 +1037,7 @@ long _frame_config(unsigned long arg)
 	DISPDBG("%s\n", __func__);
 	frame_cfg->setter = SESSION_USER_HWC;
 
-	if (input_config_preprocess(frame_cfg) != 0) {
-		kfree(frame_cfg);
-		return -EINVAL;
-	}
+	input_config_preprocess(frame_cfg);
 	if (frame_cfg->output_en)
 		output_config_preprocess(frame_cfg);
 
@@ -1048,8 +1077,16 @@ static long _ioctl_frame_config(unsigned long arg)
 static int _ioctl_wait_all_jobs_done(unsigned long arg)
 {
 	unsigned int session_id = (unsigned int)arg;
-	struct frame_queue_head_t *head;
+	struct frame_queue_head_t *head = NULL;
 	int ret = 0;
+
+	if (DISP_SESSION_TYPE(session_id) != DISP_SESSION_PRIMARY &&
+		DISP_SESSION_TYPE(session_id) != DISP_SESSION_MEMORY &&
+		DISP_SESSION_TYPE(session_id) != DISP_SESSION_EXTERNAL) {
+		DISPERR("[%s][%d]invalid session id:0x%08x\n",
+			__func__, __LINE__, session_id);
+		return -EINVAL;
+	}
 
 	head = get_frame_queue_head(session_id);
 	if (!head) {
@@ -1283,7 +1320,9 @@ static long _ioctl_query_valid_layer(unsigned long arg)
 		return -EINVAL;
 	}
 
+	mutex_lock(&disp_layer_lock);
 	layering_rule_start(&disp_info_user, 0);
+	mutex_unlock(&disp_layer_lock);
 
 	if (copy_to_user(argp, &disp_info_user, sizeof(disp_info_user))) {
 		DISPERR("[FB]: copy_to_user failed! line:%d\n", __LINE__);
@@ -1366,7 +1405,6 @@ int set_session_mode(struct disp_session_config *config_info, int force)
 
 int _ioctl_set_session_mode(unsigned long arg)
 {
-	int ret = -1;
 	void __user *argp = (void __user *)arg;
 	struct disp_session_config config_info;
 
@@ -1376,15 +1414,7 @@ int _ioctl_set_session_mode(unsigned long arg)
 			__LINE__);
 		return -EFAULT;
 	}
-
-	if (config_info.mode > DISP_INVALID_SESSION_MODE &&
-		config_info.mode < DISP_SESSION_MODE_NUM) {
-		ret = set_session_mode(&config_info, 0);
-	} else {
-		DISPERR("[FB]: session mode is invalid: %d\n",
-			config_info.mode);
-	}
-	return ret;
+	return set_session_mode(&config_info, 0);
 }
 
 const char *_session_ioctl_spy(unsigned int cmd)
@@ -1434,8 +1464,6 @@ const char *_session_ioctl_spy(unsigned int cmd)
 		return "DISP_IOCTL_CCORR_EVENTCTL";
 	case DISP_IOCTL_CCORR_GET_IRQ:
 		return "DISP_IOCTL_CCORR_GET_IRQ";
-	case DISP_IOCTL_SUPPORT_COLOR_TRANSFORM:
-		return "DISP_IOCTL_SUPPORT_COLOR_TRANSFORM";
 	case DISP_IOCTL_SET_PQPARAM:
 		return "DISP_IOCTL_SET_PQPARAM";
 	case DISP_IOCTL_GET_PQPARAM:
@@ -1552,7 +1580,6 @@ long mtk_disp_mgr_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case DISP_IOCTL_SET_CCORR:
 	case DISP_IOCTL_CCORR_EVENTCTL:
 	case DISP_IOCTL_CCORR_GET_IRQ:
-	case DISP_IOCTL_SUPPORT_COLOR_TRANSFORM:
 	case DISP_IOCTL_SET_PQPARAM:
 	case DISP_IOCTL_GET_PQPARAM:
 	case DISP_IOCTL_SET_PQINDEX:
@@ -1763,7 +1790,6 @@ static long mtk_disp_mgr_compat_ioctl(struct file *file, unsigned int cmd,
 	case DISP_IOCTL_SET_CCORR:
 	case DISP_IOCTL_CCORR_EVENTCTL:
 	case DISP_IOCTL_CCORR_GET_IRQ:
-	case DISP_IOCTL_SUPPORT_COLOR_TRANSFORM:
 	case DISP_IOCTL_SET_PQPARAM:
 	case DISP_IOCTL_GET_PQPARAM:
 	case DISP_IOCTL_SET_PQINDEX:
@@ -1818,6 +1844,7 @@ static long mtk_disp_mgr_compat_ioctl(struct file *file, unsigned int cmd,
 
 static const struct file_operations mtk_disp_mgr_fops = {
 	.owner = THIS_MODULE,
+	.mmap = mtk_disp_mgr_mmap,
 	.unlocked_ioctl = mtk_disp_mgr_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = mtk_disp_mgr_compat_ioctl,
@@ -1833,35 +1860,60 @@ static int mtk_disp_mgr_probe(struct platform_device *pdev)
 {
 	struct class_device;
 	struct class_device *class_dev = NULL;
-	int ret;
+	int alloc_ret = -1;
+	int cdev_ret = -1;
 
 	pr_debug("mtk_disp_mgr_probe called!\n");
 
-	if (alloc_chrdev_region(&mtk_disp_mgr_devno, 0, 1,
-		DISP_SESSION_DEVICE))
-		return -EFAULT;
+	alloc_ret = alloc_chrdev_region(&mtk_disp_mgr_devno, 0, 1,
+		DISP_SESSION_DEVICE);
+	if (alloc_ret) {
+		DISPERR("%s, alloc_chrdev_region failed!\n", __func__);
+		goto error;
+	}
 
 	mtk_disp_mgr_cdev = cdev_alloc();
 	mtk_disp_mgr_cdev->owner = THIS_MODULE;
 	mtk_disp_mgr_cdev->ops = &mtk_disp_mgr_fops;
 
-	ret = cdev_add(mtk_disp_mgr_cdev, mtk_disp_mgr_devno, 1);
-	if (ret) {
-		DISPERR("cdev_add failed!\n");
-		unregister_chrdev_region(mtk_disp_mgr_devno, 1);
-		return ret;
+	cdev_ret = cdev_add(mtk_disp_mgr_cdev, mtk_disp_mgr_devno, 1);
+	if (cdev_ret) {
+		DISPERR("%s, cdev_add failed!\n", __func__);
+		goto error;
 	}
 
 	mtk_disp_mgr_class = class_create(THIS_MODULE, DISP_SESSION_DEVICE);
+	if (IS_ERR(mtk_disp_mgr_class)) {
+		DISPERR("%s, class_create failed!\n", __func__);
+		goto error;
+	}
+
 	class_dev =
 	    (struct class_device *)device_create(mtk_disp_mgr_class, NULL,
 	    mtk_disp_mgr_devno, NULL,
 						 DISP_SESSION_DEVICE);
+	if (IS_ERR(class_dev)) {
+		DISPERR("%s, device_create failed!\n", __func__);
+		goto error;
+	}
+
 	disp_sync_init();
 
 	external_display_control_init();
 
 	return 0;
+
+error:
+	if (mtk_disp_mgr_class)
+		class_destroy(mtk_disp_mgr_class);
+
+	if (cdev_ret == 0)
+		cdev_del(mtk_disp_mgr_cdev);
+
+	if (alloc_ret == 0)
+		unregister_chrdev_region(mtk_disp_mgr_devno, 1);
+
+	return -EFAULT;
 }
 
 static int mtk_disp_mgr_remove(struct platform_device *pdev)

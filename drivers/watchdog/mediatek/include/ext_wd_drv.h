@@ -31,6 +31,9 @@ int  mtk_rgu_cfg_emi_dcs(int enable);
 int  mtk_rgu_dram_reserved(int enable);
 int  mtk_rgu_mcu_cache_preserve(int enable);
 
+extern int g_enable;
+extern void wdt_stop_kicker(unsigned int value);
+
 /*
  * Query if SYSRST has happened.
  *

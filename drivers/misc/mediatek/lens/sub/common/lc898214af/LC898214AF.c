@@ -209,7 +209,6 @@ static inline int moveAF(unsigned long a_u4Position)
 
 	if (s4AF_WriteReg(1, 0xA0, (unsigned short)AF_convert(
 					   a_u4Position)) == 0) {
-		g_u4CurrPosition = a_u4Position;
 		ret = 0;
 	} else {
 		LOG_INF("set I2C failed when moving the motor\n");
@@ -309,18 +308,12 @@ int LC898214AF_SetI2Cclient(struct i2c_client *pstAF_I2Cclient,
 
 int LC898214AF_GetFileName(unsigned char *pFileName)
 {
-	#if SUPPORT_GETTING_LENS_FOLDER_NAME
-	char FilePath[256];
-	char *FileString;
+	char *FileString = (strrchr(__FILE__, '/') + 1);
 
-	sprintf(FilePath, "%s", __FILE__);
-	FileString = strrchr(FilePath, '/');
-	*FileString = '\0';
-	FileString = (strrchr(FilePath, '/') + 1);
 	strncpy(pFileName, FileString, AF_MOTOR_NAME);
+	FileString = strchr(pFileName, '.');
+	*FileString = '\0';
 	LOG_INF("FileName : %s\n", pFileName);
-	#else
-	pFileName[0] = '\0';
-	#endif
+
 	return 1;
 }

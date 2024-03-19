@@ -43,7 +43,6 @@
 #define MT6370_CHANNEL_NUM 2
 #define MT6370_CHANNEL_CH1 0
 #define MT6370_CHANNEL_CH2 1
-#define MT6370_CHANNEL_ALL 2
 
 #define MT6370_NONE (-1)
 #define MT6370_DISABLE 0
@@ -67,7 +66,6 @@ static unsigned int mt6370_timeout_ms[MT6370_CHANNEL_NUM];
 
 /* define usage count */
 static int use_count;
-static int fd_use_count;
 
 /* define RTK flashlight device */
 static struct flashlight_device *flashlight_dev_ch1;
@@ -173,34 +171,19 @@ static int mt6370_enable(void)
 			|| (mt6370_en_ch2 == MT6370_ENABLE_FLASH))
 		mode = FLASHLIGHT_MODE_FLASH;
 
-	pr_debug("enable(%d,%d), mode:%d.\n",
-		mt6370_en_ch1, mt6370_en_ch2, mode);
-
 	/* enable channel 1 and channel 2 */
-	if (mt6370_decouple_mode == FLASHLIGHT_SCENARIO_COUPLE &&
-			mt6370_en_ch1 != MT6370_DISABLE &&
-			mt6370_en_ch2 != MT6370_DISABLE) {
-		pr_info("dual flash mode\n");
-		if (mode == FLASHLIGHT_MODE_TORCH)
-			ret |= flashlight_set_mode(
-				flashlight_dev_ch1, FLASHLIGHT_MODE_DUAL_TORCH);
-		else
-			ret |= flashlight_set_mode(
-				flashlight_dev_ch1, FLASHLIGHT_MODE_DUAL_FLASH);
-	} else {
-		if (mt6370_en_ch1)
-			ret |= flashlight_set_mode(
+	if (mt6370_en_ch1)
+		ret |= flashlight_set_mode(
 				flashlight_dev_ch1, mode);
-		else if (mt6370_decouple_mode == FLASHLIGHT_SCENARIO_COUPLE)
-			ret |= flashlight_set_mode(
+	else if (mt6370_decouple_mode == FLASHLIGHT_SCENARIO_COUPLE)
+		ret |= flashlight_set_mode(
 				flashlight_dev_ch1, FLASHLIGHT_MODE_OFF);
-		if (mt6370_en_ch2)
-			ret |= flashlight_set_mode(
+	if (mt6370_en_ch2)
+		ret |= flashlight_set_mode(
 				flashlight_dev_ch2, mode);
-		else if (mt6370_decouple_mode == FLASHLIGHT_SCENARIO_COUPLE)
-			ret |= flashlight_set_mode(
+	else if (mt6370_decouple_mode == FLASHLIGHT_SCENARIO_COUPLE)
+		ret |= flashlight_set_mode(
 				flashlight_dev_ch2, FLASHLIGHT_MODE_OFF);
-	}
 
 	if (ret < 0)
 		pr_err("Failed to enable.\n");
@@ -213,10 +196,8 @@ static int mt6370_disable_ch1(void)
 {
 	int ret = 0;
 
-	pr_debug("disable_ch1.\n");
-
 	if (!flashlight_dev_ch1) {
-		pr_info("Failed to disable since no flashlight device.\n");
+		pr_err("Failed to disable since no flashlight device.\n");
 		return -1;
 	}
 
@@ -232,34 +213,12 @@ static int mt6370_disable_ch2(void)
 {
 	int ret = 0;
 
-	pr_debug("disable_ch2.\n");
-
 	if (!flashlight_dev_ch2) {
 		pr_info("Failed to disable since no flashlight device.\n");
 		return -1;
 	}
 
 	ret |= flashlight_set_mode(flashlight_dev_ch2, FLASHLIGHT_MODE_OFF);
-
-	if (ret < 0)
-		pr_info("Failed to disable.\n");
-
-	return ret;
-}
-
-static int mt6370_disable_all(void)
-{
-	int ret = 0;
-
-	pr_debug("disable_ch1.\n");
-
-	if (!flashlight_dev_ch1) {
-		pr_info("Failed to disable since no flashlight device.\n");
-		return -1;
-	}
-
-	ret |= flashlight_set_mode(flashlight_dev_ch1,
-				   FLASHLIGHT_MODE_DUAL_OFF);
 
 	if (ret < 0)
 		pr_info("Failed to disable.\n");
@@ -275,8 +234,6 @@ static int mt6370_disable(int channel)
 		ret = mt6370_disable_ch1();
 	else if (channel == MT6370_CHANNEL_CH2)
 		ret = mt6370_disable_ch2();
-	else if (channel == MT6370_CHANNEL_ALL)
-		ret = mt6370_disable_all();
 	else {
 		pr_info("Error channel\n");
 		return -1;
@@ -284,6 +241,7 @@ static int mt6370_disable(int channel)
 
 	return ret;
 }
+
 
 /* set flashlight level */
 static int mt6370_set_level_ch1(int level)
@@ -403,8 +361,8 @@ static int mt6370_uninit(void)
 	/* clear charger status */
 	is_decrease_voltage = 0;
 
-	ret = mt6370_disable(MT6370_CHANNEL_ALL);
-
+	ret = mt6370_disable(MT6370_CHANNEL_CH1);
+	ret |= mt6370_disable(MT6370_CHANNEL_CH2);
 	return ret;
 }
 
@@ -500,9 +458,6 @@ static int mt6370_operate(int channel, int enable)
 		}
 	}
 
-	pr_debug("en_ch(%d,%d), decouple:%d\n",
-		mt6370_en_ch1, mt6370_en_ch2, mt6370_decouple_mode);
-
 	/* operate flashlight and setup timer */
 	if ((mt6370_en_ch1 != MT6370_NONE) && (mt6370_en_ch2 != MT6370_NONE)) {
 		if ((mt6370_en_ch1 == MT6370_DISABLE) &&
@@ -516,7 +471,8 @@ static int mt6370_operate(int channel, int enable)
 					mt6370_timer_cancel(MT6370_CHANNEL_CH2);
 				}
 			} else {
-				mt6370_disable(MT6370_CHANNEL_ALL);
+				mt6370_disable(MT6370_CHANNEL_CH1);
+				mt6370_disable(MT6370_CHANNEL_CH2);
 				mt6370_timer_cancel(MT6370_CHANNEL_CH1);
 				mt6370_timer_cancel(MT6370_CHANNEL_CH2);
 			}
@@ -631,29 +587,12 @@ static int mt6370_ioctl(unsigned int cmd, unsigned long arg)
 static int mt6370_open(void)
 {
 	/* Move to set driver for saving power */
-	mutex_lock(&mt6370_mutex);
-	fd_use_count++;
-	pr_debug("open driver: %d\n", fd_use_count);
-	mutex_unlock(&mt6370_mutex);
 	return 0;
 }
 
 static int mt6370_release(void)
 {
 	/* Move to set driver for saving power */
-	mutex_lock(&mt6370_mutex);
-	fd_use_count--;
-	pr_debug("close driver: %d\n", fd_use_count);
-	/* If camera NE, we need to enable pe by ourselves*/
-	if (fd_use_count == 0 && is_decrease_voltage) {
-#ifdef CONFIG_MTK_CHARGER
-		pr_info("Increase voltage level.\n");
-		charger_manager_enable_high_voltage_charging(
-				flashlight_charger_consumer, true);
-#endif
-		is_decrease_voltage = 0;
-	}
-	mutex_unlock(&mt6370_mutex);
 	return 0;
 }
 
@@ -684,12 +623,7 @@ static int mt6370_set_driver(int set)
 static ssize_t mt6370_strobe_store(struct flashlight_arg arg)
 {
 	mt6370_set_driver(1);
-	if (arg.decouple)
-		mt6370_set_scenario(
-			FLASHLIGHT_SCENARIO_CAMERA |
-			FLASHLIGHT_SCENARIO_DECOUPLE);
-	else
-		mt6370_set_scenario(
+	mt6370_set_scenario(
 			FLASHLIGHT_SCENARIO_CAMERA |
 			FLASHLIGHT_SCENARIO_COUPLE);
 	mt6370_set_level(arg.channel, arg.level);
@@ -701,12 +635,7 @@ static ssize_t mt6370_strobe_store(struct flashlight_arg arg)
 		mt6370_operate(arg.channel, MT6370_ENABLE);
 
 	msleep(arg.dur);
-	if (arg.decouple)
-		mt6370_set_scenario(
-			FLASHLIGHT_SCENARIO_FLASHLIGHT |
-			FLASHLIGHT_SCENARIO_DECOUPLE);
-	else
-		mt6370_set_scenario(
+	mt6370_set_scenario(
 			FLASHLIGHT_SCENARIO_FLASHLIGHT |
 			FLASHLIGHT_SCENARIO_COUPLE);
 	mt6370_operate(arg.channel, MT6370_DISABLE);
@@ -816,7 +745,6 @@ static int mt6370_probe(struct platform_device *pdev)
 
 	/* clear attributes */
 	use_count = 0;
-	fd_use_count = 0;
 	is_decrease_voltage = 0;
 
 	/* get RTK flashlight handler */

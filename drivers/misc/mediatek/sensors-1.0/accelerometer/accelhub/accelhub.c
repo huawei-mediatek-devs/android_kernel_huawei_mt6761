@@ -60,8 +60,9 @@ static struct acc_init_info accelhub_init_info;
 static struct accelhub_ipi_data *obj_ipi_data;
 
 static int gsensor_init_flag = -1;
+static bool acc_cali_flag = false;
 static DEFINE_SPINLOCK(calibration_lock);
-
+static int gsensor_factory_do_self_test(void);
 static int gsensor_get_data(int *x, int *y, int *z, int *status);
 
 int accelhub_SetPowerMode(bool enable)
@@ -339,19 +340,49 @@ static ssize_t store_chip_orientation(struct device_driver *ddri,
 }
 
 static int gsensor_factory_enable_calibration(void);
+static int gsensor_factory_enable_sensor(bool enabledisable,
+					 int64_t sample_periods_ms);
+static int gsensor_factory_get_cali(int32_t data[3]);
 static ssize_t store_test_cali(struct device_driver *ddri, const char *buf,
 			       size_t tCount)
 {
 	int enable = 0, ret = 0;
-
+	acc_cali_flag = false;
 	ret = kstrtoint(buf, 10, &enable);
 	if (ret != 0) {
 		pr_debug("kstrtoint fail\n");
 		return 0;
 	}
-	if (enable == 1)
+
+	if (enable == 1){
+		gsensor_factory_enable_sensor(true, 5);
 		gsensor_factory_enable_calibration();
+	}
 	return tCount;
+}
+#define MAX_CALI_THRE  (200*98/10)
+static ssize_t show_test_cali(struct device_driver *ddri, char *buf)
+{
+	//int enable = 0, ret = 0;
+	ssize_t _tLength = 0;
+	struct accelhub_ipi_data *obj = obj_ipi_data;
+	if(acc_cali_flag == true){
+	       if(((obj->static_cali[ACCELHUB_AXIS_X] < MAX_CALI_THRE) && (obj->static_cali[ACCELHUB_AXIS_X] > -MAX_CALI_THRE)) &&
+			((obj->static_cali[ACCELHUB_AXIS_Y] < MAX_CALI_THRE) && (obj->static_cali[ACCELHUB_AXIS_Y] > -MAX_CALI_THRE))&&
+			((obj->static_cali[ACCELHUB_AXIS_Z] < MAX_CALI_THRE) && (obj->static_cali[ACCELHUB_AXIS_Z] > -MAX_CALI_THRE))
+		){
+			pr_err("test_cali success\n");
+		 	_tLength = snprintf(buf, PAGE_SIZE, "%d\n", 0);
+		 }else{
+		 	pr_err("test_cali out of range\n");
+			_tLength = snprintf(buf, PAGE_SIZE, "%d\n", 1);
+		 }
+	}else{
+		pr_err("cannot get cali result\n");
+		_tLength = snprintf(buf, PAGE_SIZE, "%d\n", 1);
+	}
+        gsensor_factory_enable_sensor(false,0);
+	return _tLength;
 }
 
 static DRIVER_ATTR(chipinfo, 0444, show_chipinfo_value, NULL);
@@ -360,7 +391,8 @@ static DRIVER_ATTR(cali, 0644, show_cali_value, NULL);
 static DRIVER_ATTR(trace, 0644, NULL, store_trace_value);
 static DRIVER_ATTR(orientation, 0644, show_chip_orientation,
 		   store_chip_orientation);
-static DRIVER_ATTR(test_cali, 0644, NULL, store_test_cali);
+static DRIVER_ATTR(test_cali, 0644, show_test_cali, store_test_cali);
+//static DRIVER_ATTR(test_cali, 0644, show_get_cali_res, NULL);
 
 static struct driver_attribute *accelhub_attr_list[] = {
 	&driver_attr_chipinfo,   /*chip information */
@@ -485,10 +517,14 @@ static int gsensor_recv_data(struct data_unit_t *event, void *reserved)
 		obj->static_cali_status =
 			(uint8_t)event->accelerometer_t.status;
 		spin_unlock(&calibration_lock);
+		acc_cali_flag = true;
+		pr_err("start_cali result done = %d, %d, %d!\n", obj->static_cali[ACCELHUB_AXIS_X], 
+			obj->static_cali[ACCELHUB_AXIS_Y],obj->static_cali[ACCELHUB_AXIS_Z]);
 		complete(&obj->calibration_done);
 	} else if (event->flush_action == TEST_ACTION) {
 		atomic_set(&obj->selftest_status,
 			event->accelerometer_t.status);
+		pr_err("self_test result = %d!\n", event->accelerometer_t.status);
 		complete(&obj->selftest_done);
 	}
 	return err;
@@ -572,6 +608,7 @@ static int gsensor_factory_get_cali(int32_t data[3])
 		return -1;
 	}
 #else
+	//init_completion(&obj->calibration_done);  //no need to re init
 	err = wait_for_completion_timeout(&obj->calibration_done,
 					  msecs_to_jiffies(3000));
 	if (!err) {
@@ -582,6 +619,7 @@ static int gsensor_factory_get_cali(int32_t data[3])
 	data[ACCELHUB_AXIS_X] = obj->static_cali[ACCELHUB_AXIS_X];
 	data[ACCELHUB_AXIS_Y] = obj->static_cali[ACCELHUB_AXIS_Y];
 	data[ACCELHUB_AXIS_Z] = obj->static_cali[ACCELHUB_AXIS_Z];
+	pr_err("get calibrate data = %d, %d, %d\n", data[ACCELHUB_AXIS_X], data[ACCELHUB_AXIS_Y], data[ACCELHUB_AXIS_Z]);
 	status = obj->static_cali_status;
 	spin_unlock(&calibration_lock);
 	if (status != 0) {
@@ -600,10 +638,20 @@ static int gsensor_factory_do_self_test(void)
 	if (ret < 0)
 		return -1;
 
+	init_completion(&obj->selftest_done);
 	ret = wait_for_completion_timeout(&obj->selftest_done,
 					  msecs_to_jiffies(3000));
+	pr_err("gsensor_factory_do_self_test, ret = %d, result = %d\n", ret, atomic_read(&obj->selftest_status));	
 	if (!ret)
 		return -1;
+	return atomic_read(&obj->selftest_status);
+}
+
+static int gsensor_factory_get_self_test(void)
+{
+	//int ret = 0;
+	struct accelhub_ipi_data *obj = obj_ipi_data;
+	pr_err("gsensor_factory_get_self_test, result = %d\n", atomic_read(&obj->selftest_status));
 	return atomic_read(&obj->selftest_status);
 }
 
@@ -615,7 +663,8 @@ static struct accel_factory_fops gsensor_factory_fops = {
 	.clear_cali = gsensor_factory_clear_cali,
 	.set_cali = gsensor_factory_set_cali,
 	.get_cali = gsensor_factory_get_cali,
-	.do_self_test = gsensor_factory_do_self_test,
+	//.do_self_test = gsensor_factory_do_self_test,
+	//.get_self_test = gsensor_factory_get_self_test,
 };
 
 static struct accel_factory_public gsensor_factory_device = {
@@ -807,6 +856,8 @@ static int accelhub_probe(struct platform_device *pdev)
 	ctl.batch = gsensor_batch;
 	ctl.flush = gsensor_flush;
 	ctl.set_cali = gsensor_set_cali;
+	ctl.do_self_test = gsensor_factory_do_self_test;
+	ctl.get_self_test = gsensor_factory_get_self_test;
 #if defined CONFIG_MTK_SCP_SENSORHUB_V1
 	ctl.is_report_input_direct = true;
 	ctl.is_support_batch = false;

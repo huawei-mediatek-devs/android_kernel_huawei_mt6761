@@ -47,7 +47,6 @@
 #define IS_DOWN 0
 #define USE_TIMER_CHECK_TIME msecs_to_jiffies(50)
 #define CM_MGR_INIT_DELAY_MS 1
-#define CM_MGR_BW_VALUE 0
 
 enum {
 	CM_MGR_LP4X_2CH_3200 = 0,
@@ -96,7 +95,6 @@ extern int cm_mgr_register_init(void);
 extern int cm_mgr_platform_init(void);
 extern void cm_mgr_set_dram_level(int level);
 extern int cm_mgr_get_dram_opp(void);
-extern int cm_mgr_check_bw_status(void);
-extern int cm_mgr_get_bw(void);
+extern void cm_mgr_emi_latency(int enable);
 
 #endif	/* __MTK_CM_MGR_PLATFORM_H__ */

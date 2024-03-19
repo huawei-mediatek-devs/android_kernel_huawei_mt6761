@@ -40,9 +40,6 @@
  * NAPI with GRO:      MODEM_CAP_NAPI=1, ENABLE_NAPI_GRO=1, ENABLE_WQ_GRO=0
  */
 /* #define ENABLE_NAPI_GRO */
-#ifdef CONFIG_MTK_ECCCI_C2K
-#define ENABLE_WQ_GRO
-#endif
 
 #define  CCMNI_MTU              1500
 #define  CCMNI_TX_QUEUE         1000
@@ -57,10 +54,6 @@
 #define  SIOCCCMNICFG           (SIOCDEVPRIVATE + 1)
 /* forward filter for ccmni tx packet */
 #define  SIOCFWDFILTER          (SIOCDEVPRIVATE + 2)
-/* disable ack first mechanism */
-#define  SIOCACKPRIO          (SIOCDEVPRIVATE + 3)
-
-
 
 #define  IS_CCMNI_LAN(dev)      \
 	(strncmp(dev->name, "ccmni-lan", 9) == 0)
@@ -117,7 +110,6 @@ struct ccmni_instance {
 	int                md_id;
 	struct ccmni_ch    ch;
 	int                net_if_off;
-	unsigned int	   ack_prio_en;
 	atomic_t           usage;
 	/* use pointer to keep these items unique,
 	 * while switching between CCMNI instances

@@ -318,9 +318,6 @@ void musb_host_free_ep_fifo(struct musb *musb, struct musb_qh *qh, u8 is_in)
 	for (i = 0; i < fifo_unit_nr; i++)
 		musb_host_dynamic_fifo_usage_msk &= ~(1 << (idx_start + i));
 
-	if (mtk_host_audio_free_ep_udelay && qh->type == USB_ENDPOINT_XFER_ISOC)
-		udelay(mtk_host_audio_free_ep_udelay);
-
 	if (is_in) {
 		musb_write_rxfifosz(mbase, 0);
 		musb_write_rxfifoadd(mbase, 0);
@@ -671,7 +668,7 @@ static inline void
 {
 	struct musb *musb = qh->hw_ep->musb;
 	u8 epnum = qh->hw_ep->epnum;
-	int toggle;
+	unsigned int toggle;
 
 	DBG(3,
 		"qh->hw_ep->epnum %d, qh->epnum %d\n",
@@ -1035,14 +1032,12 @@ static void musb_rx_reinit
 	/* Set RXMAXP with the FIFO size of the endpoint
 	 * to disable double buffer mode.
 	 */
-	/* ALPS00798316, Enable DMA RxMode1 */
 	if (musb->double_buffer_not_ok)
 		musb_writew(ep->regs, MUSB_RXMAXP, ep->max_packet_sz_rx);
 	else {
 		/* qh->maxpacket | ((qh->hb_mult - 1) << 11)); */
 		musb_writew(ep->regs, MUSB_RXMAXP, qh->maxpacket);
 	}
-	/* ALPS00798316, Enable DMA RxMode1 */
 
 	ep->rx_reinit = 0;
 }
@@ -1090,17 +1085,12 @@ static bool musb_tx_dma_program(struct dma_controller *dma,
 #endif
 
 	if (qh->db_used) {
-		switch (mode) {
-		case 0:
+		if (mode == 0) {
 			musb_host_tx_db_enable(mtk_musb, hw_ep->epnum,
 					false, TX_OPS_DMAMODE0, length);
-			break;
-		case 1:
+		} else {
 			musb_host_tx_db_enable(mtk_musb, hw_ep->epnum,
 					true, TX_OPS_DMAMODE1, length);
-			break;
-		default:
-			break;
 		}
 	}
 
@@ -1361,9 +1351,7 @@ finish:
 		if (/*(is_cppi_enabled() || tusb_dma_omap()) && */
 			dma_channel) {
 			/* Candidate for DMA */
-/* ALPS00798316, Enable DMA RxMode1 */
 #if 0
-/* ALPS00798316, Enable DMA RxMode1 */
 			dma_channel->actual_len = 0L;
 			qh->segsize = len;
 
@@ -1393,7 +1381,6 @@ finish:
 				csr |= MUSB_RXCSR_DMAENAB;
 #endif
 
-/* ALPS00798316, Enable DMA RxMode1 */
 #else
 			dma_channel->actual_len = 0L;
 			qh->segsize = len;
@@ -1553,7 +1540,6 @@ finish:
 
 			}
 #endif
-/* ALPS00798316, Enable DMA RxMode1 */
 		}
 
 		csr |= MUSB_RXCSR_H_REQPKT;	/* ask packet from the device */
@@ -1847,6 +1833,7 @@ done:
 
 
 /* Service a Tx-Available or dma completion irq for the endpoint */
+#define HW_HOST_TX_TIME    (1000000000)
 void musb_host_tx(struct musb *musb, u8 epnum)
 {
 	int pipe;
@@ -2025,8 +2012,8 @@ void musb_host_tx(struct musb *musb, u8 epnum)
 
 				diff_ns = timeval_to_ns(&tv_after) -
 					timeval_to_ns(&tv_before);
-				/* 5 ms for timeout */
-				if (diff_ns >= 5000000) {
+				/* 1 second for timeout */
+				if (diff_ns >= HW_HOST_TX_TIME) {
 					timeout = 1;
 					break;
 				}
@@ -2337,7 +2324,6 @@ void musb_host_rx(struct musb *musb, u8 epnum)
 	if (dma && (rx_csr & MUSB_RXCSR_DMAENAB)) {
 		xfer_len = dma->actual_len;
 
-/* ALPS00798316, Enable DMA RxMode1 */
 /* DBG(7, "urb->actual_length = %d, xfer_len = %d,
  * urb->transfer_buffer_length = %d,
  * dma->actual_len=%d, qh->maxpacket = %d\n",
@@ -2345,13 +2331,11 @@ void musb_host_rx(struct musb *musb, u8 epnum)
  * dma->actual_len, qh->maxpacket);
  */
 #if 0
-/* ALPS00798316, Enable DMA RxMode1 */
 		val &= ~(MUSB_RXCSR_DMAENAB
 				| MUSB_RXCSR_H_AUTOREQ
 				| MUSB_RXCSR_AUTOCLEAR
 				| MUSB_RXCSR_RXPKTRDY);
 
-/* ALPS00798316, Enable DMA RxMode1 */
 #else
 		val &= ~(MUSB_RXCSR_DMAENAB
 				| MUSB_RXCSR_H_AUTOREQ
@@ -2359,7 +2343,6 @@ void musb_host_rx(struct musb *musb, u8 epnum)
 				| MUSB_RXCSR_RXPKTRDY
 				| MUSB_RXCSR_DMAMODE);	/* should be clear! */
 #endif
-/* ALPS00798316, Enable DMA RxMode1 */
 
 		musb_writew(hw_ep->regs, MUSB_RXCSR, val);
 
@@ -3132,12 +3115,10 @@ static int musb_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 				is_in ? "in" : "out",
 				qh);
 
-	if (pos < 256) {
-		snprintf(info + pos, 256 - pos, ",rdy<%d>,prev<%d>,cur<%d>",
+	snprintf(info + pos, 256, ",rdy<%d>,prev<%d>,cur<%d>",
 				qh->is_ready,
 				urb->urb_list.prev != &qh->hep->urb_list,
 				musb_ep_get_qh(qh->hw_ep, is_in) == qh);
-	}
 
 	if (strstr(current->comm, "usb_call"))
 		DBG_LIMIT(5, "%s", info);

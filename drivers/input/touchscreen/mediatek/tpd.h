@@ -161,9 +161,10 @@ extern int tpd_em_spl_num;
 extern int tpd_em_pressure_threshold;
 extern struct tpd_device *tpd;
 extern void tpd_get_dts_info(void);
+extern void pinctrl_release(void);
 #define GTP_RST_PORT    0
 #define GTP_INT_PORT    1
-extern void tpd_gpio_as_int(int pin);
+extern int tpd_gpio_as_int(int pin);
 extern void tpd_gpio_output(int pin, int level);
 extern const struct of_device_id touch_of_match[];
 #ifdef TPD_DEBUG_CODE

@@ -65,10 +65,9 @@ obj-y += wdma20/
 endif
 endif
 
-ifneq (y, $(filter y, $(CONFIG_MACH_MT6757) $(CONFIG_MACH_KIBOPLUS)))
+ifneq (y, $(filter y, $(CONFIG_MACH_MT6779)))
 obj-y += layering_rule_base/
 endif
-
 ccflags-y += \
 				-I$(srctree)/drivers/misc/mediatek/video/include     \
 				-I$(srctree)/drivers/misc/mediatek/video/common/IPv1     \

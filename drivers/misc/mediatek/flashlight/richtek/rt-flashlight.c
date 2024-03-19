@@ -29,9 +29,6 @@ static const char * const flashlight_mode_string[] = {
 	[FLASHLIGHT_MODE_TORCH] = "Torch",
 	[FLASHLIGHT_MODE_FLASH] = "Flash",
 	[FLASHLIGHT_MODE_MIXED] = "Mixed",
-	[FLASHLIGHT_MODE_DUAL_FLASH] = "Flash",
-	[FLASHLIGHT_MODE_DUAL_TORCH] = "Torch",
-	[FLASHLIGHT_MODE_DUAL_OFF] = "Off",
 };
 
 static ssize_t flashlight_show_name(struct device *dev,
@@ -477,6 +474,64 @@ int flashlight_set_strobe_timeout(
 	return -EINVAL;
 }
 EXPORT_SYMBOL(flashlight_set_strobe_timeout);
+
+int flashlight_set_fled_en(struct flashlight_device *flashlight_dev, bool en)
+{
+	int rc = 0;
+
+	if ((flashlight_dev->ops ==  NULL) ||
+	    (flashlight_dev->ops->set_fled_en == NULL))
+		return 0;
+	mutex_lock(&flashlight_dev->ops_lock);
+	rc = flashlight_dev->ops->set_fled_en(flashlight_dev, en);
+	mutex_unlock(&flashlight_dev->ops_lock);
+	if (rc < 0)
+		return rc;
+	return rc;
+}
+EXPORT_SYMBOL(flashlight_set_fled_en);
+
+int flashlight_check_fled_en(struct flashlight_device *flashlight_dev)
+{
+	int rc = 0;
+
+	if ((flashlight_dev->ops ==  NULL) ||
+	    (flashlight_dev->ops->check_fled_en == NULL))
+		return 0;
+	mutex_lock(&flashlight_dev->ops_lock);
+	rc = flashlight_dev->ops->check_fled_en(flashlight_dev);
+	mutex_unlock(&flashlight_dev->ops_lock);
+	if (rc < 0)
+		return rc;
+	return rc;
+}
+EXPORT_SYMBOL(flashlight_check_fled_en);
+
+void mt6370_rt_bled_restore(void)
+{
+	struct flashlight_device *flashlight_dev_bled = NULL;
+	int ret = 0;
+
+	flashlight_dev_bled = find_flashlight_by_name("mt6370_pmu_bled");
+	if (!flashlight_dev_bled) {
+		pr_err("Failed to get mt6370_pmu_bled.\n");
+		return ;
+	}
+
+	ret = flashlight_check_fled_en(flashlight_dev_bled);
+	if(ret){
+		return ;
+	}
+
+	pr_info("pmu_bled ocp/ovp happened, try restore bled_en!\n");
+	/* setup strobe mode timeout */
+	ret = flashlight_set_fled_en(flashlight_dev_bled, true);
+	if (ret < 0){
+		pr_err("Failed to enable mt6370_pmu_bled.\n");
+	}
+	return ;
+}
+EXPORT_SYMBOL(mt6370_rt_bled_restore);
 
 int flashlight_set_mode(struct flashlight_device *flashlight_dev,
 			int mode)

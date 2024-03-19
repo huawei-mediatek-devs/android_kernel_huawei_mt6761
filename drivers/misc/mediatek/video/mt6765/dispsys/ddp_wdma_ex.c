@@ -209,7 +209,7 @@ static int wdma_config(enum DISP_MODULE_ENUM module, unsigned int srcWidth,
 	unsigned int output_swap = ufmt_get_byteswap(out_format);
 	unsigned int is_rgb = ufmt_get_rgb(out_format);
 	unsigned int out_fmt_reg = ufmt_get_format(out_format);
-	int color_matrix = 0x2;	/* 0010 RGB_TO_BT601 */
+	unsigned int color_matrix = 0x2;	/* 0010 RGB_TO_BT601 */
 	unsigned int idx_offst = idx * DISP_WDMA_INDEX_OFFSET;
 	size_t size = dstPitch * clipHeight;
 
@@ -1112,7 +1112,7 @@ int wdma_switch_to_nonsec(enum DISP_MODULE_ENUM module, void *handle)
 
 	if (wdma_is_sec[wdma_idx] == 1) {
 		/* wdma is in sec stat, we need to switch it to nonsec */
-		struct cmdqRecStruct *nonsec_switch_handle;
+		struct cmdqRecStruct *nonsec_switch_handle = { 0};
 		int ret;
 
 		ret = cmdqRecCreate(

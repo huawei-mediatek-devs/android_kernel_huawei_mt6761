@@ -117,7 +117,6 @@ int display_bias_disable(void)
 	return retval;
 }
 EXPORT_SYMBOL(display_bias_disable);
-
 #else
 int display_bias_regulator_init(void)
 {

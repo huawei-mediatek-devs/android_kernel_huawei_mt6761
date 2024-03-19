@@ -245,10 +245,6 @@ int mmc_ffu_install(struct mmc_card *card, u8 *ext_csd)
 		goto exit;
 	}
 
-#ifdef CONFIG_MTK_EMMC_HW_CQ
-	if (card)
-		(void)mmc_blk_cmdq_switch(card, 0);
-#endif
 	/* read ext_csd */
 	while (retry--) {
 		err = mmc_get_ext_csd(card, &ext_csd_new);
@@ -258,10 +254,6 @@ int mmc_ffu_install(struct mmc_card *card, u8 *ext_csd)
 		else
 			break;
 	}
-#ifdef CONFIG_MTK_EMMC_HW_CQ
-	if (card)
-		(void)mmc_blk_cmdq_switch(card, 1);
-#endif
 	if (err) {
 		pr_notice("FFU: %s: sending ext_csd error %d\n",
 			mmc_hostname(card->host), err);
@@ -293,15 +285,11 @@ void mmc_wait_for_ffu_req(struct mmc_host *host, struct mmc_request *mrq)
 #endif
 	u8 *ext_csd = NULL;
 	int err;
+	bool switch_cache = false;
 
-	if (!mmc_card_mmc(card)) {
+	if (!mmc_card_mmc(card) || (cmd->opcode != MMC_FFU_DOWNLOAD_OP
+		&& cmd->opcode != MMC_FFU_INSTALL_OP)) {
 		mrq->cmd->error = -EINVAL;
-		return;
-	} else if (cmd->opcode == MMC_FFU_INSTALL_OP) {
-		/*
-		 * Always return success since we installed when
-		 * MMC_FFU_DOWNLOAD_OP
-		 */
 		return;
 	}
 	/* Read EXT_CSD */
@@ -334,6 +322,7 @@ void mmc_wait_for_ffu_req(struct mmc_host *host, struct mmc_request *mrq)
 	if (card->ext_csd.cache_ctrl) {
 		mmc_flush_cache(card);
 		mmc_ffu_cache_ctrl(card->host, 0);
+		switch_cache = true;
 	}
 
 	/* set device to FFU mode */
@@ -347,39 +336,55 @@ void mmc_wait_for_ffu_req(struct mmc_host *host, struct mmc_request *mrq)
 		goto exit;
 	}
 
+	if (cmd->opcode == MMC_FFU_DOWNLOAD_OP) {
 #ifndef FFU_DUMMY_TEST
-	/* set CMD ARG */
-	cmd->arg = ext_csd[EXT_CSD_FFU_ARG] |
-		ext_csd[EXT_CSD_FFU_ARG + 1] << 8 |
-		ext_csd[EXT_CSD_FFU_ARG + 2] << 16 |
-		ext_csd[EXT_CSD_FFU_ARG + 3] << 24;
+		/* set CMD ARG */
+		cmd->arg = ext_csd[EXT_CSD_FFU_ARG] |
+			ext_csd[EXT_CSD_FFU_ARG + 1] << 8 |
+			ext_csd[EXT_CSD_FFU_ARG + 2] << 16 |
+			ext_csd[EXT_CSD_FFU_ARG + 3] << 24;
 
-	/* If arg is zero, should be set to a special value for samsung
-	 */
-	if (card->cid.manfid == CID_MANFID_SAMSUNG && cmd->arg == 0x0)
-		cmd->arg = 0xc7810000;
+		/* If arg is zero, should be set to a special value for samsung
+		 */
+		if (card->cid.manfid == CID_MANFID_SAMSUNG && cmd->arg == 0x0)
+			cmd->arg = 0xc7810000;
 
-	pr_notice("FFU perform write\n");
+		pr_notice("FFU perform write\n");
 
-	//FFU_ARG, DATA_SECTOR_SIZE
-	mrq->cmd->opcode = MMC_WRITE_MULTIPLE_BLOCK;
-	mrq->stop = &stop;
-	mrq->stop->opcode = MMC_STOP_TRANSMISSION;
-	mrq->stop->arg = 0;
-	mrq->stop->flags = MMC_RSP_R1B | MMC_CMD_AC;
+		//FFU_ARG, DATA_SECTOR_SIZE
+		mrq->cmd->opcode = MMC_WRITE_MULTIPLE_BLOCK;
+		mrq->stop = &stop;
+		mrq->stop->opcode = MMC_STOP_TRANSMISSION;
+		mrq->stop->arg = 0;
+		mrq->stop->flags = MMC_RSP_R1B | MMC_CMD_AC;
 
-	mmc_wait_for_req(card->host, mrq);
-	mmc_ffu_wait_busy(card);
+		mmc_wait_for_req(card->host, mrq);
+		mmc_ffu_wait_busy(card);
 
-	err = mmc_ffu_check_result(mrq);
-	if (err) {
-		pr_notice("FFU: %s: error %d write fail\n",
-				mmc_hostname(card->host), err);
-		goto exit;
-	}
+		err = mmc_ffu_check_result(mrq);
+		if (err) {
+			pr_notice("FFU: %s: error %d write fail\n",
+					mmc_hostname(card->host), err);
+			goto exit;
+		}
 
 #endif
-	err = mmc_ffu_install(card, ext_csd);
+		/* set device back to normal mode */
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+				EXT_CSD_MODE_CONFIG, MMC_FFU_MODE_NORMAL,
+				card->ext_csd.generic_cmd6_time);
+		if (err) {
+			pr_notice("FFU: %s: error %d FFU cann't back to normal mode\n",
+					mmc_hostname(card->host), err);
+			err = -EINVAL;
+			goto exit;
+		}
+
+		if (switch_cache)
+			mmc_ffu_cache_ctrl(card->host, 1);
+	} else if (cmd->opcode == MMC_FFU_INSTALL_OP) {
+		err = mmc_ffu_install(card, ext_csd);
+	}
 
 exit:
 	mrq->cmd->error = err;

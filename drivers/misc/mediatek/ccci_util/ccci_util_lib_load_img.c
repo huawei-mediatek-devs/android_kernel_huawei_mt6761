@@ -45,8 +45,6 @@
 #if defined(CONFIG_MTK_AEE_FEATURE)
 #include <mt-plat/aee.h>
 #endif
-#include "ccci_aee_handle.h"
-
 #define ENABLE_MEM_SIZE_CHECK
 #define MAX_MD_NUM (6)		/* Max 4 internal + Max 2 exteranl */
 
@@ -111,7 +109,7 @@ static int check_md_header_v3(int md_id, void *parse_addr,
 	bool md_sys_match = false;
 	bool md_size_check = false;
 	int idx;
-	unsigned int md_size = 0;
+	unsigned int md_size;
 	unsigned char *start, *ptr;
 	int region_id, domain_id; /* add for v4 v5 */
 	/* struct md_check_header_v3 *head = &md_img_header_v3[md_id]; */
@@ -250,8 +248,7 @@ static int check_md_header_v3(int md_id, void *parse_addr,
 							md_id + 1, image->size,
 							head->md_img_size);
 #if defined(CONFIG_MTK_AEE_FEATURE)
-						ccci_aed_md_exception_api(
-							NULL, 0,
+						aed_md_exception_api(NULL, 0,
 							(const int *)info,
 							sizeof(info),
 							(const char *)title,
@@ -356,7 +353,7 @@ static int md_check_header_parser(int md_id, void *parse_addr,
 	bool md_plat_check = false;
 	bool md_sys_match = false;
 	bool md_size_check = false;
-	unsigned int md_size = 0;
+	unsigned int md_size;
 	unsigned int header_size;
 	int idx, header_up;
 	unsigned char *start, *ptr;
@@ -528,7 +525,7 @@ static int md_check_header_parser(int md_id, void *parse_addr,
 						md_id + 1, image->size,
 						head->md_img_size);
 #if defined(CONFIG_MTK_AEE_FEATURE)
-					ccci_aed_md_exception_api(NULL, 0,
+					aed_md_exception_api(NULL, 0,
 						(const int *)info, sizeof(info),
 						(const char *)title,
 						DB_OPT_DEFAULT);
@@ -612,17 +609,14 @@ static int md_check_header_parser(int md_id, void *parse_addr,
 
 		/* ARM7 only avilable after check header v5 */
 		if (head->header_verno >= 5) {
-			if (headv5) {
-				image->arm7_offset = headv5->arm7_img_offset;
-				image->arm7_size = headv5->arm7_img_size;
-				CCCI_UTIL_INF_MSG_WITH_ID(md_id,
-					"load_image: check_header_v5, arm7_offset = 0x%08X, arm_size = 0x%08X\n",
-					image->arm7_offset,
-					image->arm7_size);
-			} else
-				CCCI_UTIL_INF_MSG_WITH_ID(md_id,
-					"load_image: headv5 is null.\n");
+			image->arm7_offset = headv5->arm7_img_offset;
+			image->arm7_size = headv5->arm7_img_size;
+			CCCI_UTIL_INF_MSG_WITH_ID(md_id,
+				"load_image: check_header_v5, arm7_offset = 0x%08X, arm_size = 0x%08X\n",
+				image->arm7_offset,
+				image->arm7_size);
 		}
+
 		CCCI_UTIL_INF_MSG_WITH_ID(md_id,
 				"(MD)[build_ver]=%s, [build_time]=%s\n",
 				image->img_info.build_ver,
@@ -646,7 +640,7 @@ static int check_md_header(int md_id, void *parse_addr,
 	bool md_plat_check = false;
 	bool md_sys_match = false;
 	bool md_size_check = false;
-	unsigned int md_size = 0;
+	unsigned int md_size;
 	unsigned int header_size;
 	int idx;
 	unsigned char *start, *ptr;
@@ -1014,7 +1008,7 @@ TRY_LOAD_IMG:
 			CCCI_UTIL_ERR_MSG_WITH_ID(md_id,
 			     "Try to load all md image failed:ret=%d!\n", ret);
 #if defined(CONFIG_MTK_AEE_FEATURE)
-			ccci_aed_md_exception_api(NULL, 0, NULL, 0,
+			aed_md_exception_api(NULL, 0, NULL, 0,
 				"Try to load all md image failed!",
 				DB_OPT_DEFAULT);
 #endif

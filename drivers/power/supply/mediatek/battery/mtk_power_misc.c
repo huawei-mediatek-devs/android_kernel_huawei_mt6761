@@ -19,19 +19,18 @@
 #include <linux/kthread.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
-#include <linux/alarmtimer.h>
 
 #include <mt-plat/charger_type.h>
 #include <mt-plat/mtk_battery.h>
-#include <mach/mtk_battery_property.h>
 #else
 #include <string.h>
 #include "simulator_kernel.h"
-#include "mtk_battery_property.h"
 #endif
 #include <mtk_gauge_time_service.h>
+#include <mach/mtk_battery_property.h>
 #include "mtk_battery_internal.h"
 
+#define EXITLOOP	36500
 
 struct shutdown_condition {
 	bool is_overheat;
@@ -42,9 +41,8 @@ struct shutdown_condition {
 };
 
 struct shutdown_controller {
-	struct alarm kthread_fgtimer;
+	struct gtimer kthread_fgtimer;
 	bool timeout;
-	bool overheat;
 	wait_queue_head_t  wait_que;
 	struct shutdown_condition shutdown_status;
 	struct timespec pre_time[SHUTDOWN_FACTOR_MAX];
@@ -52,25 +50,23 @@ struct shutdown_controller {
 	bool lowbatteryshutdown;
 	int batdata[AVGVBAT_ARRAY_SIZE];
 	int batidx;
+	int lbat2_h_count;
 	struct mutex lock;
 	struct notifier_block psy_nb;
 };
 
 static struct shutdown_controller sdc;
-
+static int g_fix_coveriry_power_misc;
 static int g_vbat_lt;
 static int g_vbat_lt_lv1;
 static int shutdown_cond_flag;
 
+extern int product_version;
+#define DOUBLE_85  1
+
 static void wake_up_power_misc(struct shutdown_controller *sdd)
 {
 	sdd->timeout = true;
-	wake_up(&sdd->wait_que);
-}
-
-static void wake_up_overheat(struct shutdown_controller *sdd)
-{
-	sdd->overheat = true;
 	wake_up(&sdd->wait_que);
 }
 
@@ -91,8 +87,7 @@ int get_shutdown_cond(void)
 		ret |= 1;
 	if (sdc.lowbatteryshutdown)
 		ret |= 1;
-	bm_err("%s ret:%d %d %d %d vbat:%d\n",
-		__func__,
+	bm_err("get_shutdown_cond ret:%d %d %d %d vbat:%d\n",
 	ret, sdc.shutdown_status.is_soc_zero_percent,
 	sdc.shutdown_status.is_uisoc_one_percent,
 	sdc.lowbatteryshutdown, vbat);
@@ -122,8 +117,7 @@ int disable_shutdown_cond(int shutdown_cond)
 	if (mt_get_charger_type() != CHARGER_UNKNOWN)
 		now_is_charging = 1;
 
-	bm_err("%s %d, is kpoc %d curr %d is_charging %d flag:%d lb:%d\n",
-		__func__,
+	bm_err("disable_shutdown_cond %d, is kpoc %d curr %d is_charging %d flag:%d lb:%d\n",
 		shutdown_cond, now_is_kpoc, now_current, now_is_charging,
 		shutdown_cond_flag, battery_get_bat_voltage());
 
@@ -166,8 +160,7 @@ int set_shutdown_cond(int shutdown_cond)
 	if (now_current >= 0)
 		now_is_charging = 1;
 
-	bm_err("%s %d %d kpoc %d curr %d is_charging %d flag:%d lb:%d\n",
-		__func__,
+	bm_err("set_shutdown_cond %d %d kpoc %d curr %d is_charging %d flag:%d lb:%d\n",
 		shutdown_cond, enable_lbat_shutdown,
 		now_is_kpoc, now_current, now_is_charging,
 		shutdown_cond_flag, vbat);
@@ -178,15 +171,12 @@ int set_shutdown_cond(int shutdown_cond)
 	if (shutdown_cond_flag == 2 && shutdown_cond != LOW_BAT_VOLT)
 		return 0;
 
-	if (shutdown_cond_flag == 3 && shutdown_cond != DLPT_SHUTDOWN)
-		return 0;
 
 	switch (shutdown_cond) {
 	case OVERHEAT:
 		mutex_lock(&sdc.lock);
 		sdc.shutdown_status.is_overheat = true;
 		mutex_unlock(&sdc.lock);
-		bm_err("[%s]OVERHEAT shutdown!\n", __func__);
 		kernel_power_off();
 		break;
 	case SOC_ZERO_PERCENT:
@@ -199,8 +189,6 @@ int set_shutdown_cond(int shutdown_cond)
 					get_monotonic_boottime(
 						&sdc.pre_time[
 						SOC_ZERO_PERCENT]);
-					bm_err("[%s]soc_zero_percent shutdown\n",
-						__func__);
 					notify_fg_shutdown();
 				}
 			}
@@ -216,8 +204,6 @@ int set_shutdown_cond(int shutdown_cond)
 						true;
 					get_monotonic_boottime(
 					&sdc.pre_time[UISOC_ONE_PERCENT]);
-					bm_err("[%s]uisoc 1 percent shutdown\n",
-						__func__);
 					notify_fg_shutdown();
 				}
 			}
@@ -276,11 +262,12 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 	int polling = 0;
 	static int ui_zero_time_flag;
 	static int down_to_low_bat;
-	int now_current = 0;
 	int current_ui_soc = battery_get_uisoc();
 	int current_soc = battery_get_soc();
 	int vbat = battery_get_bat_voltage();
 	int tmp = 25;
+
+	mutex_lock(&sdd->lock);
 
 	now.tv_sec = 0;
 	now.tv_nsec = 0;
@@ -289,8 +276,7 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 
 	get_monotonic_boottime(&now);
 
-	bm_err("%s:soc_zero:%d,ui 1percent:%d,dlpt_shut:%d,under_shutdown_volt:%d\n",
-		__func__,
+	bm_err("shutdown_event_handler:%d %d %d %d\n",
 		sdd->shutdown_status.is_soc_zero_percent,
 		sdd->shutdown_status.is_uisoc_one_percent,
 		sdd->shutdown_status.is_dlpt_shutdown,
@@ -304,6 +290,7 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 			polling++;
 			if (duraction.tv_sec >= SHUTDOWN_TIME) {
 				bm_err("soc zero shutdown\n");
+				mutex_unlock(&sdd->lock);
 				kernel_power_off();
 				return next_waketime(polling);
 
@@ -317,24 +304,17 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 	}
 
 	if (sdd->shutdown_status.is_uisoc_one_percent) {
-		now_current = battery_get_bat_current();
-
 		if (current_ui_soc == 0) {
 			duraction =
 				timespec_sub(
 				now, sdd->pre_time[UISOC_ONE_PERCENT]);
 			polling++;
 			if (duraction.tv_sec >= SHUTDOWN_TIME) {
-				bm_err("uisoc one percent shutdown\n");
+				bm_err("uisoc one shutdown\n");
+				mutex_unlock(&sdd->lock);
 				kernel_power_off();
 				return next_waketime(polling);
 			}
-		} else if (now_current > 0 && current_soc > 0) {
-			polling = 0;
-			sdd->shutdown_status.is_uisoc_one_percent = 0;
-			bm_err("disable uisoc_one_percent shutdown cur:%d soc:%d\n",
-				now_current, current_soc);
-			return next_waketime(polling);
 		} else {
 			/* ui_soc is not zero, check it after 10s */
 			polling++;
@@ -345,8 +325,9 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 		duraction = timespec_sub(now, sdd->pre_time[DLPT_SHUTDOWN]);
 		polling++;
 		if (duraction.tv_sec >= SHUTDOWN_TIME) {
-			bm_err("dlpt shutdown count, %ld\n",
-				(long int)duraction.tv_sec);
+			bm_err("dlpt shutdown\n");
+			mutex_unlock(&sdd->lock);
+			kernel_power_off();
 			return next_waketime(polling);
 		}
 	}
@@ -363,16 +344,12 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 
 		tmp = battery_get_bat_temperature();
 
-		bm_err("lbatcheck vbat:%d avgvbat:%d %d,%d tmp:%d,bound:%d,th:%d %d,en:%d\n",
+		bm_err("lbatcheck vbat:%d avgvbat:%d %d,%d tmp:%d\n",
 			vbat,
 			sdd->avgvbat,
 			g_vbat_lt,
 			g_vbat_lt_lv1,
-			tmp,
-			BAT_VOLTAGE_LOW_BOUND,
-			LOW_TEMP_THRESHOLD,
-			LOW_TMP_BAT_VOLTAGE_LOW_BOUND,
-			LOW_TEMP_DISABLE_LOW_BAT_SHUTDOWN);
+			tmp);
 
 		if (sdd->avgvbat < BAT_VOLTAGE_LOW_BOUND) {
 			/* avg vbat less than 3.4v */
@@ -384,19 +361,15 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 					LOW_TEMP_DISABLE_LOW_BAT_SHUTDOWN)) {
 					if (tmp >= LOW_TEMP_THRESHOLD) {
 						down_to_low_bat = 1;
-						bm_err("normal tmp, battery voltage is low shutdown\n");
 						notify_fg_shutdown();
 					} else if (sdd->avgvbat <=
 						LOW_TMP_BAT_VOLTAGE_LOW_BOUND) {
 						down_to_low_bat = 1;
-						bm_err("cold tmp, battery voltage is low shutdown\n");
 						notify_fg_shutdown();
 					} else
 						bm_err("low temp disable low battery sd\n");
 				} else {
 					down_to_low_bat = 1;
-					bm_err("[%s]avg vbat is low to shutdown\n",
-						__func__);
 					notify_fg_shutdown();
 				}
 			}
@@ -411,8 +384,8 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 				duraction = timespec_sub(
 					now, sdd->pre_time[LOW_BAT_VOLT]);
 				if (duraction.tv_sec >= SHUTDOWN_TIME) {
-					bm_err("low bat shutdown, over %d second\n",
-						SHUTDOWN_TIME);
+					bm_err("low bat shutdown\n");
+					mutex_unlock(&sdd->lock);
 					kernel_power_off();
 					return next_waketime(polling);
 				}
@@ -426,14 +399,28 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 			polling++;
 		}
 
+		/* escape LOW_BAT_VOLT */
+		if (vbat > 3500)
+			sdd->lbat2_h_count++;
+		else
+			sdd->lbat2_h_count = 0;
+
+		if (sdd->lbat2_h_count >= 3) {
+			bm_err("escape from LOW_BAT_VOLT shutdown_condition:%d\n",
+				sdd->lbat2_h_count);
+			fg_update_sw_low_battery_check(
+				fg_cust_data.vbat2_det_voltage3 / 10);
+			sdd->lbat2_h_count = 0;
+		}
+
 		polling++;
-			bm_err("[%s][UT] V %d ui_soc %d dur %d [%d:%d:%d:%d] batdata[%d] %d\n",
-				__func__,
+			bm_err("[shutdown_event_handler][UT] V %d ui_soc %d dur %d [%d:%d:%d:%d:%d] batdata[%d] %d\n",
 			sdd->avgvbat, current_ui_soc,
 			(int)duraction.tv_sec,
 			down_to_low_bat, ui_zero_time_flag,
 			(int)sdd->pre_time[LOW_BAT_VOLT].tv_sec,
 			sdd->lowbatteryshutdown,
+			sdd->lbat2_h_count,
 			sdd->batidx, sdd->batdata[sdd->batidx]);
 
 		sdd->batidx++;
@@ -442,45 +429,34 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 	}
 
 	bm_err(
-		"%s %d avgvbat:%d sec:%d lowst:%d\n",
-		__func__,
+		"shutdown_event_handler %d avgvbat:%d sec:%d lowst:%d\n",
 		polling, sdd->avgvbat,
 		(int)duraction.tv_sec, sdd->lowbatteryshutdown);
 
+	mutex_unlock(&sdd->lock);
 	return next_waketime(polling);
 
 }
 
-static enum alarmtimer_restart power_misc_kthread_fgtimer_func(
-	struct alarm *alarm, ktime_t now)
+static int power_misc_kthread_fgtimer_func(struct gtimer *data)
 {
 	struct shutdown_controller *info =
-		container_of(
-			alarm, struct shutdown_controller, kthread_fgtimer);
+		container_of(data, struct shutdown_controller, kthread_fgtimer);
 
 	wake_up_power_misc(info);
-	return ALARMTIMER_NORESTART;
+	return 0;
 }
 
 void power_misc_handler(void *arg)
 {
 	struct shutdown_controller *sdd = arg;
-	struct timespec time, time_now, end_time;
-	ktime_t ktime;
-	int secs = 0;
+	int ret;
 
-	secs = shutdown_event_handler(sdd);
-	if (secs != 0 && is_fg_disabled() == false) {
-		get_monotonic_boottime(&time_now);
-		time.tv_sec = secs;
-		time.tv_nsec = 0;
-		end_time = timespec_add(time_now, time);
-		ktime = ktime_set(end_time.tv_sec, end_time.tv_nsec);
-
-		alarm_start(&sdd->kthread_fgtimer, ktime);
-		bm_err("%s:set new alarm timer:%ds\n",
-			__func__, secs);
-	}
+	//mutex_lock(&sdd->lock); // delete by MTK ALPS04212465, no use lock, will hang fuelgauged
+	ret = shutdown_event_handler(sdd);
+	//mutex_unlock(&sdd->lock);
+	if (ret != 0 && is_fg_disabled() == false)
+		gtimer_start(&sdd->kthread_fgtimer, ret);
 
 }
 
@@ -489,19 +465,13 @@ static int power_misc_routine_thread(void *arg)
 	struct shutdown_controller *sdd = arg;
 
 	while (1) {
-		wait_event(sdd->wait_que, (sdd->timeout == true)
-			|| (sdd->overheat == true));
-		if (sdd->timeout == true) {
+		wait_event(sdd->wait_que, (sdd->timeout == true));
 		sdd->timeout = false;
+
 		power_misc_handler(arg);
-	}
-		if (sdd->overheat == true) {
-			sdd->overheat = false;
-			bm_err("%s battery overheat~ power off\n",
-				__func__);
-			kernel_power_off();
-			return 1;
-		}
+
+		if (g_fix_coveriry_power_misc == EXITLOOP)
+			return 0;
 	}
 
 	return 0;
@@ -524,8 +494,8 @@ int mtk_power_misc_psy_event(
 				bm_err(
 					"battery temperature >= %d,shutdown",
 					tmp);
-
-				wake_up_overheat(&sdc);
+				if(product_version != DOUBLE_85)
+					kernel_power_off();
 			}
 		}
 	}
@@ -536,13 +506,13 @@ int mtk_power_misc_psy_event(
 void mtk_power_misc_init(struct platform_device *pdev)
 {
 	mutex_init(&sdc.lock);
-	alarm_init(&sdc.kthread_fgtimer, ALARM_BOOTTIME,
-		power_misc_kthread_fgtimer_func);
+	gtimer_init(&sdc.kthread_fgtimer, &pdev->dev, "power_misc");
+	sdc.kthread_fgtimer.callback = power_misc_kthread_fgtimer_func;
 	init_waitqueue_head(&sdc.wait_que);
-
-	kthread_run(power_misc_routine_thread, &sdc, "power_misc_thread");
 
 	sdc.psy_nb.notifier_call = mtk_power_misc_psy_event;
 	power_supply_reg_notifier(&sdc.psy_nb);
+
+	kthread_run(power_misc_routine_thread, &sdc, "power_misc_thread");
 }
 

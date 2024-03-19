@@ -34,9 +34,12 @@
 #include <mach/upmu_sw.h>
 #include <mt-plat/upmu_common.h>
 #include <mt-plat/mtk_auxadc_intf.h>
+#include <mtk_cpufreq_api.h>
+#if 0 /* FIXME: bring up */
 #include <mtk_gpufreq.h>
 #include <mach/mtk_thermal.h>
 #include <mtk_ppm_api.h>
+#endif
 #endif
 
 #ifndef DISABLE_PBM_FEATURE
@@ -69,21 +72,11 @@ static struct hpf hpf_ctrl = {
 	.loading_flash = MAX_FLASH_POWER,	/* fixed */
 };
 
-static struct hpf hpf_ctrl_manual = {
-	.loading_leakage = 0,
-	.loading_dlpt = 0,
-	.loading_md1 = 0,
-	.loading_cpu = 0,
-	.loading_gpu = 0,
-	.loading_flash = 0,
-};
-
 static struct pbm pbm_ctrl = {
 	/* feature key */
 	.feature_en = 1,
 	.pbm_drv_done = 0,
 	.hpf_en = 63,/* bin: 111111 (Flash, GPU, CPU, MD3, MD1, DLPT) */
-	.manual_mode = 0,
 };
 
 int g_dlpt_need_do = 1;
@@ -164,7 +157,9 @@ int hpf_get_power_leakage(void)
 	struct hpf *hpfmgr = &hpf_ctrl;
 	unsigned int leakage_cpu = 0, leakage_gpu = 0;
 
+#if 0 /* FIXME: bring up */
 	leakage_cpu = mt_ppm_get_leakage_mw(TOTAL_CLUSTER_LKG);
+#endif
 	leakage_gpu = mt_gpufreq_get_leakage_mw();
 	hpfmgr->loading_leakage = leakage_cpu + leakage_gpu;
 
@@ -229,25 +224,14 @@ static void pbm_allocate_budget_manager(void)
 	int cpu_lower_bound = tscpu_get_min_cpu_pwr();
 	static int pre_tocpu, pre_togpu;
 
-	if (pbm_ctrl.manual_mode == 1) {
-		leakage = hpf_ctrl_manual.loading_leakage;
-		dlpt = hpf_ctrl_manual.loading_dlpt;
-		md1 = hpf_ctrl_manual.loading_md1;
-		cpu = hpf_ctrl_manual.loading_cpu;
-		gpu = hpf_ctrl_manual.loading_gpu;
-		flash = hpf_ctrl_manual.loading_flash;
-
-	} else {
-		mutex_lock(&pbm_table_lock);
-		/* dump_kicker_info(); */
-		leakage = hpf_get_power_leakage();
-		md1 = hpf_get_power_md1();
-		dlpt = hpf_get_power_dlpt();
-		cpu = hpf_get_power_cpu();
-		gpu = hpf_get_power_gpu();
-		flash = hpf_get_power_flash();
-		mutex_unlock(&pbm_table_lock);
-	}
+	mutex_lock(&pbm_table_lock);
+	/* dump_kicker_info(); */
+	leakage = hpf_get_power_leakage();
+	md1 = hpf_get_power_md1();
+	dlpt = hpf_get_power_dlpt();
+	cpu = hpf_get_power_cpu();
+	gpu = hpf_get_power_gpu();
+	flash = hpf_get_power_flash();
 
 	if (mt_pbm_log_divisor) {
 		mt_pbm_log_counter = (mt_pbm_log_counter + 1) %
@@ -258,6 +242,8 @@ static void pbm_allocate_budget_manager(void)
 		else
 			mt_pbm_debug = 0;
 	}
+
+	mutex_unlock(&pbm_table_lock);
 
 	/* no any resource can allocate */
 	if (dlpt == 0) {
@@ -703,56 +689,6 @@ static ssize_t mt_pbm_debug_log_reduc_proc_write
 	return count;
 }
 
-static int mt_pbm_manual_mode_proc_show(struct seq_file *m, void *v)
-{
-	if (pbm_ctrl.manual_mode == 1)
-		seq_puts(m, "pbm manual mode enabled\n");
-	else
-		seq_puts(m, "pbm manual disabled\n");
-
-	seq_puts(m, "pbm manual disabled\n");
-
-	return 0;
-}
-
-static ssize_t mt_pbm_manual_mode_proc_write
-(struct file *file, const char __user *buffer, size_t count, loff_t *data)
-{
-	char desc[64];
-	int len = 0, manual_mode = 0;
-	int loading_leakage, loading_dlpt, loading_md1;
-	int loading_cpu, loading_gpu, loading_flash;
-
-	len = (count < (sizeof(desc) - 1)) ? count : (sizeof(desc) - 1);
-	if (copy_from_user(desc, buffer, len))
-		return 0;
-	desc[len] = '\0';
-
-	if (sscanf(desc, "%d %d %d %d %d %d %d", &manual_mode, &loading_dlpt,
-		&loading_leakage, &loading_md1, &loading_cpu, &loading_gpu,
-		&loading_flash) != 7) {
-		pr_notice("parameter number not correct\n");
-		return -EPERM;
-	}
-
-#if defined(CONFIG_MTK_ENG_BUILD)
-	if (manual_mode == 1) {
-		hpf_ctrl_manual.loading_leakage = loading_leakage;
-		hpf_ctrl_manual.loading_dlpt = loading_dlpt;
-		hpf_ctrl_manual.loading_md1 = loading_md1;
-		hpf_ctrl_manual.loading_cpu = loading_cpu;
-		hpf_ctrl_manual.loading_gpu = loading_gpu;
-		hpf_ctrl_manual.loading_flash = loading_flash;
-		pbm_ctrl.manual_mode = 1;
-	} else if (manual_mode == 0)
-		pbm_ctrl.manual_mode = 0;
-	else
-		pr_notice("pbm manual setting should be 0 or 1\n");
-#endif
-
-	return count;
-}
-
 #define PROC_FOPS_RW(name)						\
 static int mt_ ## name ## _proc_open(struct inode *inode, struct file *file)\
 {									\
@@ -786,8 +722,6 @@ PROC_FOPS_RW(pbm_debug);
 
 PROC_FOPS_RW(pbm_debug_log_reduc);
 
-PROC_FOPS_RW(pbm_manual_mode);
-
 static int mt_pbm_create_procfs(void)
 {
 	struct proc_dir_entry *dir = NULL;
@@ -801,7 +735,6 @@ static int mt_pbm_create_procfs(void)
 	const struct pentry entries[] = {
 		PROC_ENTRY(pbm_debug),
 		PROC_ENTRY(pbm_debug_log_reduc),
-		PROC_ENTRY(pbm_manual_mode),
 	};
 
 	dir = proc_mkdir("pbm", NULL);

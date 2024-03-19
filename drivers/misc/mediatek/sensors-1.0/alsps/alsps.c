@@ -48,8 +48,7 @@ int als_data_report(int value, int status)
 		event.word[0] = value;
 		event.status = status;
 		err = sensor_input_event(cxt->als_mdev.minor, &event);
-		if (err >= 0)
-			last_als_report_data = value;
+		last_als_report_data = value;
 	}
 	return err;
 }
@@ -120,7 +119,7 @@ int ps_data_report(int value, int status)
 
 	memset(&event, 0, sizeof(struct sensor_event));
 
-	pr_notice("[ALS/PS]%s! %d, %d\n", __func__, value, status);
+	pr_notice("[ALS/PS]ps_data_report! %d, %d\n", value, status);
 	event.flush_action = DATA_ACTION;
 	event.word[0] = value + 1;
 	event.status = status;
@@ -278,7 +277,7 @@ static struct alsps_context *alsps_context_alloc_object(void)
 {
 	struct alsps_context *obj = kzalloc(sizeof(*obj), GFP_KERNEL);
 
-	pr_debug("%s start\n", __func__);
+	pr_debug("alsps_context_alloc_object++++\n");
 	if (!obj) {
 		pr_err("Alloc alsps object error!\n");
 		return NULL;
@@ -318,7 +317,7 @@ static struct alsps_context *alsps_context_alloc_object(void)
 	obj->ps_delay_ns = -1;
 	obj->ps_latency_ns = -1;
 
-	pr_debug("%s end\n", __func__);
+	pr_debug("alsps_context_alloc_object----\n");
 	return obj;
 }
 
@@ -384,7 +383,7 @@ static int als_enable_and_batch(void)
 		pr_debug("als set ODR, fifo latency done\n");
 		/* start polling, if needed */
 		if (cxt->als_ctl.is_report_input_direct == false) {
-			uint64_t mdelay = cxt->als_delay_ns;
+			int mdelay = cxt->als_delay_ns;
 
 			do_div(mdelay, 1000000);
 			/* defaut max polling delay */
@@ -418,11 +417,11 @@ static ssize_t als_store_active(struct device *dev,
 
 	err = sscanf(buf, "%d,%d", &handle, &en);
 	if (err < 0) {
-		pr_err("%s param error: err = %d\n", __func__, err);
+		pr_err("als_store_active param error: err = %d\n", err);
 		return err;
 	}
 
-	pr_debug("%s buf=%s\n", __func__, buf);
+	pr_debug("als_store_active buf=%s\n", buf);
 	mutex_lock(&alsps_context_obj->alsps_op_mutex);
 	if (handle == ID_LIGHT) {
 		if (en) {
@@ -481,7 +480,7 @@ static ssize_t als_store_active(struct device *dev,
 
 err_out:
 	mutex_unlock(&alsps_context_obj->alsps_op_mutex);
-	pr_debug("%s done\n", __func__);
+	pr_debug(" als_store_active done\n");
 	if (err)
 		return err;
 	else
@@ -509,11 +508,11 @@ static ssize_t als_store_batch(struct device *dev,
 	int64_t delay_ns = 0;
 	int64_t latency_ns = 0;
 
-	pr_debug("%s %s\n", __func__, buf);
+	pr_debug("als_store_batch %s\n", buf);
 	err = sscanf(buf, "%d,%d,%lld,%lld", &handle, &flag, &cxt->als_delay_ns,
 		     &cxt->als_latency_ns);
 	if (err != 4) {
-		pr_err("%s param error: err = %d\n", __func__, err);
+		pr_err("als_store_batch param error: err = %d\n", err);
 		return -1;
 	}
 
@@ -540,7 +539,7 @@ static ssize_t als_store_batch(struct device *dev,
 #endif
 	}
 	mutex_unlock(&alsps_context_obj->alsps_op_mutex);
-	pr_debug("%s done: %d\n", __func__, cxt->is_als_batch_enable);
+	pr_debug(" als_store_batch done: %d\n", cxt->is_als_batch_enable);
 	if (err)
 		return err;
 	else
@@ -562,9 +561,9 @@ static ssize_t als_store_flush(struct device *dev,
 
 	err = kstrtoint(buf, 10, &handle);
 	if (err != 0)
-		pr_err("%s param error: err = %d\n", __func__, err);
+		pr_err("als_store_flush param error: err = %d\n", err);
 
-	pr_debug("%s param: handle %d\n", __func__, handle);
+	pr_debug("als_store_flush param: handle %d\n", handle);
 
 	mutex_lock(&alsps_context_obj->alsps_op_mutex);
 	cxt = alsps_context_obj;
@@ -607,6 +606,7 @@ static ssize_t als_store_cali(struct device *dev,
 	struct alsps_context *cxt = NULL;
 	int err = 0;
 	uint8_t *cali_buf = NULL;
+	pr_info("als_store_cali go in\n");
 
 	cali_buf = vzalloc(count);
 	if (!cali_buf)
@@ -718,7 +718,7 @@ static ssize_t ps_store_active(struct device *dev,
 	struct alsps_context *cxt = alsps_context_obj;
 	int err = 0;
 
-	pr_debug("%s buf=%s\n", __func__, buf);
+	pr_debug("ps_store_active buf=%s\n", buf);
 	mutex_lock(&alsps_context_obj->alsps_op_mutex);
 
 	if (!strncmp(buf, "1", 1))
@@ -726,7 +726,7 @@ static ssize_t ps_store_active(struct device *dev,
 	else if (!strncmp(buf, "0", 1))
 		cxt->ps_enable = 0;
 	else {
-		pr_err("%s error !!\n", __func__);
+		pr_err(" ps_store_active error !!\n");
 		err = -1;
 		goto err_out;
 	}
@@ -737,7 +737,7 @@ static ssize_t ps_store_active(struct device *dev,
 #endif
 err_out:
 	mutex_unlock(&alsps_context_obj->alsps_op_mutex);
-	pr_debug("%s done\n", __func__);
+	pr_debug(" ps_store_active done\n");
 	if (err)
 		return err;
 	else
@@ -762,11 +762,11 @@ static ssize_t ps_store_batch(struct device *dev, struct device_attribute *attr,
 	struct alsps_context *cxt = alsps_context_obj;
 	int handle = 0, flag = 0, err = 0;
 
-	pr_debug("%s %s\n", __func__, buf);
+	pr_debug("ps_store_batch %s\n", buf);
 	err = sscanf(buf, "%d,%d,%lld,%lld", &handle, &flag, &cxt->ps_delay_ns,
 		     &cxt->ps_latency_ns);
 	if (err != 4) {
-		pr_err("%s param error: err = %d\n", __func__, err);
+		pr_err("ps_store_batch param error: err = %d\n", err);
 		return -1;
 	}
 
@@ -781,7 +781,7 @@ static ssize_t ps_store_batch(struct device *dev, struct device_attribute *attr,
 	err = ps_enable_and_batch();
 #endif
 	mutex_unlock(&alsps_context_obj->alsps_op_mutex);
-	pr_debug("%s done: %d\n", __func__, cxt->is_ps_batch_enable);
+	pr_debug("ps_store_batch done: %d\n", cxt->is_ps_batch_enable);
 	if (err)
 		return err;
 	else
@@ -802,9 +802,9 @@ static ssize_t ps_store_flush(struct device *dev, struct device_attribute *attr,
 
 	err = kstrtoint(buf, 10, &handle);
 	if (err != 0)
-		pr_err("%s param error: err = %d\n", __func__, err);
+		pr_err("ps_store_flush param error: err = %d\n", err);
 
-	pr_debug("%s param: handle %d\n", __func__, handle);
+	pr_debug("ps_store_flush param: handle %d\n", handle);
 
 	mutex_lock(&alsps_context_obj->alsps_op_mutex);
 	cxt = alsps_context_obj;
@@ -856,13 +856,13 @@ static ssize_t ps_store_cali(struct device *dev, struct device_attribute *attr,
 
 static int als_ps_remove(struct platform_device *pdev)
 {
-	pr_debug("%s\n", __func__);
+	pr_debug("als_ps_remove\n");
 	return 0;
 }
 
 static int als_ps_probe(struct platform_device *pdev)
 {
-	pr_debug("%s\n", __func__);
+	pr_debug("als_ps_probe\n");
 	pltfm_dev = pdev;
 	return 0;
 }
@@ -893,9 +893,9 @@ static int alsps_real_driver_init(void)
 	int i = 0;
 	int err = 0;
 
-	pr_debug("%s start\n", __func__);
+	pr_debug(" alsps_real_driver_init +\n");
 	for (i = 0; i < MAX_CHOOSE_ALSPS_NUM; i++) {
-		pr_debug("%s i=%d\n", __func__, i);
+		pr_debug("alsps_real_driver_init i=%d\n", i);
 		if (alsps_init_list[i] != 0) {
 			pr_debug(" alsps try to init driver %s\n",
 				  alsps_init_list[i]->name);
@@ -909,7 +909,7 @@ static int alsps_real_driver_init(void)
 	}
 
 	if (i == MAX_CHOOSE_ALSPS_NUM) {
-		pr_debug("%s fail\n", __func__);
+		pr_debug(" alsps_real_driver_init fail\n");
 		err = -1;
 	}
 
@@ -1236,7 +1236,7 @@ static int alsps_probe(void)
 {
 	int err;
 
-	pr_debug("%s start!!\n", __func__);
+	pr_debug("+++++++++++++alsps_probe!!\n");
 	alsps_context_obj = alsps_context_alloc_object();
 	if (!alsps_context_obj) {
 		err = -ENOMEM;
@@ -1249,14 +1249,14 @@ static int alsps_probe(void)
 		pr_err("alsps real driver init fail\n");
 		goto real_driver_init_fail;
 	}
-	pr_debug("%s OK !!\n", __func__);
+	pr_debug("----alsps_probe OK !!\n");
 	return 0;
 
 real_driver_init_fail:
 	kfree(alsps_context_obj);
 	alsps_context_obj = NULL;
 exit_alloc_data_failed:
-	pr_err("%s fail !!!\n", __func__);
+	pr_err("----alsps_probe fail !!!\n");
 	return err;
 }
 

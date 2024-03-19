@@ -36,12 +36,9 @@ int pmic_get_battery_voltage(void)
 #if defined(CONFIG_POWER_EXT) || defined(CONFIG_FPGA_EARLY_PORTING)
 	bat = 4201;
 #else
-
-#if !defined(CONFIG_MTK_PMIC_CHIP_MT6355)
 	if (is_isense_supported() && is_power_path_supported())
 		bat = pmic_get_auxadc_value(AUXADC_LIST_ISENSE);
 	else
-#endif
 		bat = pmic_get_auxadc_value(AUXADC_LIST_BATADC);
 #endif
 	return bat;
@@ -145,7 +142,6 @@ int pmic_get_charging_current(void)
 #if defined(CONFIG_POWER_EXT) || defined(CONFIG_FPGA_EARLY_PORTING)
 	return 0;
 #else
-#if !defined(CONFIG_MTK_PMIC_CHIP_MT6355)
 	int v_batsns = 0, v_isense = 0;
 
 	if (is_isense_supported() && !is_power_path_supported()) {
@@ -154,7 +150,7 @@ int pmic_get_charging_current(void)
 
 		return (v_isense - v_batsns) * 1000 / charger_get_rsense();
 	}
-#endif
+
 	return 0;
 #endif
 }

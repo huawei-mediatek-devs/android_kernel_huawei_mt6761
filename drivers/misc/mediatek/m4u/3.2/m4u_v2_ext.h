@@ -91,7 +91,7 @@ struct m4u_client_t {
 };
 
 struct port_mva_info_t {
-	int module_id;
+	int eModuleID;
 	unsigned long va;
 	unsigned int BufSize;
 	int security;
@@ -107,7 +107,7 @@ struct sg_table *m4u_create_sgtable(unsigned long va, unsigned int size);
 int m4u_alloc_mva_sg(struct port_mva_info_t *port_info,
 		struct sg_table *sg_table);
 
-int m4u_dealloc_mva_sg(int module_id,
+int m4u_dealloc_mva_sg(int eModuleID,
 		       struct sg_table *sg_table,
 		       const unsigned int BufSize, const unsigned int MVA);
 int m4u_config_port_ext(struct M4U_PORT_STRUCT *pM4uPort);
@@ -115,8 +115,6 @@ int m4u_mva_map_kernel(unsigned int mva, unsigned int size,
 		       unsigned long *map_va, unsigned int *map_size);
 int m4u_mva_unmap_kernel(unsigned int mva,
 	unsigned int size, unsigned long va);
-
-void m4u_call_atf_debug(int m4u_debug_id);
 
 enum m4u_callback_ret_t {
 	M4U_CALLBACK_HANDLED,

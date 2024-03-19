@@ -82,13 +82,11 @@ static int answer_call_gesture_batch(int flag,
 }
 static int answer_call_recv_data(struct data_unit_t *event, void *reserved)
 {
-	int err = 0;
-
 	if (event->flush_action == FLUSH_ACTION)
 		pr_debug("answer_call do not support flush\n");
 	else if (event->flush_action == DATA_ACTION)
-		err = situation_notify(ID_ANSWER_CALL);
-	return err;
+		situation_notify(ID_ANSWER_CALL);
+	return 0;
 }
 
 static int ancallhub_local_init(void)

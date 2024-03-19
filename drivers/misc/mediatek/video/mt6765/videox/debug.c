@@ -396,7 +396,7 @@ static void bmp_adjust(void *buf, int size, int w, int h)
 struct test_buf_info {
 	struct ion_client *ion_client;
 #ifdef CONFIG_MTK_M4U
-	struct m4u_client_t *m4u_client;
+	m4u_client_t *m4u_client;
 #endif
 	struct ion_handle *handle;
 	size_t size;
@@ -408,11 +408,11 @@ struct test_buf_info {
 static int alloc_buffer_from_ion(size_t size, struct test_buf_info *buf_info)
 {
 #if defined(MTK_FB_ION_SUPPORT)
-	struct ion_client *client;
-	struct ion_mm_data mm_data;
-	struct ion_handle *handle;
-	size_t mva_size;
-	ion_phys_addr_t phy_addr;
+	struct ion_client *client = NULL;
+	struct ion_mm_data mm_data ={0};
+	struct ion_handle *handle = NULL;
+	size_t mva_size = 0;
+	ion_phys_addr_t phy_addr = 0;
 
 	client = ion_client_create(g_ion_device, "disp_test");
 	buf_info->ion_client = client;
@@ -483,7 +483,10 @@ static int alloc_buffer_from_dma(size_t size, struct test_buf_info *buf_info)
 		static struct sg_table table;
 		struct sg_table *sg_table = &table;
 
-		sg_alloc_table(sg_table, 1, GFP_KERNEL);
+		ret = sg_alloc_table(sg_table, 1, GFP_KERNEL);
+		if (ret)
+			DISPWARN(
+			"Allocate an sg table fail: %d\n", ret);
 
 		sg_dma_address(sg_table->sgl) = buf_info->buf_pa;
 		sg_dma_len(sg_table->sgl) = size_align;
@@ -605,8 +608,8 @@ static int __maybe_unused compare_dsi_checksum(unsigned long unused)
 
 static int __maybe_unused check_dsi_checksum(void)
 {
-	struct cmdqRecStruct *handle;
-	int ret;
+	struct cmdqRecStruct *handle = NULL;
+	int ret = 0;
 
 	if (!cksum_golden)
 		return 0;
@@ -1039,7 +1042,10 @@ static void process_dbg_opt(const char *opt)
 #ifdef CONFIG_MTK_DISPLAY_120HZ_SUPPORT
 	} else if (strncmp(opt, "odbypass:", 9) == 0) {
 		char *p = (char *)opt + 9;
-		int bypass = kstrtoul(p, 16, (unsigned long int *)&p);
+		int bypass = 0;
+		ret = kstrtoul(p, 16, (unsigned long int *)&bypass);
+		if (ret)
+			DISPWARN("DISP/%s:odbypass errno %d\n", __func__, ret);
 
 		primary_display_od_bypass(bypass);
 		DISPMSG("OD bypass: %d\n", bypass);
@@ -1194,13 +1200,11 @@ static void process_dbg_opt(const char *opt)
 	} else if (strncmp(opt, "lcm0_reset", 10) == 0) {
 		DISPCHECK("lcm0_reset\n");
 #if 1
-		if (pgc->state == DISP_ALIVE) {
-			DISP_CPU_REG_SET(DISP_REG_CONFIG_MMSYS_LCM_RST_B, 1);
-			msleep(20);
-			DISP_CPU_REG_SET(DISP_REG_CONFIG_MMSYS_LCM_RST_B, 0);
-			msleep(20);
-			DISP_CPU_REG_SET(DISP_REG_CONFIG_MMSYS_LCM_RST_B, 1);
-		}
+		DISP_CPU_REG_SET(DISP_REG_CONFIG_MMSYS_LCM_RST_B, 1);
+		msleep(20);
+		DISP_CPU_REG_SET(DISP_REG_CONFIG_MMSYS_LCM_RST_B, 0);
+		msleep(20);
+		DISP_CPU_REG_SET(DISP_REG_CONFIG_MMSYS_LCM_RST_B, 1);
 #else
 #ifdef CONFIG_MTK_LEGACY
 		mt_set_gpio_mode(GPIO106 | 0x80000000, GPIO_MODE_00);
@@ -1309,10 +1313,13 @@ static void process_dbg_opt(const char *opt)
 		enable_idlemgr(flg);
 	} else if (strncmp(opt, "fps:", 4) == 0) {
 		char *p = (char *)opt+4;
-		int fps = kstrtoul(p, 10, (unsigned long int *)&p);
+		unsigned long int fps = 0;
+		ret = kstrtoul(p, 10, &fps);
+		if (ret)
+			DISPWARN("DISP/%s:fps errno %d\n", __func__, ret);
 
 		DDPMSG("change fps\n");
-		primary_display_set_lcm_refresh_rate(fps);
+		primary_display_set_lcm_refresh_rate((int)fps);
 		return;
 	} else if (strncmp(opt, "disp_mode:", 10) == 0) {
 		char *p = (char *)opt + 10;
@@ -1519,13 +1526,18 @@ static void process_dbg_opt(const char *opt)
 			}
 			dump_output = 0;
 		} else if (strncmp(opt + 12, "save", 4) == 0) {
-			int w, h, bytes;
-			struct file *bmp;
+			int w = 0, h = 0, bytes = 0;
+			struct file *bmp = NULL;
 
 			if (dump_output == 0)
 				dump_output = 1;
 			w = disp_helper_get_option(DISP_OPT_FAKE_LCM_WIDTH);
 			h = disp_helper_get_option(DISP_OPT_FAKE_LCM_HEIGHT);
+			if((w == 0) || (h == 0)) {
+				DISPWARN("Failed to get w:%d h:%d\n", w, h);
+				return;
+			}
+
 			bytes = w * h * 3;
 			if (composed_buf == NULL)
 				composed_buf = vmalloc(bytes);

@@ -72,7 +72,7 @@ static void ppm_get_cluster_status(struct ppm_cluster_status *cl_status)
 static int ppm_cpu_freq_callback(struct notifier_block *nb,
 			unsigned long val, void *data)
 {
-	struct ppm_cluster_status cl_status[NR_PPM_CLUSTERS] = { {0} };
+	struct ppm_cluster_status cl_status[NR_PPM_CLUSTERS];
 	struct cpufreq_freqs *freq = data;
 	int cpu = freq->cpu;
 	int i, is_root_cpu = 0;
@@ -111,7 +111,7 @@ static struct notifier_block ppm_cpu_freq_notifier = {
 static int ppm_cpu_hotplug_callback(struct notifier_block *nfb,
 			unsigned long action, void *hcpu)
 {
-	struct ppm_cluster_status cl_status[NR_PPM_CLUSTERS] = { {0} };
+	struct ppm_cluster_status cl_status[NR_PPM_CLUSTERS];
 #ifdef PPM_SSPM_SUPPORT
 	int i;
 #endif
@@ -315,8 +315,8 @@ unsigned int mt_ppm_get_leakage_mw(enum ppm_cluster_lkg cluster)
 
 	/* read total leakage */
 	if (cluster >= TOTAL_CLUSTER_LKG) {
-		struct ppm_cluster_status cl_status[NR_PPM_CLUSTERS] = { {0} };
-		int i = 0;
+		struct ppm_cluster_status cl_status[NR_PPM_CLUSTERS];
+		int i;
 
 		ppm_get_cluster_status(cl_status);
 
@@ -358,7 +358,7 @@ unsigned int get_cluster_ptpod_fix_freq_idx(unsigned int id)
 {
 	int val = mt_cpufreq_get_cpu_level();
 
-	if (val == 5 || val == 8)
+	if (val == 5)
 		return PTPOD_FREQ_IDX_LY;
 	else
 		return PTPOD_FREQ_IDX;

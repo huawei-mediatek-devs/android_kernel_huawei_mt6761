@@ -130,8 +130,7 @@ int auxadc_priv_read_channel(int channel)
 	if (auxadc_chan->convert_fn)
 		auxadc_chan->convert_fn(1);
 
-	if (auxadc_chan->regs->ch_rqst != -1)
-		auxadc_write(auxadc_chan->regs->ch_rqst, 1);
+	auxadc_write(auxadc_chan->regs->ch_rqst, 1);
 	udelay(auxadc_chan->avg_num * AUXADC_AVG_TIME_US);
 
 	while (auxadc_read(auxadc_chan->regs->ch_rdy) != 1) {
@@ -147,13 +146,6 @@ int auxadc_priv_read_channel(int channel)
 		auxadc_chan->convert_fn(0);
 
 	return val;
-}
-
-unsigned char *auxadc_get_r_ratio(int channel)
-{
-	const struct auxadc_channels *auxadc_chan = &auxadc_chans[channel];
-
-	return (unsigned char *)auxadc_chan->r_ratio;
 }
 
 #if defined CONFIG_MTK_PMIC_WRAP
@@ -219,8 +211,7 @@ static unsigned short get_auxadc_out(struct mt635x_auxadc_device *adc_dev,
 	if (auxadc_chan->convert_fn)
 		auxadc_chan->convert_fn(1);
 
-	if (auxadc_chan->regs->ch_rqst != -1)
-		auxadc_write(auxadc_chan->regs->ch_rqst, 1);
+	auxadc_write(auxadc_chan->regs->ch_rqst, 1);
 	udelay(auxadc_chan->avg_num * AUXADC_AVG_TIME_US);
 
 	while (auxadc_read(auxadc_chan->regs->ch_rdy) != 1) {
@@ -230,11 +221,12 @@ static unsigned short get_auxadc_out(struct mt635x_auxadc_device *adc_dev,
 			break;
 		}
 	}
-	auxadc_out = auxadc_read(auxadc_chan->regs->ch_out);
 	pmic_auxadc_chip_timeout_handler(
 		adc_dev->dev,
 		is_timeout,
 		auxadc_chan->ch_num);
+
+	auxadc_out = auxadc_read(auxadc_chan->regs->ch_out);
 
 	if (auxadc_chan->convert_fn)
 		auxadc_chan->convert_fn(0);
@@ -284,7 +276,7 @@ static int mt635x_auxadc_read_raw(struct iio_dev *indio_dev,
 			auxadc_chan->ch_name, auxadc_chan->ch_num,
 			auxadc_out, *val);
 	} else {
-		PMICLOG("name:%s, channel=%d, adc_out=0x%x, adc_result=%d\n",
+		HKLOG("name:%s, channel=%d, adc_out=0x%x, adc_result=%d\n",
 			auxadc_chan->ch_name, auxadc_chan->ch_num,
 			auxadc_out, *val);
 	}
@@ -315,7 +307,7 @@ static int auxadc_get_data_from_dt(struct mt635x_auxadc_device *adc_dev,
 	struct device_node *node)
 {
 	struct auxadc_channels *auxadc_chan;
-	unsigned int value = 0, val_arr[2] = {0};
+	unsigned int value, val_arr[2];
 	int ret;
 
 	ret = of_property_read_u32(node, "channel", channel);
@@ -324,7 +316,7 @@ static int auxadc_get_data_from_dt(struct mt635x_auxadc_device *adc_dev,
 			"invalid channel in node:%s\n", node->name);
 		return ret;
 	}
-	if (*channel < AUXADC_CHAN_MIN || *channel > AUXADC_CHAN_MAX) {
+	if (*channel > AUXADC_CHAN_MAX) {
 		dev_err(adc_dev->dev,
 			"invalid channel number %d in node:%s\n",
 			*channel, node->name);
@@ -471,15 +463,7 @@ static struct platform_driver mt635x_auxadc_driver = {
 	.probe	= mt635x_auxadc_probe,
 	.remove	= mt635x_auxadc_remove,
 };
-#if 1 /* internal version */
-static int __init mt635x_auxadc_driver_init(void)
-{
-	return platform_driver_register(&mt635x_auxadc_driver);
-}
-fs_initcall(mt635x_auxadc_driver_init);
-#else
 module_platform_driver(mt635x_auxadc_driver);
-#endif
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Jeter Chen <Jeter.Chen@mediatek.com>");

@@ -276,6 +276,28 @@ static int disp_flush(struct file *file, fl_owner_t a_id)
 	return 0;
 }
 
+/* remap register to user space */
+#if defined(CONFIG_MT_ENG_BUILD)
+static int disp_mmap(struct file *file, struct vm_area_struct *a_pstVMArea)
+{
+#if (defined(CONFIG_MTK_TEE_GP_SUPPORT) || \
+	defined(CONFIG_TRUSTONIC_TEE_SUPPORT)) && \
+	defined(CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT)
+	a_pstVMArea->vm_page_prot =
+		pgprot_noncached(a_pstVMArea->vm_page_prot);
+	if (remap_pfn_range(a_pstVMArea, a_pstVMArea->vm_start,
+			a_pstVMArea->vm_pgoff,
+		    (a_pstVMArea->vm_end - a_pstVMArea->vm_start),
+		    a_pstVMArea->vm_page_prot)) {
+		DDPERR("MMAP failed!!\n");
+		return -1;
+	}
+#endif
+
+	return 0;
+}
+#endif
+
 struct dispsys_device {
 	struct device *dev;
 };
@@ -299,6 +321,9 @@ static const struct file_operations disp_fops = {
 	.release = disp_release,
 	.flush = disp_flush,
 	.read = disp_read,
+#if defined(CONFIG_MT_ENG_BUILD)
+	.mmap = disp_mmap
+#endif
 };
 
 /* disp_clk_init
@@ -390,10 +415,7 @@ static inline unsigned int virq_to_hwirq(unsigned int virq)
 
 	desc = irq_to_desc(virq);
 
-	if (!desc) {
-		WARN_ON(1);
-		return 0;
-	}
+	WARN_ON(!desc);
 
 	hwirq = gic_irq(&desc->irq_data);
 
@@ -647,19 +669,28 @@ static void __exit disp_exit(void)
 	device_destroy(disp_class, disp_devno);
 	class_destroy(disp_class);
 }
+#ifdef CONFIG_LCD_KIT_DRIVER
+extern void  lcd_kit_bias_enable(void);
+#endif
 
 static int __init disp_late(void)
 {
+#ifndef CONFIG_LCD_KIT_DRIVER
 	int ret = 0;
-
+#endif
 	DDPMSG("disp driver(1) disp_late begin\n");
+#ifdef CONFIG_LCD_KIT_DRIVER
+#if defined(CONFIG_RT5081_PMU_DSV) || defined(CONFIG_MT6370_PMU_DSV)
+      lcd_kit_bias_enable();
+#endif
+#else
 	/* for rt5081 */
 	ret = display_bias_regulator_init();
 	if (ret < 0)
 		pr_info("get dsv_pos fail, ret = %d\n", ret);
 
 	display_bias_enable();
-
+#endif
 	DDPMSG("disp driver(1) disp_late end\n");
 	return 0;
 }

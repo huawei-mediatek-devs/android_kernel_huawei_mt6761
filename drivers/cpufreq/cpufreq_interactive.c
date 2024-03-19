@@ -34,7 +34,7 @@
 
 #if defined(CONFIG_CPU_FREQ_SCHED_ASSIST)
 /* removed : && defined(CONFIG_MTK_ACAO_SUPPORT)*/
-#include "mach/mtk_cpufreq_api.h"
+#include <mtk_cpufreq_api.h>
 #endif
 
 #define CREATE_TRACE_POINTS

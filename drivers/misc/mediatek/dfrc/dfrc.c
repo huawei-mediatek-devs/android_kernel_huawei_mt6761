@@ -140,7 +140,6 @@ static int g_init_done;
 static int g_forbid_vsync;
 static int g_use_video_mode;
 static struct DFRC_DRV_PANEL_INFO_LIST g_fps_info;
-static struct DFRC_DRV_REFRESH_RANGE g_default_fps_info = {0, 60, 60};
 static struct DFRC_DRV_WINDOW_STATE g_window_state;
 static struct DFRC_DRV_FOREGROUND_WINDOW_INFO g_fg_window_info;
 
@@ -1131,7 +1130,7 @@ static void dfrc_dump_info(void)
 			g_hwc_info.num_display, g_hwc_info.single_layer);
 	dfrc_idump("Force window pid[%d]\n", g_input_window_info.pid);
 	dfrc_idump("Foreground window pid[%d]\n", g_fg_window_info.pid);
-	dfrc_idump("Window state[%08x]\n", g_window_state.window_flag);
+	dfrc_idump("Window state[%08x]\n", g_window_state);
 	dfrc_idump("Forbid adjusting VSync[%d]\n", g_forbid_vsync);
 	dfrc_idump("Allow RRC policy[0x%x]\n", g_allow_rrc_policy);
 	dfrc_idump("Use video mode[%d]\n", g_use_video_mode);
@@ -1157,7 +1156,7 @@ static void dfrc_dump_policy_list(void)
 				node->policy.pid);
 		dfrc_idump("  fps[%d]  mode[%d]",
 				node->policy.fps, node->policy.mode);
-		dfrc_idump("  target_pid[%d]  context_id[%llu  flag[0x%x]\n",
+		dfrc_idump("  target_pid[%d]  context_id[%p]  flag[0x%x]\n",
 				node->policy.target_pid,
 				node->policy.gl_context_id,
 				node->policy.flag);
@@ -1194,7 +1193,7 @@ static void dfrc_dump_statistics_set(void)
 						policy->pid);
 				dfrc_idump("    fps[%d]  mode[%d]",
 						policy->fps, policy->mode);
-				dfrc_idump("  t_pid[%d]  context_id[%llu]\n",
+				dfrc_idump("  t_pid[%d]  context_id[%d]\n",
 						policy->target_pid,
 						policy->gl_context_id);
 			}
@@ -1803,31 +1802,26 @@ static int dfrc_probe(struct platform_device *pdev)
 	g_fps_info.num = 1;
 	g_fps_info.range = vmalloc(sizeof(struct DFRC_DRV_REFRESH_RANGE) *
 					g_fps_info.num);
-	if (g_fps_info.range != NULL) {
 #ifdef PLATFORM_SUPPORT_ARR
-		g_fps_info.range[0].min_fps =
-			primary_display_arr20_get_min_refresh_rate(0);
-		g_fps_info.range[0].max_fps =
-			primary_display_arr20_get_max_refresh_rate(0);
+	g_fps_info.range[0].min_fps =
+		primary_display_arr20_get_min_refresh_rate(0);
+	g_fps_info.range[0].max_fps =
+		primary_display_arr20_get_max_refresh_rate(0);
 #else
-		if (primary_display_get_min_refresh_rate) {
-			g_fps_info.range[0].min_fps =
-				primary_display_get_min_refresh_rate();
-		} else {
-			g_fps_info.range[0].min_fps = 60;
-		}
-
-		if (primary_display_get_max_refresh_rate) {
-			g_fps_info.range[0].max_fps =
-				primary_display_get_max_refresh_rate();
-		} else {
-			g_fps_info.range[0].max_fps = 60;
-		}
-#endif
+	if (primary_display_get_min_refresh_rate) {
+		g_fps_info.range[0].min_fps =
+			primary_display_get_min_refresh_rate();
 	} else {
-		pr_info("failed to create REFRESH_RANGE, use default value");
-		g_fps_info.range = &g_default_fps_info;
+		g_fps_info.range[0].min_fps = 60;
 	}
+
+	if (primary_display_get_max_refresh_rate) {
+		g_fps_info.range[0].max_fps =
+			primary_display_get_max_refresh_rate();
+	} else {
+		g_fps_info.range[0].max_fps = 60;
+	}
+#endif
 
 	dfrc_init_kernel_policy();
 

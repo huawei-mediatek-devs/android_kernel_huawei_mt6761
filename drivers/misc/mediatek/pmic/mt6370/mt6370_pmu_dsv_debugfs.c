@@ -27,7 +27,7 @@
 int irq_count[DSV_MODE_MAX];
 
 #define IRQ_COUNT_MAX 20
-#define MT6370_DB_VBST_MAX_V 0x2C	/*6.2v*/
+#define MT6370_DB_VBST_MAX_V 0x2B	/*6.15v*/
 #define MT6370_PMU_REG_DB_VBST_MASK 0x3F
 #define DB_MASK_DEFAULT_SHIFT 0x3
 
@@ -124,7 +124,7 @@ static ssize_t mt6370_pmu_dsv_debug_write(struct file *file,
 	int flag = 0;
 	ssize_t res;
 	char *token;
-	unsigned int val = 0;
+	unsigned int val;
 
 	if (*ppos != 0 || size >= sizeof(lbuf) || size == 0)
 		return -EINVAL;
@@ -153,7 +153,7 @@ static ssize_t mt6370_pmu_dsv_debug_write(struct file *file,
 		b += strlen("irq_disable ");
 		flag = DSV_VAR_IRQ_DISABLE;
 	} else
-		return -EINVAL;
+		flag = DSV_VAR_MAX;
 
 	token = strsep(&b, " ");
 	if (token == NULL)
@@ -190,7 +190,7 @@ static ssize_t mt6370_pmu_dsv_debug_write(struct file *file,
 		break;
 	default:
 		pr_info("[%s] do nothing\n", __func__);
-		break;
+		return -EINVAL;
 	}
 
 	return size;

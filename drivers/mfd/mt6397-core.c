@@ -71,12 +71,12 @@ static const struct mfd_cell mt6323_devs[] = {
 		.name = "mt6323-pmic",
 		.of_compatible = "mediatek,mt6323-pmic"
 	}, {
-		.name = "mt6397-rtc",
+		.name = "mt6323-rtc",
 		.num_resources = ARRAY_SIZE(mt6323_rtc_resources),
 		.resources = mt6323_rtc_resources,
 		.of_compatible = "mediatek,mt6323-rtc",
 	}, {
-		.name = "mt6397-misc",
+		.name = "mt6323-misc",
 		.num_resources = ARRAY_SIZE(mt6323_rtc_resources),
 		.resources = mt6323_rtc_resources,
 		.of_compatible = "mediatek,mt6323-misc",
@@ -354,7 +354,8 @@ static int mt6397_probe(struct platform_device *pdev)
 
 	default:
 		dev_err(&pdev->dev, "unsupported chip: %d\n", id);
-		return -ENODEV;
+		ret = -ENODEV;
+		break;
 	}
 
 	if (ret) {

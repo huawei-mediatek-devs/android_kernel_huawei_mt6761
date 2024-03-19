@@ -408,7 +408,7 @@ int musb_hub_control(struct usb_hcd *hcd,
 			break;	/* wz */
 			/* if (unlikely(is_host_active(musb))) */
 			/* goto error; */
-
+			#if 0
 			wIndex >>= 8;
 			switch (wIndex) {
 			case 1:
@@ -445,6 +445,7 @@ int musb_hub_control(struct usb_hcd *hcd,
 			}
 			musb_writeb(musb->mregs, MUSB_TESTMODE, temp);
 			break;
+			#endif
 		default:
 			goto error;
 		}

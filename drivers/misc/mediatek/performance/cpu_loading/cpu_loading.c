@@ -434,7 +434,7 @@ static ssize_t cpu_loading_poltime_secs_proc_write(
 	}
 
 	/*check both poltime_secs and poltime_nsecs can't be zero */
-	if (!(poltime_nsecs | val)) {
+	if (!(poltime_nsecs || val)) {
 
 		trace_cpu_loading_log("cpu_loading",
 				"both 0, val:%d poltime_nsecs:%lu",
@@ -464,7 +464,8 @@ static ssize_t cpu_loading_poltime_nsecs_proc_write(
 		struct file *filp, const char *ubuf,
 		size_t cnt, loff_t *data)
 {
-	unsigned long ret, val;
+	unsigned long val = 0;
+	int ret;
 
 	char buf[64];
 
@@ -480,14 +481,8 @@ static ssize_t cpu_loading_poltime_nsecs_proc_write(
 	if (ret < 0)
 		return ret;
 
-	if (val >  UINT_MAX || val < 0) {
-
-		trace_cpu_loading_log("cpu_loading",
-				"out of range val:%lu", val);
-		return -EINVAL;
-	}
 	/*check both poltime_secs and poltime_nsecs can't be zero */
-	if (!(poltime_secs | val)) {
+	if (!(poltime_secs || val)) {
 
 		trace_cpu_loading_log("cpu_loading",
 				"both 0, val:%lu poltime_secs:%d",
@@ -688,6 +683,9 @@ static int init_cpu_loading_kobj(void)
 
 	cpu_loading_object =
 		kzalloc(sizeof(struct cpu_loading_context), GFP_KERNEL);
+
+	if (!cpu_loading_object)
+		return -1;
 
 	trace_cpu_loading_log("cpu_loading", "init_cpu_loading_obj start");
 	/* dev init */

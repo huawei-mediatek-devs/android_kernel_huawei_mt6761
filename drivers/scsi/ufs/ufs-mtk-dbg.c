@@ -17,7 +17,6 @@
 
 #define pr_fmt(fmt) "["KBUILD_MODNAME"]" fmt
 
-#include <linux/atomic.h>
 #include <linux/sched.h>
 #include <linux/kthread.h>
 #include <linux/delay.h>
@@ -43,14 +42,13 @@
 #ifdef CONFIG_MTK_UFS_DEBUG
 #define MAX_UFS_CMD_HLIST_ENTRY_CNT (500)
 /* max dump size is 40KB whitch can be adjusted */
-#define UFS_AEE_BUFFER_SIZE (100 * 1024)
+#define UFS_AEE_BUFFER_SIZE (40 * 1024)
 
 struct ufs_cmd_hlist_struct ufs_cmd_hlist[MAX_UFS_CMD_HLIST_ENTRY_CNT];
 int ufs_cmd_ptr = MAX_UFS_CMD_HLIST_ENTRY_CNT - 1;
 int ufs_cmd_cnt;
 static spinlock_t ufs_mtk_cmd_dump_lock;
 static int ufs_mtk_is_cmd_dump_lock_init;
-static atomic_t cmd_hist_enabled;
 char ufs_aee_buffer[UFS_AEE_BUFFER_SIZE];
 
 static void ufs_mtk_dbg_dump_feature(struct ufs_hba *hba, struct seq_file *m)
@@ -70,10 +68,8 @@ static void ufs_mtk_dbg_dump_feature(struct ufs_hba *hba, struct seq_file *m)
 }
 #endif
 
-void ufs_mtk_dbg_add_trace(struct ufs_hba *hba,
-	enum ufs_trace_event event, u32 tag,
-	u8 lun, u32 transfer_len, sector_t lba, u8 opcode,
-	unsigned long long ppn, u32 region, u32 subregion, u32 resv)
+void ufs_mtk_dbg_add_trace(enum ufs_trace_event event, u32 tag,
+	u8 lun, u32 transfer_len, sector_t lba, u8 opcode)
 {
 #ifdef CONFIG_MTK_UFS_DEBUG
 	int ptr;
@@ -82,12 +78,7 @@ void ufs_mtk_dbg_add_trace(struct ufs_hba *hba,
 	if (!ufs_mtk_is_cmd_dump_lock_init) {
 		spin_lock_init(&ufs_mtk_cmd_dump_lock);
 		ufs_mtk_is_cmd_dump_lock_init = 1;
-
-		atomic_set(&cmd_hist_enabled, 1);
 	}
-
-	if (!atomic_read(&cmd_hist_enabled))
-		return;
 
 	spin_lock_irqsave(&ufs_mtk_cmd_dump_lock, flags);
 
@@ -98,7 +89,6 @@ void ufs_mtk_dbg_add_trace(struct ufs_hba *hba,
 
 	ptr = ufs_cmd_ptr;
 
-	ufs_cmd_hlist[ptr].pid = current->pid;
 	ufs_cmd_hlist[ptr].event = event;
 	ufs_cmd_hlist[ptr].tag = tag;
 	ufs_cmd_hlist[ptr].transfer_len = transfer_len;
@@ -107,33 +97,9 @@ void ufs_mtk_dbg_add_trace(struct ufs_hba *hba,
 	ufs_cmd_hlist[ptr].opcode = opcode;
 	ufs_cmd_hlist[ptr].time = sched_clock();
 	ufs_cmd_hlist[ptr].duration = 0;
-	ufs_cmd_hlist[ptr].rq = NULL;
-#if defined(CONFIG_UFSHPB)
-	ufs_cmd_hlist[ptr].ppn = ppn;
-	ufs_cmd_hlist[ptr].region = region;
-	ufs_cmd_hlist[ptr].subregion = subregion;
-	ufs_cmd_hlist[ptr].resv = resv;
-#endif
-
-	/* keep request pointer to dig out block layer status */
-	if ((event == UFS_TRACE_SEND) || (event == UFS_TRACE_COMPLETED)) {
-		if (hba->lrb[tag].cmd && hba->lrb[tag].cmd->request) {
-			ufs_cmd_hlist[ptr].rq =
-				hba->lrb[tag].cmd->request;
-			ufs_cmd_hlist[ptr].crypted =
-				hba->lrb[tag].crypto_en;
-			ufs_cmd_hlist[ptr].keyslot =
-				ufs_cmd_hlist[ptr].crypted ?
-				hba->lrb[tag].crypto_cfgid : 0;
-		}
-	}
 
 	if (event == UFS_TRACE_COMPLETED) {
-		if (ufs_cmd_ptr == 0)
-			ptr = MAX_UFS_CMD_HLIST_ENTRY_CNT - 1;
-		else
-			ptr = ufs_cmd_ptr - 1;
-
+		ptr = ufs_cmd_ptr - 1;
 		while (1) {
 			if (ufs_cmd_hlist[ptr].tag == tag) {
 				ufs_cmd_hlist[ufs_cmd_ptr].duration =
@@ -146,19 +112,19 @@ void ufs_mtk_dbg_add_trace(struct ufs_hba *hba,
 				ptr = MAX_UFS_CMD_HLIST_ENTRY_CNT - 1;
 
 
-			if (ufs_cmd_ptr == 0) {
-				if (ptr == (MAX_UFS_CMD_HLIST_ENTRY_CNT - 1))
-					break;
-			} else {
-				if (ptr == ufs_cmd_ptr - 1)
-					break;
-			}
+			if (ptr == ufs_cmd_ptr - 1)
+				break;
 		}
 	}
 
 	ufs_cmd_cnt++;
 
 	spin_unlock_irqrestore(&ufs_mtk_cmd_dump_lock, flags);
+	/*
+	 * pr_info("[ufs]%d,%d,op=0x%x,lun=%u,t=%d,lba=%llu,len=%u,time=%llu\n",
+	 * ptr, event, opcode, lun, tag, (u64)(lba >> 3),
+	 * transfer_len, sched_clock());
+	 */
 #endif
 }
 
@@ -188,45 +154,17 @@ void ufs_mtk_dbg_dump_trace(char **buff, unsigned long *size,
 	ptr = ufs_cmd_ptr;
 
 	SPREAD_PRINTF(buff, size, m,
-		"[ufs] CMD History: req_cnt=%d, real_cnt=%d, ptr=%d\n",
+		"[ufs]cmd history:req_cnt=%d,real_cnt=%d,ptr=%d\n",
 		latest_cnt, dump_cnt, ptr);
 
 	while (dump_cnt > 0) {
 
-		if ((ufs_cmd_hlist[ptr].event >= UFS_TRACE_UIC_SEND) &&
-			(ufs_cmd_hlist[ptr].event <=
-			UFS_TRACE_UIC_CMPL_PWR_CTRL)) {
-
-			SPREAD_PRINTF(buff, size, m,
-				"%3d-u,%5d,%2d,0x%2X,arg1=0x%X,arg2=0x%X,arg3=0x%X,%llu\n",
-				ptr,
-				ufs_cmd_hlist[ptr].pid,
-				ufs_cmd_hlist[ptr].event,
-				ufs_cmd_hlist[ptr].opcode,       /* command */
-				ufs_cmd_hlist[ptr].tag,          /* argument1 */
-				ufs_cmd_hlist[ptr].transfer_len, /* argument2 */
-				(u32)ufs_cmd_hlist[ptr].lba,     /* argument3 */
-				(u64)ufs_cmd_hlist[ptr].time
-				);
-
-		} else if (ufs_cmd_hlist[ptr].event == UFS_TRACE_REG_TOGGLE) {
-
-			SPREAD_PRINTF(buff, size, m,
-				"%3d-g,%5d,state=%d,on=%d,%llu\n",
-				ptr,
-				ufs_cmd_hlist[ptr].pid,
-				ufs_cmd_hlist[ptr].tag,          /* state */
-				ufs_cmd_hlist[ptr].transfer_len, /* on or off */
-				(u64)ufs_cmd_hlist[ptr].time
-				);
-
-		} else if (ufs_cmd_hlist[ptr].event == UFS_TRACE_TM_SEND ||
+		if (ufs_cmd_hlist[ptr].event == UFS_TRACE_TM_SEND ||
 			ufs_cmd_hlist[ptr].event == UFS_TRACE_TM_COMPLETED) {
 
 			SPREAD_PRINTF(buff, size, m,
-				"%3d-t,%5d,%2d,tm=0x%x,t=%2d,lun=0x%x,data=0x%x,%llu\n",
+				"[ufs]%d-t,%d,tm=0x%x,t=%d,lun=0x%x,data=0x%x,%llu\n",
 				ptr,
-				ufs_cmd_hlist[ptr].pid,
 				ufs_cmd_hlist[ptr].event,
 				ufs_cmd_hlist[ptr].opcode,
 				ufs_cmd_hlist[ptr].tag,
@@ -239,9 +177,8 @@ void ufs_mtk_dbg_dump_trace(char **buff, unsigned long *size,
 			ufs_cmd_hlist[ptr].event == UFS_TRACE_DEV_COMPLETED) {
 
 			SPREAD_PRINTF(buff, size, m,
-				"%3d-d,%5d,%2d,0x%2x,t=%2d,lun=0x%x,idn=0x%x,idx=0x%x,sel=0x%x,%llu\n",
+				"[ufs]%d-d,%d,0x%x,t=%d,lun=0x%x,idn=0x%x,idx=0x%x,sel=0x%x,%llu\n",
 				ptr,
-				ufs_cmd_hlist[ptr].pid,
 				ufs_cmd_hlist[ptr].event,
 				ufs_cmd_hlist[ptr].opcode,
 				ufs_cmd_hlist[ptr].tag,
@@ -253,31 +190,19 @@ void ufs_mtk_dbg_dump_trace(char **buff, unsigned long *size,
 				);
 
 		} else {
+
 			SPREAD_PRINTF(buff, size, m,
-				"%3d-r,%5d,%2d,0x%2x,t=%2d,lun=0x%x,crypt:%d,%d,lba=0x%llx,len=%6d,%llu,\t%llu",
+				"[ufs]%3d-r,%d,0x%x,t=%2d,lun=0x%x,lba=%lld,len=%6d,%llu,\t%llu\n",
 				ptr,
-				ufs_cmd_hlist[ptr].pid,
 				ufs_cmd_hlist[ptr].event,
 				ufs_cmd_hlist[ptr].opcode,
 				ufs_cmd_hlist[ptr].tag,
 				ufs_cmd_hlist[ptr].lun,
-				ufs_cmd_hlist[ptr].crypted,
-				ufs_cmd_hlist[ptr].keyslot,
 				(long long int)ufs_cmd_hlist[ptr].lba,
 				ufs_cmd_hlist[ptr].transfer_len,
 				(u64)ufs_cmd_hlist[ptr].time,
 				(u64)ufs_cmd_hlist[ptr].duration
 				);
-#if defined(CONFIG_UFSHPB)
-			SPREAD_PRINTF(buff, size, m,
-				",\tppn=0x%llx,\tregion=0x%x,\tsubregion=0x%x,\tresv=0x%x",
-				ufs_cmd_hlist[ptr].ppn,
-				ufs_cmd_hlist[ptr].region,
-				ufs_cmd_hlist[ptr].subregion,
-				ufs_cmd_hlist[ptr].resv
-				);
-#endif
-			SPREAD_PRINTF(buff, size, m, "\n");
 		}
 
 		dump_cnt--;
@@ -310,8 +235,6 @@ void ufs_mtk_dbg_hang_detect_dump(void)
 
 	ufs_mtk_dbg_dump_trace(NULL, NULL,
 		ufs_mtk_hba->nutrs + ufs_mtk_hba->nutrs / 2, NULL);
-
-	ufshcd_print_all_uic_err_hist(ufs_mtk_hba, NULL, NULL, NULL);
 #endif
 }
 
@@ -331,8 +254,6 @@ void ufs_mtk_dbg_proc_dump(struct seq_file *m)
 
 	ufs_mtk_dbg_dump_trace(NULL, NULL,
 		MAX_UFS_CMD_HLIST_ENTRY_CNT, m);
-
-	ufshcd_print_all_uic_err_hist(ufs_mtk_hba, m, NULL, NULL);
 #endif
 }
 
@@ -351,9 +272,6 @@ void get_ufs_aee_buffer(unsigned long *vaddr, unsigned long *size)
 	ufshcd_print_host_state(ufs_mtk_hba, 0, NULL, &buff, &free_size);
 	ufs_mtk_dbg_dump_trace(&buff, &free_size,
 		MAX_UFS_CMD_HLIST_ENTRY_CNT, NULL);
-
-	ufshcd_print_all_uic_err_hist(ufs_mtk_hba,
-		NULL, &buff, &free_size);
 
 	/* retrun start location */
 	*vaddr = (unsigned long)ufs_aee_buffer;
@@ -405,8 +323,6 @@ static int ufsdbg_dump_health_desc(struct seq_file *file)
 
 out:
 	return err;
-#else
-	return 0;
 #endif
 }
 
@@ -432,24 +348,26 @@ static int ufs_help_proc_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+int ufs_g_count;
 /* ========== driver proc interface =========== */
 static int ufs_debug_proc_show(struct seq_file *m, void *v)
 {
-	unsigned long cmd;
+	int cmd = -1;
+	int sscanf_num;
+	int p1, p2, p3, p4, p5, p6, p7, p8;
 
-	seq_printf(m, "ufsdbg: debug command: %s\n", cmd_buf);
+	p1 = p2 = p3 = p4 = p5 = p6 = p7 = p8 = -1;
 
-	if (kstrtoul(cmd_buf, 10, &cmd))
-		cmd = UFS_CMDS_DUMP;
+	cmd_buf[ufs_g_count] = '\0';
+	seq_printf(m, "Debug Command:  %s\n", cmd_buf);
 
-	cmd_buf[0] = '\0';
+	sscanf_num = sscanf(cmd_buf, "%x %x %x %x %x %x %x %x %x", &cmd,
+		&p1, &p2, &p3, &p4, &p5, &p6, &p7, &p8);
+
+	ufs_g_count = 0;
+	cmd_buf[ufs_g_count] = '\0';
 
 	if (cmd == UFS_CMDS_DUMP) {
-		/*
-		 * Default print cmd history for aee:
-		 * JE/NE/ANR/EE/SWT/system api dump
-		 */
-		seq_puts(m, "==== UFS Debug Info ====\n");
 		ufs_mtk_dbg_proc_dump(m);
 	} else if (cmd == UFS_GET_PWR_MODE) {
 		seq_puts(m, "(1:FAST 2:SLOW 4:FAST_AUTO 5:SLOW_AUTO 7:UNCHANGE)\n");
@@ -466,6 +384,14 @@ static int ufs_debug_proc_show(struct seq_file *m, void *v)
 			ufs_mtk_hba->pwr_info.lane_rx);
 	} else if (cmd == UFS_DUMP_HEALTH_DESCRIPTOR) {
 		ufsdbg_dump_health_desc(m);
+
+	} else {
+		/*
+		 * Default print cmd history for aee:
+		 * JE/NE/ANR/EE/SWT/system api dump
+		 */
+		seq_puts(m, "==== ufs debug info for aee ====\n");
+		ufs_mtk_dbg_proc_dump(m);
 	}
 
 	return 0;
@@ -474,38 +400,16 @@ static int ufs_debug_proc_show(struct seq_file *m, void *v)
 static ssize_t ufs_debug_proc_write(struct file *file, const char *buf,
 	size_t count, loff_t *data)
 {
-	unsigned long op = 0;
-	bool handled = false;
+	int ret;
 
-	if (count == 0 || count > 255)
-		return -EINVAL;
-
-	if (copy_from_user(cmd_buf, buf, count))
-		return -EINVAL;
-
-	/*
-	 * Let's handle simple commands here.
-	 * Simple command can be executed immediately
-	 * after command is written and do not need further
-	 * "read" or "cat" anymore.
-	 */
-	cmd_buf[count] = '\0';
-	if (kstrtoul(cmd_buf, 10, &op))
-		return -EINVAL;
-
-	if (op == UFS_CMD_HIST_BEGIN) {
-		atomic_set(&cmd_hist_enabled, 1);
-		pr_info("ufsdbg: cmd history on\n");
-		handled = true;
-	} else if (op == UFS_CMD_HIST_STOP) {
-		atomic_set(&cmd_hist_enabled, 0);
-		pr_info("ufsdbg: cmd history off\n");
-		handled = true;
-	}
-
-	if (handled)
-		cmd_buf[0] = '\0';
-
+	if (count == 0)
+		return -1;
+	if (count > 255)
+		count = 255;
+	ufs_g_count = count;
+	ret = copy_from_user(cmd_buf, buf, count);
+	if (ret < 0)
+		return -1;
 	return count;
 }
 

@@ -42,9 +42,7 @@
 #include "scp_ipi.h"
 #include "scp_helper.h"
 #include "scp_excep.h"
-#if SCP_DVFS_INIT_ENABLE
 #include "scp_dvfs.h"
-#endif
 
 struct mutex scp_awake_mutexs[SCP_CORE_TOTAL];
 
@@ -65,7 +63,7 @@ int scp_awake_lock(enum scp_core_id scp_id)
 	unsigned int tmp;
 
 	if (scp_id >= SCP_CORE_TOTAL) {
-		pr_notice("%s: SCP ID >= SCP_CORE_TOTAL\n", __func__);
+		pr_notice("scp_awake_lock: SCP ID >= SCP_CORE_TOTAL\n");
 		return ret;
 	}
 
@@ -73,7 +71,7 @@ int scp_awake_lock(enum scp_core_id scp_id)
 	core_id = core_ids[scp_id];
 
 	if (is_scp_ready(scp_id) == 0) {
-		pr_notice("%s: %s not enabled\n", __func__, core_id);
+		pr_notice("scp_awake_lock: %s not enabled\n", core_id);
 		return ret;
 	}
 
@@ -91,15 +89,9 @@ int scp_awake_lock(enum scp_core_id scp_id)
 
 	count = 0;
 	while (++count != SCP_AWAKE_TIMEOUT) {
-#if SCP_RECOVERY_SUPPORT
-		if (atomic_read(&scp_reset_status) == RESET_STATUS_START) {
-			pr_notice("%s: resetting scp, break\n", __func__);
-			break;
-		}
-#endif  // SCP_RECOVERY_SUPPORT
 		tmp = readl(INFRA_IRQ_SET);
 		if ((tmp & 0xf0) != 0xA0) {
-			pr_notice("%s: INFRA_IRQ_SET %x\n", __func__, tmp);
+			pr_notice("scp_awake_lock: INFRA_IRQ_SET %x\n", tmp);
 			break;
 		}
 		if (!((tmp & 0x0f) & (1 << AP_AWAKE_LOCK))) {
@@ -109,21 +101,21 @@ int scp_awake_lock(enum scp_core_id scp_id)
 		udelay(10);
 	}
 	/* clear status */
-	writel(readl(INFRA_IRQ_SET), INFRA_IRQ_CLEAR);
+	writel(0xA0 | (1 << AP_AWAKE_LOCK), INFRA_IRQ_CLEAR);
 
 	/* scp lock awake success*/
 	if (ret != -1)
 		*scp_awake_count = *scp_awake_count + 1;
 
 	if (ret == -1) {
-		pr_notice("%s: awake %s fail..\n", __func__, core_id);
+		pr_notice("scp_awake_lock: awake %s fail..\n", core_id);
 		WARN_ON(1);
 #if SCP_RECOVERY_SUPPORT
 		if (scp_set_reset_status() == RESET_STATUS_STOP) {
-			pr_notice("%s: start to reset scp...\n", __func__);
+			pr_notice("scp_awake_lock: start to reset scp...\n");
 			scp_send_reset_wq(RESET_TYPE_AWAKE);
 		} else
-			pr_notice("%s: scp resetting\n", __func__);
+			pr_notice("scp_awake_lock: scp resetting\n");
 #endif
 	}
 
@@ -149,7 +141,7 @@ int scp_awake_unlock(enum scp_core_id scp_id)
 	unsigned int tmp;
 
 	if (scp_id >= SCP_CORE_TOTAL) {
-		pr_notice("%s: SCP ID >= SCP_CORE_TOTAL\n", __func__);
+		pr_notice("scp_awake_unlock: SCP ID >= SCP_CORE_TOTAL\n");
 		return -1;
 	}
 
@@ -157,7 +149,7 @@ int scp_awake_unlock(enum scp_core_id scp_id)
 	core_id = core_ids[scp_id];
 
 	if (is_scp_ready(scp_id) == 0) {
-		pr_notice("%s: %s not enabled\n", __func__, core_id);
+		pr_notice("scp_awake_unlock: %s not enabled\n", core_id);
 		return -1;
 	}
 
@@ -175,15 +167,9 @@ int scp_awake_unlock(enum scp_core_id scp_id)
 
 	count = 0;
 	while (++count != SCP_AWAKE_TIMEOUT) {
-#if SCP_RECOVERY_SUPPORT
-		if (atomic_read(&scp_reset_status) == RESET_STATUS_START) {
-			pr_notice("%s: scp is being reset, break\n", __func__);
-			break;
-		}
-#endif  // SCP_RECOVERY_SUPPORT
 		tmp = readl(INFRA_IRQ_SET);
 		if ((tmp & 0xf0) != 0xA0) {
-			pr_notice("%s: INFRA7_IRQ_SET %x\n", __func__, tmp);
+			pr_notice("scp_awake_unlock: INFRA7_IRQ_SET %x\n", tmp);
 			break;
 		}
 		if (!((tmp & 0x0f) & (1 << AP_AWAKE_UNLOCK))) {
@@ -193,13 +179,13 @@ int scp_awake_unlock(enum scp_core_id scp_id)
 		udelay(10);
 	}
 	/* clear status */
-	writel(readl(INFRA_IRQ_SET), INFRA_IRQ_CLEAR);
+	writel(0xA0 | (1 << AP_AWAKE_UNLOCK), INFRA_IRQ_CLEAR);
 
 	/* scp unlock awake success*/
 	if (ret != -1) {
 		if (*scp_awake_count <= 0)
-			pr_notice("%s:%s awake_count=%d NOT SYNC!\n",
-				__func__, core_id, *scp_awake_count);
+			pr_err("scp_awake_unlock:%sawake_count=%d NOT SYNC!\n",
+						 core_id, *scp_awake_count);
 
 		if (*scp_awake_count > 0)
 			*scp_awake_count = *scp_awake_count - 1;
@@ -216,19 +202,13 @@ void scp_enable_sram(void)
 {
 	uint32_t reg_temp;
 
-	/* enable sram, enable 1 block per time */
+	/*enable sram, enable 1 block per time*/
 	for (reg_temp = 0xffffffff; reg_temp != 0;) {
 		reg_temp = reg_temp >> 1;
 		writel(reg_temp, SCP_SRAM_PDN);
 	}
-
-	/*
-	 * l1c sram, 64K / tail sram, +32k
-	 * L1_SRAM_PD / d_l1c_SRAM_PD / d_l1c_tag_SRAM_PD
-	 * / p_l1c_SRAM_PD / p_l1c_tag_SRAM_PD
-	 */
+	/*enable scp all TCM*/
 	writel(0, SCP_CLK_CTRL_L1_SRAM_PD);
-	/* TCM_TAIL_SRAM_PD */
 	writel(0, SCP_CLK_CTRL_TCM_TAIL_SRAM_PD);
 }
 
@@ -239,11 +219,11 @@ int scp_sys_full_reset(void)
 {
 	pr_debug("[SCP]reset\n");
 	/*copy loader to scp sram*/
-	memcpy_to_scp(SCP_TCM, (const void *)(size_t)scp_loader_base_virt,
-		scp_region_info_copy.ap_loader_size);
+	memcpy_to_scp(SCP_TCM, (const void *)(size_t)scp_loader_base_virt
+		, scp_region_info_copy.ap_loader_size);
 	/*set info to sram*/
-	memcpy_to_scp(scp_region_info, (const void *)&scp_region_info_copy,
-		sizeof(scp_region_info_copy));
+	memcpy_to_scp(scp_region_info, (const void *)&scp_region_info_copy
+			, sizeof(scp_region_info_copy));
 	return 0;
 }
 

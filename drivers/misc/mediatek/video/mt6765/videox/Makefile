@@ -57,6 +57,10 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/video/include/     \
              -I$(srctree)/drivers/misc/mediatek/gpu/ged/include/ \
              -I$(srctree)/drivers/iommu/
 
+ifeq ($(CONFIG_LCD_KIT_DRIVER),y)
+ccflags-y += -Idrivers/devkit/lcdkit/lcdkit3.0/kernel/common/include
+endif
+
 subdir-ccflags-y += -I$(srctree)/drivers/staging/android/ion \
 		    -I$(srctree)/drivers/staging/android/ion/mtk
 

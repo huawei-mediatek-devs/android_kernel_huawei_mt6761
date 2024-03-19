@@ -25,9 +25,6 @@
 
 #include "../inc/mt6360_pmu.h"
 
-bool dbg_log_en; /* module param to enable/disable debug log */
-module_param(dbg_log_en, bool, 0644);
-
 static const struct mt6360_pmu_platform_data def_platform_data = {
 	.irq_gpio = -1,
 };
@@ -54,7 +51,7 @@ int mt6360_pmu_reg_read(struct mt6360_pmu_info *mpi, u8 addr)
 	struct rt_reg_data rrd = {0};
 	int ret;
 
-	mt_dbg(mpi->dev, "%s: reg[%02x]\n", __func__, addr);
+	dev_dbg(mpi->dev, "%s: reg[%02x]\n", __func__, addr);
 	mutex_lock(&mpi->io_lock);
 	ret = rt_regmap_reg_read(mpi->regmap, &rrd, addr);
 	mutex_unlock(&mpi->io_lock);
@@ -63,7 +60,7 @@ int mt6360_pmu_reg_read(struct mt6360_pmu_info *mpi, u8 addr)
 	u8 data = 0;
 	int ret;
 
-	mt_dbg(mpi->dev, "%s: reg[%02x]\n", __func__, addr);
+	dev_dbg(mpi->dev, "%s: reg[%02x]\n", __func__, addr);
 	mutex_lock(&mpi->io_lock);
 	ret = mt6360_pmu_read_device(mpi->i2c, addr, 1, &data);
 	mutex_unlock(&mpi->io_lock);
@@ -78,17 +75,15 @@ int mt6360_pmu_reg_write(struct mt6360_pmu_info *mpi, u8 addr, u8 data)
 	struct rt_reg_data rrd = {0};
 	int ret;
 
-	mt_dbg(mpi->dev, "%s reg[%02x] data [%02x]\n", __func__, addr, data);
+	dev_dbg(mpi->dev, "%s reg[%02x] data [%02x]\n", __func__, addr, data);
 	mutex_lock(&mpi->io_lock);
 	ret = rt_regmap_reg_write(mpi->regmap, &rrd, addr, data);
-	if (ret < 0)
-		rt_regmap_cache_reload(mpi->regmap);
 	mutex_unlock(&mpi->io_lock);
 	return ret;
 #else
 	int ret;
 
-	mt_dbg(mpi->dev, "%s reg[%02x] data [%02x]\n", __func__, addr, data);
+	dev_dbg(mpi->dev, "%s reg[%02x] data [%02x]\n", __func__, addr, data);
 	mutex_lock(&mpi->io_lock);
 	ret = mt6360_pmu_write_device(mpi->i2c, addr, 1, &data);
 	mutex_unlock(&mpi->io_lock);
@@ -104,7 +99,7 @@ int mt6360_pmu_reg_update_bits(struct mt6360_pmu_info *mpi,
 	struct rt_reg_data rrd = {0};
 	int ret;
 
-	mt_dbg(mpi->dev,
+	dev_dbg(mpi->dev,
 		"%s reg[%02x], mask[%02x], data[%02x]\n",
 		__func__, addr, mask, data);
 	mutex_lock(&mpi->io_lock);
@@ -115,7 +110,7 @@ int mt6360_pmu_reg_update_bits(struct mt6360_pmu_info *mpi,
 	u8 org = 0;
 	int ret;
 
-	mt_dbg(mpi->dev,
+	dev_dbg(mpi->dev,
 		"%s reg[%02x], mask[%02x], data[%02x]\n",
 		__func__, addr, mask, data);
 	mutex_lock(&mpi->io_lock);
@@ -138,7 +133,7 @@ int mt6360_pmu_reg_block_read(struct mt6360_pmu_info *mpi,
 #ifdef CONFIG_RT_REGMAP
 	int ret;
 
-	mt_dbg(mpi->dev, "%s addr[%02x], len[%d]\n", __func__, addr, len);
+	dev_dbg(mpi->dev, "%s addr[%02x], len[%d]\n", __func__, addr, len);
 	mutex_lock(&mpi->io_lock);
 	ret = rt_regmap_block_read(mpi->regmap, addr, len, dst);
 	mutex_unlock(&mpi->io_lock);
@@ -146,7 +141,7 @@ int mt6360_pmu_reg_block_read(struct mt6360_pmu_info *mpi,
 #else
 	int ret;
 
-	mt_dbg(mpi->dev, "%s addr[%02x], len[%d]\n", __func__, addr, len);
+	dev_dbg(mpi->dev, "%s addr[%02x], len[%d]\n", __func__, addr, len);
 	mutex_lock(&mpi->io_lock);
 	ret = mt6360_pmu_read_device(mpi->i2c, addr, len, dst);
 	mutex_unlock(&mpi->io_lock);
@@ -161,7 +156,7 @@ int mt6360_pmu_reg_block_write(struct mt6360_pmu_info *mpi,
 #ifdef CONFIG_RT_REGMAP
 	int ret = 0;
 
-	mt_dbg(mpi->dev, "%s addr[%02x], len[%d]\n", __func__, addr, len);
+	dev_dbg(mpi->dev, "%s addr[%02x], len[%d]\n", __func__, addr, len);
 	mutex_lock(&mpi->io_lock);
 	ret = rt_regmap_block_write(mpi->regmap, addr, len, src);
 	mutex_unlock(&mpi->io_lock);
@@ -169,7 +164,7 @@ int mt6360_pmu_reg_block_write(struct mt6360_pmu_info *mpi,
 #else
 	int ret = 0;
 
-	mt_dbg(mpi->dev, "%s addr[%02x], len[%d]\n", __func__, addr, len);
+	dev_dbg(mpi->dev, "%s addr[%02x], len[%d]\n", __func__, addr, len);
 	mutex_lock(&mpi->io_lock);
 	ret = mt6360_pmu_write_device(mpi->i2c, addr, len, src);
 	mutex_unlock(&mpi->io_lock);
@@ -207,27 +202,22 @@ static int mt6360_pmu_parse_dt_data(struct device *dev,
 	struct device_node *np = dev->of_node;
 	int ret;
 
-	dev_info(dev, "%s ++\n", __func__);
+	dev_dbg(dev, "%s ++\n", __func__);
 	memcpy(pdata, &def_platform_data, sizeof(*pdata));
 	mt6360_dt_parser_helper(np, (void *)pdata,
 				mt6360_val_props, ARRAY_SIZE(mt6360_val_props));
 #if (!defined(CONFIG_MTK_GPIO) || defined(CONFIG_MTK_GPIOLIB_STAND))
-	ret = of_get_named_gpio(np, "mt6360,intr_gpio", 0);
-	if (ret < 0) {
-		dev_notice(dev, "%s of get named gpio fail\n", __func__);
+	ret = of_get_named_gpio(np, "irq_gpio", 0);
+	if (ret < 0)
 		goto out_parse_dt;
-	}
 	pdata->irq_gpio = ret;
 #else
-	ret = of_property_read_u32(np, "mt6360,intr_gpio_num",
-				   &pdata->irq_gpio);
-	if (ret < 0) {
-		dev_notice(dev, "%s of gpio num fail\n", __func__);
+	ret = of_property_read_u32(np, "irq_gpio_num", &pdata->irq_gpio);
+	if (ret < 0)
 		goto out_parse_dt;
-	}
 #endif /* (!defined(CONFIG_MTK_GPIO) || defined(CONFIG_MTK_GPIOLIB_STAND)) */
 out_parse_dt:
-	dev_info(dev, "%s --, irq gpio%d\n", __func__, pdata->irq_gpio);
+	dev_dbg(dev, "%s --\n", __func__);
 	return 0;
 }
 

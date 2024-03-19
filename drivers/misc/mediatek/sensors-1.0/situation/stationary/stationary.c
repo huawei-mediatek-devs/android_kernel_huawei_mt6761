@@ -78,13 +78,11 @@ static int stat_batch(int flag, int64_t samplingPeriodNs,
 }
 static int stat_recv_data(struct data_unit_t *event, void *reserved)
 {
-	int err = 0;
-
 	if (event->flush_action == FLUSH_ACTION)
 		pr_debug("stat do not support flush\n");
 	else if (event->flush_action == DATA_ACTION)
-		err = situation_notify(ID_STATIONARY_DETECT);
-	return err;
+		situation_notify(ID_STATIONARY_DETECT);
+	return 0;
 }
 
 static int stat_local_init(void)

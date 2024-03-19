@@ -138,7 +138,7 @@ static void aee_kdump_cpu_stop(void *arg, void *regs, void *svc_sp)
 	local_fiq_disable();
 	local_irq_disable();
 
-	dis_D_inner_flush_all();
+	dis_D_inner_fL1L2();
 	while (1)
 		cpu_relax();
 }
@@ -182,7 +182,7 @@ static void mrdump_stop_noncore_cpu(void *unused)
 	local_fiq_disable();
 	local_irq_disable();
 
-	dis_D_inner_flush_all();
+	dis_D_inner_fL1L2();
 	while (1)
 		cpu_relax();
 }
@@ -254,9 +254,7 @@ void __mrdump_create_oops_dump(enum AEE_REBOOT_MODE reboot_mode,
 		local_fiq_disable();
 
 #if defined(CONFIG_SMP)
-		if ((reboot_mode != AEE_REBOOT_MODE_WDT) &&
-		    (reboot_mode != AEE_REBOOT_MODE_GZ_WDT))
-			__mrdump_reboot_stop_all(crash_record);
+		__mrdump_reboot_stop_all(crash_record);
 #endif
 
 		cpu = get_HW_cpuid();
@@ -283,7 +281,7 @@ void __mrdump_create_oops_dump(enum AEE_REBOOT_MODE reboot_mode,
 		crash_record->fault_cpu = cpu;
 
 		/* FIXME: Check reboot_mode is valid */
-		crash_record->reboot_mode = reboot_mode;
+			crash_record->reboot_mode = reboot_mode;
 	}
 }
 

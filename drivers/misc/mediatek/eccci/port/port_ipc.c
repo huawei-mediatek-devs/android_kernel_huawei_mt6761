@@ -459,8 +459,6 @@ int port_ipc_init(struct port_t *port)
 			.rx_cb = ccci_ipc_send_ilm_to_md1};
 
 			mtk_conn_md_bridge_reg(MD_MOD_EL1, &ccci_ipc_conn_ops);
-			mtk_conn_md_bridge_reg(MD_MOD_GMMGR,
-						&ccci_ipc_conn_ops);
 #endif
 		}
 	}
@@ -516,8 +514,8 @@ int send_new_time_to_md(int md_id, int tz)
 int ccci_get_emi_info(int md_id, struct ccci_emi_info *emi_info)
 {
 	struct ccci_mem_layout *mem_layout = NULL;
-
-	if (md_id < 0 || md_id > MAX_MD_NUM || !emi_info)
+	/* md_id:0~5 */
+	if (md_id < 0 || md_id >= MAX_MD_NUM || !emi_info)
 		return -EINVAL;
 	mem_layout = ccci_md_get_mem(md_id);
 

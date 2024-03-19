@@ -40,7 +40,7 @@ int conn_md_dmp_deinit(struct conn_md_dmp_msg_log *p_log)
 	int i_ret = -1;
 
 	if (p_log != NULL) {
-		CONN_MD_INFO_FUNC("valid buffer pointer:%p.\n", p_log);
+		CONN_MD_INFO_FUNC("valid buffer pointer:0x%08x.\n", p_log);
 		mutex_destroy(&p_log->lock);
 		vfree(p_log);
 		i_ret = 0;
@@ -73,8 +73,7 @@ int __conn_md_dmp_in(struct ipc_ilm *p_ilm, enum conn_md_msg_type msg_type,
 	memcpy(&p_msg->ilm, p_ilm, sizeof(struct ipc_ilm));
 
 	/*Log msg length */
-	p_msg->msg_len = p_ilm->local_para_ptr->msg_len
-				- sizeof(struct local_para);
+	p_msg->msg_len = p_ilm->local_para_ptr->msg_len;
 
 	/*Log msg content */
 	memcpy(&p_msg->data, p_ilm->local_para_ptr->data,
@@ -151,7 +150,8 @@ int conn_md_dmp_out(struct conn_md_dmp_msg_log *p_msg_log,
 
 
 	if (p_msg_log == NULL) {
-		CONN_MD_WARN_FUNC("invalid parameter, p_msg_log is NULL\n");
+		CONN_MD_WARN_FUNC("invalid parameter, p_msg_log:0x%08x\n",
+				p_msg_log);
 		return CONN_MD_ERR_INVALID_PARAM;
 	}
 	mutex_lock(&p_msg_log->lock);

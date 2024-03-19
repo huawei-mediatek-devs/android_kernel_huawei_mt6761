@@ -270,7 +270,7 @@ static s32 i2c_read_mtk(u16 addr, u8 *buffer, s32 len)
  * @return: return 0 if success, otherwise return a negative number
  *          which contains the error code.
  */
-s32 gt1x_i2c_read(u16 addr, u8 *buffer, s32 len)
+s32 mtk_gt1x_i2c_read(u16 addr, u8 *buffer, s32 len)
 {
 #if TPD_SUPPORT_I2C_DMA
 	return i2c_dma_read_mtk(addr, buffer, len);
@@ -283,7 +283,7 @@ s32 gt1x_i2c_read(u16 addr, u8 *buffer, s32 len)
  * @return: return 0 if success, otherwise return a negative number
  *          which contains the error code.
  */
-s32 gt1x_i2c_write(u16 addr, u8 *buffer, s32 len)
+s32 mtk_gt1x_i2c_write(u16 addr, u8 *buffer, s32 len)
 {
 #if TPD_SUPPORT_I2C_DMA
 	return i2c_dma_write_mtk(addr, buffer, len);
@@ -313,7 +313,7 @@ static u8 gt1x_set_refresh_rate(u8 rate)
 	}
 
 	GTP_INFO("Refresh rate change to %d", rate);
-	return gt1x_i2c_write(GTP_REG_REFRESH_RATE, buf, sizeof(buf));
+	return mtk_gt1x_i2c_write(GTP_REG_REFRESH_RATE, buf, sizeof(buf));
 }
 
 /*******************************************************
@@ -328,7 +328,7 @@ static u8 gt1x_get_refresh_rate(void)
 	int ret;
 	u8 buf[1] = { 0x00 };
 
-	ret = gt1x_i2c_read(GTP_REG_REFRESH_RATE, buf, sizeof(buf));
+	ret = mtk_gt1x_i2c_read(GTP_REG_REFRESH_RATE, buf, sizeof(buf));
 	if (ret < 0)
 		return ret;
 
@@ -624,7 +624,13 @@ static int tpd_registration(void *client)
 	input_set_capability(tpd->dev, EV_KEY, KEY_GESTURE);
 #endif
 
-	GTP_GPIO_AS_INT(GTP_INT_PORT);
+	err =GTP_GPIO_AS_INT(GTP_INT_PORT);
+	//err = pinctrl_select_state(pinctrl1, eint_as_int);
+	if(err < 0){
+		GTP_INFO("%s: ####GTP_GPIO_AS_INT faile\n", __func__);
+
+		return 0;
+	}
 
 	msleep(50);
 	/* EINT device tree, default EINT enable */
@@ -635,12 +641,14 @@ static int tpd_registration(void *client)
 	gt1x_init_esd_protect();
 	gt1x_esd_switch(SWITCH_ON);
 #endif
+#if 0
 	update_thread = kthread_run(gt1x_auto_update_proc,
 					(void *)NULL, "gt1x_auto_update");
 	if (IS_ERR(update_thread)) {
 		err = PTR_ERR(update_thread);
 		GTP_INFO(" failed to create auto-update thread: %d\n", err);
 	}
+#endif
 	pm_notifier_block.notifier_call = gt1x_pm_notifier;
 	pm_notifier_block.priority = 0;
 	register_pm_notifier(&pm_notifier_block);
@@ -696,7 +704,7 @@ static irqreturn_t tpd_eint_interrupt_handler(unsigned int irq,
 	disable_irq_nosync(touch_irq);
 	GTP_DEBUG("eint disable irq_flat=%d", irq_flag);
 	/*GTP_INFO("disable irq_flag=%d",irq_flag);*/
-	wake_up(&waiter);
+	wake_up_interruptible(&waiter);
 	return IRQ_HANDLED;
 }
 static int tpd_history_x, tpd_history_y;
@@ -813,8 +821,10 @@ static int tpd_event_handler(void *unused)
 
 	sched_setscheduler(current, SCHED_RR, &param);
 	do {
+		set_current_state(TASK_INTERRUPTIBLE);
+
 		if (tpd_eint_mode) {
-			wait_event(waiter, tpd_flag != 0);
+			wait_event_interruptible(waiter, tpd_flag != 0);
 			tpd_flag = 0;
 		} else {
 			GTP_DEBUG("Polling coordinate mode!");
@@ -840,12 +850,14 @@ static int tpd_event_handler(void *unused)
 		}
 
 		/* read coordinates */
-		ret = gt1x_i2c_read(GTP_READ_COOR_ADDR,
+		ret = mtk_gt1x_i2c_read(GTP_READ_COOR_ADDR,
 					point_data, sizeof(point_data));
 		if (ret < 0) {
 			GTP_ERROR("I2C transfer error!");
 #ifndef CONFIG_GTP_ESD_PROTECT
-			gt1x_power_reset();
+			ret=gt1x_power_reset();
+			if(ret < 0)
+				return 0;
 #endif
 			goto exit_work_func;
 		}
@@ -890,7 +902,7 @@ static int tpd_event_handler(void *unused)
  exit_work_func:
 
 		if (!gt1x_rawdiff_mode) {
-			ret = gt1x_i2c_write(GTP_READ_COOR_ADDR, &end_cmd, 1);
+			ret = mtk_gt1x_i2c_write(GTP_READ_COOR_ADDR, &end_cmd, 1);
 			if (ret < 0)
 				GTP_INFO("I2C write end_cmd  error!");
 		}
@@ -921,7 +933,7 @@ int gt1x_debug_proc(u8 *buf, int count)
 			tpd_eint_mode = 0;
 			tpd_polling_time = mode;
 			tpd_flag = 1;
-			wake_up(&waiter);
+			wake_up_interruptible(&waiter);
 		} else {
 			/* please set between 10~200ms */
 			GTP_INFO("Wrong polling time\n");
@@ -1043,6 +1055,8 @@ static int tpd_local_init(void)
 	if (tpd_load_status == 0) {
 		GTP_ERROR("add error touch panel driver.");
 		i2c_del_driver(&tpd_i2c_driver);
+		regulator_put(tpd->reg);
+		free_irq(touch_irq, NULL);
 		return -1;
 	}
 #ifdef CONFIG_GTP_ICS_SLOT_REPORT
@@ -1088,7 +1102,7 @@ static void tpd_suspend(struct device *h)
 	u8 buf[1] = { 0 };
 #endif
 #endif
-	if (is_resetting || update_info.status)
+	if (is_resetting || mtk_update_info.status)
 		return;
 	GTP_INFO("TPD suspend start...");
 
@@ -1116,7 +1130,7 @@ static void tpd_suspend(struct device *h)
 			return;
 		}
 #else
-		gt1x_i2c_read(GTP_REG_HN_PAIRED, buf, sizeof(buf));
+		mtk_gt1x_i2c_read(GTP_REG_HN_PAIRED, buf, sizeof(buf));
 		GTP_DEBUG("0x81AA: 0x%02X", buf[0]);
 		if (buf[0] == 0x55) {
 			GTP_INFO("Suspend: hotknot is paired!");
@@ -1161,7 +1175,7 @@ static void tpd_resume(struct device *h)
 {
 	s32 ret = -1;
 
-	if (is_resetting || update_info.status)
+	if (is_resetting || mtk_update_info.status)
 		return;
 
 	GTP_INFO("TPD resume start...");

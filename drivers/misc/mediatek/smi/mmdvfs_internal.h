@@ -37,6 +37,8 @@
 #define MMDVFSERR(string, args...) pr_notice("error: "string, ##args)
 #endif
 
+extern bool get_in_camera_scenario(void);
+
 extern void mmdvfs_internal_handle_state_change(
 	struct mmdvfs_state_change_event *event);
 extern void mmdvfs_internal_notify_vcore_calibration(

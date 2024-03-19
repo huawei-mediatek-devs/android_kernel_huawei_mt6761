@@ -21,6 +21,11 @@
 #include <linux/notifier.h>
 #include "scp_helper.h"
 
+bool std_step_c_enable_status = false;
+bool ext_step_c_enable_status = false;
+extern int ext_step_counter_report(struct data_unit_t *event,
+	void *reserved);
+
 typedef enum {
 	STEP_CDSH_TRC_INFO = 0X10,
 } STEP_CDS_TRC;
@@ -33,6 +38,10 @@ struct step_chub_ipi_data {
 };
 
 static struct step_chub_ipi_data obj_ipi_data;
+static ssize_t show_step_cds_value(struct device_driver *ddri, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%s\n", buf);
+}
 
 static ssize_t store_trace_value(struct device_driver *ddri,
 	const char *buf, size_t count)
@@ -55,9 +64,11 @@ static ssize_t store_trace_value(struct device_driver *ddri,
 	return count;
 }
 
+static DRIVER_ATTR(step_cds, 0444, show_step_cds_value, NULL);
 static DRIVER_ATTR(trace, 0644, NULL, store_trace_value);
 
 static struct driver_attribute *step_chub_attr_list[] = {
+	&driver_attr_step_cds,
 	&driver_attr_trace,
 };
 
@@ -122,7 +133,7 @@ static int step_d_enable_nodata(int en)
 static int step_s_enable_nodata(int en)
 {
 	int ret = 0;
-
+	pr_info("%s, enable = %d!!\n", __func__, en);
 #if defined CONFIG_MTK_SCP_SENSORHUB_V1
 	if (en == 1)
 		ret = sensor_set_delay_to_hub(ID_SIGNIFICANT_MOTION, 120);
@@ -142,6 +153,7 @@ static int floor_c_enable_nodata(int en)
 static int step_c_set_delay(u64 delay)
 {
 	unsigned int ret = 0;
+	pr_info("%s, delay = %llu!!\n", __func__, delay/1000/1000);
 
 #if defined CONFIG_MTK_SCP_SENSORHUB_V1
 	unsigned int delayms = 0;
@@ -159,12 +171,39 @@ static int step_c_set_delay(u64 delay)
 static int step_c_batch(int flag,
 	int64_t samplingPeriodNs, int64_t maxBatchReportLatencyNs)
 {
+	pr_info("%s, flag = %d, samplingPeriodNs = %llu, maxBatchReportLatencyNs= %llu !!\n", __func__, flag, samplingPeriodNs/1000/1000, maxBatchReportLatencyNs);
 	return sensor_batch_to_hub(ID_STEP_COUNTER,
 		flag, samplingPeriodNs, maxBatchReportLatencyNs);
 }
 
+int ext_step_counter_enable(bool en)
+{
+	if(ext_step_c_enable_status == en){
+		pr_info("%s, open status not chaned, just return\n", __func__);
+	}
+	if(std_step_c_enable_status == false && en == true){
+		step_c_batch(0, 200000000, 0);
+		step_c_enable_nodata(1);
+		pr_info("%s std step not open, now open ext step\n", __func__);
+		ext_step_c_enable_status = true;
+	}else if(std_step_c_enable_status == false  &&  en == false){
+		pr_info("%s std step not open, now close ext step\n", __func__);
+		ext_step_c_enable_status = false;
+		step_c_enable_nodata(0);
+	}else if(std_step_c_enable_status == true  &&  en == true){
+		ext_step_c_enable_status = true;
+		pr_info("%s std step is already opened, just return\n", __func__);
+	}else if(std_step_c_enable_status == true  &&  en == false){
+		ext_step_c_enable_status = false;
+		pr_info("%s std step is still opened, can not close , just return\n", __func__);
+	}
+	return 0;
+}
+EXPORT_SYMBOL_GPL(ext_step_counter_enable);
+
 static int step_c_flush(void)
 {
+	pr_info("%s\n", __func__);
 	return sensor_flush_to_hub(ID_STEP_COUNTER);
 }
 
@@ -287,49 +326,48 @@ static int step_cds_open_report_data(int open)
 static int step_detect_recv_data(struct data_unit_t *event,
 				void *reserved)
 {
-	int err = 0;
-
 	if (event->flush_action == FLUSH_ACTION)
-		err = step_d_flush_report();
+		step_d_flush_report();
 	else if (event->flush_action == DATA_ACTION)
-		err = step_notify(TYPE_STEP_DETECTOR);
-	return err;
+		step_notify(TYPE_STEP_DETECTOR);
+	return 0;
 }
 
 static int step_count_recv_data(struct data_unit_t *event, void *reserved)
 {
-	int err = 0;
+	pr_info("%s\n", __func__);
+	if(std_step_c_enable_status == true){
+		if (event->flush_action == FLUSH_ACTION)
+			step_c_flush_report();
+		else if (event->flush_action == DATA_ACTION)
+			step_c_data_report(event->step_counter_t.accumulated_step_count,
+				2);
+	}
 
-	if (event->flush_action == FLUSH_ACTION)
-		err = step_c_flush_report();
-	else if (event->flush_action == DATA_ACTION)
-		err = step_c_data_report(
-			event->step_counter_t.accumulated_step_count, 2);
-	return err;
+	if((ext_step_c_enable_status == true) && (event->flush_action == DATA_ACTION)){
+		ext_step_counter_report(event, reserved);
+	}
+	return 0;
 }
 
 static int sign_recv_data(struct data_unit_t *event, void *reserved)
 {
-	int err = 0;
-
 	if (event->flush_action == FLUSH_ACTION)
 		pr_err("sign do not support flush\n");
 	else if (event->flush_action == DATA_ACTION)
-		err = step_notify(TYPE_SIGNIFICANT);
-	return err;
+		step_notify(TYPE_SIGNIFICANT);
+	return 0;
 }
 
 static int floor_count_recv_data(struct data_unit_t *event, void *reserved)
 {
-	int err = 0;
 	floor_counter_event_t *pfloor_counter = &event->floor_counter_t;
 
 	if (event->flush_action == FLUSH_ACTION)
-		err = floor_c_flush_report();
+		floor_c_flush_report();
 	else if (event->flush_action == DATA_ACTION)
-		err = floor_c_data_report(
-			pfloor_counter->accumulated_floor_count, 2);
-	return err;
+		floor_c_data_report(pfloor_counter->accumulated_floor_count, 2);
+	return 0;
 }
 
 static int step_chub_local_init(void)

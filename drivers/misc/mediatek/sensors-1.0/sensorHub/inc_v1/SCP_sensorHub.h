@@ -17,7 +17,6 @@
 #define SCP_SENSOR_HUB_H
 
 #include <linux/ioctl.h>
-#include <linux/atomic.h>
 
 #if defined(CONFIG_MTK_SCP_SENSORHUB_V1)
 #error CONFIG_MTK_SCP_SENSORHUB_V1 should not configed
@@ -54,7 +53,6 @@ struct SensorState {
 	bool enable;
 	bool timestamp_filter;
 	atomic_t flushCnt;
-	atomic64_t enableTime;
 };
 
 #define SCP_SENSOR_HUB_TEMP_BUFSIZE     256
@@ -211,6 +209,15 @@ struct sar_event_t {
 	uint32_t status;
 };
 
+typedef struct {
+	struct {
+		int32_t data[3];
+		int32_t x_bias;
+		int32_t y_bias;
+		int32_t z_bias;
+	};
+	uint32_t status;
+} hw_motion_event_t;
 typedef enum {
 	STILL,
 	STANDING,
@@ -268,6 +275,7 @@ struct data_unit_t {
 		in_pocket_event_t inpocket_event;
 		geofence_event_t geofence_data_t;
 		struct sar_event_t sar_event;
+		hw_motion_event_t hw_motion_event;
 		int32_t data[8];
 	};
 } __packed;
@@ -436,21 +444,20 @@ typedef struct {
 
 struct mag_dev_info_t {
 	char libname[16];
-	int8_t layout;
-	int8_t deviceid;
+	int32_t layout;
+	int32_t deviceid;
 };
 
 struct sensorInfo_t {
-	char name[16];
-	struct mag_dev_info_t mag_dev_info;
+	union {
+		char name[16];
+		struct mag_dev_info_t mag_dev_info;
+	};
 };
 
 struct scp_sensor_hub_get_sensor_info {
 	CUST_ACTION action;
-	union {
-		int32_t int32_data[0];
-		struct sensorInfo_t sensorInfo;
-	};
+	struct sensorInfo_t sensorInfo;
 };
 
 enum {

@@ -36,6 +36,9 @@ struct IMGSENSOR_SENSOR_INST {
 	struct IMGSENSOR_SENSOR_STATUS status;
 	struct mutex                sensor_mutex;
 	struct timeval              profile_time;
+	struct delayed_work dump_frame_count_worker;
+	int dump_frame_count;
+	bool is_work_init;
 };
 
 struct IMGSENSOR_SENSOR {

@@ -45,8 +45,8 @@ MODULE_VERSION("2.0");
 static const char longname[] = "Gadget Android";
 
 /* Default vendor and product IDs, overridden by userspace */
-#define VENDOR_ID		0x0E8D
-#define PRODUCT_ID		0x0001
+#define VENDOR_ID		0x12D1
+#define PRODUCT_ID		0x107E
 
 #include <mt-plat/mtk_boot_common.h>
 
@@ -561,11 +561,15 @@ static int android_init_functions(struct android_usb_function **functions,
 	struct android_usb_function *f;
 	struct device_attribute **attrs;
 	struct device_attribute *attr;
-	int err;
+	int err = 0;
 	int index = 0;
 
 	for (; (f = *functions++); index++) {
 		f->dev_name = kasprintf(GFP_KERNEL, "f_%s", f->name);
+		if (!f->dev_name) {
+			pr_info("%s: Failed to create dev_name", __func__);
+			goto err_create;
+		}
 		pr_notice("[USB]%s: f->dev_name = %s, f->name = %s\n", __func__,
 			f->dev_name, f->name);
 		f->dev = device_create(android_class, dev->dev,
@@ -1287,8 +1291,8 @@ void enable_meta_vcom(int mode)
 
 	if (mode == 1) {
 		strncpy(serial_string, "", sizeof(serial_string) - 1);
-		device_desc.idVendor = 0x0e8d;
-		device_desc.idProduct = 0x2007;
+		device_desc.idVendor = VENDOR_ID;
+		device_desc.idProduct = PRODUCT_ID;
 		device_desc.bDeviceClass = 0x02;
 
 		/*ttyGS0*/
@@ -1299,8 +1303,8 @@ void enable_meta_vcom(int mode)
 
 
 		strncpy(serial_string, "", sizeof(serial_string) - 1);
-		device_desc.idVendor = 0x0e8d;
-		device_desc.idProduct = 0x202d;
+		device_desc.idVendor = VENDOR_ID;
+		device_desc.idProduct = PRODUCT_ID;
 
 		/*ttyGS0 + ttyGS3*/
 		quick_vcom = (1 << 0) + (1 << 3);

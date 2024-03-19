@@ -145,15 +145,21 @@ void tpd_get_dts_info(void)
 }
 
 static DEFINE_MUTEX(tpd_set_gpio_mutex);
-void tpd_gpio_as_int(int pin)
+int tpd_gpio_as_int(int pin)
 {
+	int ret =0;
 	mutex_lock(&tpd_set_gpio_mutex);
 	TPD_DEBUG("[tpd]tpd_gpio_as_int\n");
 	if (pin == 1)
-		pinctrl_select_state(pinctrl1, eint_as_int);
+		ret =pinctrl_select_state(pinctrl1, eint_as_int);
 	mutex_unlock(&tpd_set_gpio_mutex);
+	return ret;
 }
-
+void pinctrl_release(void)
+{
+	devm_pinctrl_put(pinctrl1);
+	TPD_DMESG(" ###### pinctrl release!!");
+}
 void tpd_gpio_output(int pin, int level)
 {
 	mutex_lock(&tpd_set_gpio_mutex);
@@ -527,10 +533,8 @@ static void tpd_create_attributes(struct device *dev, struct tpd_attrs *attrs)
 {
 	int num = attrs->num;
 
-	for (; num > 0;) {
-		if (device_create_file(dev, attrs->attr[--num]))
-			pr_info("mtk_tpd: tpd create attributes file failed\n");
-	}
+	for (; num > 0;)
+		device_create_file(dev, attrs->attr[--num]);
 }
 
 /* touch panel probe */
@@ -549,7 +553,11 @@ static int tpd_probe(struct platform_device *pdev)
 
 	if (misc_register(&tpd_misc_device))
 		pr_info("mtk_tpd: tpd_misc_device register failed\n");
-	tpd_get_gpio_info(pdev);
+
+	if(tpd_get_gpio_info(pdev)){
+		TPD_DMESG(" ####tpd_get_gpio_info faild\n");
+		return 0;
+	}
 	tpd = kmalloc(sizeof(struct tpd_device), GFP_KERNEL);
 	if (tpd == NULL)
 		return -ENOMEM;
@@ -635,7 +643,8 @@ static int tpd_probe(struct platform_device *pdev)
 
 	/* save dev for regulator_get() before tpd_local_init() */
 	tpd->tpd_dev = &pdev->dev;
-	for (i = 1; i < TP_DRV_MAX_COUNT; i++) {
+	//for (i = 1; i < TP_DRV_MAX_COUNT; i++) {
+	for (i = 1; i < 3; i++) {
 		/* add tpd driver into list */
 		if (tpd_driver_list[i].tpd_device_name != NULL) {
 			tpd_driver_list[i].tpd_local_init();
@@ -657,6 +666,7 @@ static int tpd_probe(struct platform_device *pdev)
 			TPD_DMESG("Generic touch panel driver\n");
 		} else {
 			TPD_DMESG("no touch driver is loaded!!\n");
+			devm_pinctrl_put(pinctrl1);
 			return 0;
 		}
 	}

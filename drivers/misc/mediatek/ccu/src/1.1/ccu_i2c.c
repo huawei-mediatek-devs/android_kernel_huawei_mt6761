@@ -43,12 +43,9 @@
 #define CCU_I2C_APDMA_TXLEN 128
 #define CCU_I2C_MAIN_HW_DRVNAME  "ccu_i2c_main_hwtrg"
 #define CCU_I2C_SUB_HW_DRVNAME  "ccu_i2c_sub_hwtrg"
-#define CCU_I2C_MAIN3_HW_DRVNAME  "ccu_i2c_main3_hwtrg"
 
 /*--todo: check if need id-table & name, id of_match_table is given*/
 static int ccu_i2c_probe_main(struct i2c_client *client,
-	const struct i2c_device_id *id);
-static int ccu_i2c_probe_main3(struct i2c_client *client,
 	const struct i2c_device_id *id);
 static int ccu_i2c_probe_sub(struct i2c_client *client,
 	const struct i2c_device_id *id);
@@ -59,12 +56,10 @@ static inline void i2c_writel_dma(u32 value, struct mt_i2c *i2c, u16 offset);
 static inline u16 i2c_readw(struct mt_i2c *i2c, u16 offset);
 static inline void i2c_writew(u16 value, struct mt_i2c *i2c, u16 offset);
 static void ccu_i2c_dump_info(struct mt_i2c *i2c);
-static int ccu_reset_i2c_apdma(struct mt_i2c *i2c);
 
 
 static enum CCU_I2C_CHANNEL g_ccuI2cChannel = CCU_I2C_CHANNEL_UNDEF;
 static struct i2c_client *g_ccuI2cClientMain;
-static struct i2c_client *g_ccuI2cClientMain3;
 static struct i2c_client *g_ccuI2cClientSub;
 static MBOOL ccu_i2c_enabled = MFALSE;
 
@@ -77,19 +72,9 @@ static const struct i2c_device_id ccu_i2c_sub_ids[] = {
 	{}
 };
 
-static const struct i2c_device_id ccu_i2c_main3_ids[] = {
-	{CCU_I2C_MAIN3_HW_DRVNAME, 0},
-	{}
-};
-
 #ifdef CONFIG_OF
 static const struct of_device_id ccu_i2c_main_driver_of_ids[] = {
 	{.compatible = "mediatek,ccu_sensor_i2c_main_hw",},
-	{}
-};
-
-static const struct of_device_id ccu_i2c_main3_driver_of_ids[] = {
-	{.compatible = "mediatek,ccu_sensor_i2c_main3_hw",},
 	{}
 };
 
@@ -110,19 +95,6 @@ struct i2c_driver ccu_i2c_main_driver = {
 #endif
 		   },
 	.id_table = ccu_i2c_main_ids,
-};
-
-struct i2c_driver ccu_i2c_main3_driver = {
-	.probe = ccu_i2c_probe_main3,
-	.remove = ccu_i2c_remove,
-	.driver = {
-		   .name = CCU_I2C_MAIN3_HW_DRVNAME,
-		   .owner = THIS_MODULE,
-#ifdef CONFIG_OF
-		   .of_match_table = ccu_i2c_main3_driver_of_ids,
-#endif
-		   },
-	.id_table = ccu_i2c_main3_ids,
 };
 
 struct i2c_driver ccu_i2c_sub_driver = {
@@ -151,28 +123,6 @@ static int ccu_i2c_probe_main(struct i2c_client *client,
 	/* get sensor i2c client */
 	/*--todo: add subcam implementation*/
 	g_ccuI2cClientMain = client;
-
-	/* set I2C clock rate */
-	/*#ifdef CONFIG_MTK_I2C_EXTENSION*/
-	/*g_pstI2Cclient3->timing = 100;*/ /* 100k */
-	/* No I2C polling busy waiting */
-	/*g_pstI2Cclient3->ext_flag &= ~I2C_POLLING_FLAG;*/
-	/*#endif*/
-
-	LOG_DBG("[ccu_i2c_probe] Attached!!\n");
-	return 0;
-}
-
-static int ccu_i2c_probe_main3(struct i2c_client *client,
-	const struct i2c_device_id *id)
-{
-	/*int i4RetValue = 0;*/
-	LOG_DBG("[%s] Attach I2C for HW trriger g_ccuI2cClientMain3 %p\n",
-		"ccu_i2c_probe", client);
-
-	/* get sensor i2c client */
-	/*--todo: add subcam implementation*/
-	g_ccuI2cClientMain3 = client;
 
 	/* set I2C clock rate */
 	/*#ifdef CONFIG_MTK_I2C_EXTENSION*/
@@ -214,9 +164,6 @@ int ccu_i2c_register_driver(void)
 	LOG_DBG("i2c_add_driver(&ccu_i2c_main_driver)++\n");
 	i2c_ret = i2c_add_driver(&ccu_i2c_main_driver);
 	LOG_DBG("i2c_add_driver(&ccu_i2c_main_driver), ret: %d--\n", i2c_ret);
-	LOG_DBG("i2c_add_driver(&ccu_i2c_main3_driver)++\n");
-	i2c_ret = i2c_add_driver(&ccu_i2c_main3_driver);
-	LOG_DBG("i2c_add_driver(&ccu_i2c_main3_driver), ret: %d--\n", i2c_ret);
 	LOG_DBG("i2c_add_driver(&ccu_i2c_sub_driver)++\n");
 	i2c_ret = i2c_add_driver(&ccu_i2c_sub_driver);
 	LOG_DBG("i2c_add_driver(&ccu_i2c_sub_driver), ret: %d--\n", i2c_ret);
@@ -227,7 +174,6 @@ int ccu_i2c_register_driver(void)
 int ccu_i2c_delete_driver(void)
 {
 	i2c_del_driver(&ccu_i2c_main_driver);
-	i2c_del_driver(&ccu_i2c_main3_driver);
 	i2c_del_driver(&ccu_i2c_sub_driver);
 
 	return 0;
@@ -236,67 +182,11 @@ int ccu_i2c_delete_driver(void)
 int ccu_i2c_set_channel(enum CCU_I2C_CHANNEL channel)
 {
 	if ((channel == CCU_I2C_CHANNEL_MAINCAM) ||
-		(channel == CCU_I2C_CHANNEL_MAINCAM3) ||
 		(channel == CCU_I2C_CHANNEL_SUBCAM)) {
 		g_ccuI2cChannel = channel;
 		return 0;
 	} else
 		return -EFAULT;
-}
-
-int ccu_i2c_frame_reset(void)
-{
-	struct i2c_client *pClient = NULL;
-	struct mt_i2c *i2c;
-
-	pClient = getCcuI2cClient();
-	i2c = i2c_get_adapdata(pClient->adapter);
-
-	ccu_reset_i2c_apdma(i2c);
-
-	/*--todo:remove dump log on production*/
-	/*ccu_record_i2c_dma_info(i2c);*/
-
-	i2c_writew(I2C_FIFO_ADDR_CLR, i2c, OFFSET_FIFO_ADDR_CLR);
-	i2c_writew(I2C_HS_NACKERR | I2C_ACKERR |
-		I2C_TRANSAC_COMP, i2c, OFFSET_INTR_MASK);
-
-	/**/
-	mb();
-	/*--todo:remove dump log on production*/
-	/*ccu_i2c_dump_info(i2c);*/
-
-	return 0;
-}
-
-
-int ccu_trigger_i2c(int transac_len, MBOOL do_dma_en)
-{
-	struct i2c_client *pClient = NULL;
-	struct mt_i2c *i2c;
-
-	u8 *dmaBufVa;
-
-	pClient = getCcuI2cClient();
-	i2c = i2c_get_adapdata(pClient->adapter);
-
-	dmaBufVa = i2c->dma_buf.vaddr;
-
-	/*set i2c transaction length & enable apdma*/
-	i2c_writew(transac_len, i2c, OFFSET_TRANSAC_LEN);
-
-	/*ccu_record_i2c_dma_info(i2c);*/
-
-	i2c_writel_dma(I2C_DMA_START_EN, i2c, OFFSET_EN);
-
-	/*ccu_i2c_dump_info(i2c);*/
-
-	/*trigger i2c start from n3d_a*/
-	ccu_trigger_i2c_hw(g_ccuI2cChannel, transac_len, do_dma_en);
-
-	/*ccu_i2c_dump_info(i2c);*/
-
-	return 0;
 }
 
 int ccu_i2c_buf_mode_init(unsigned char i2c_write_id, int transfer_len)
@@ -389,10 +279,6 @@ static struct i2c_client *getCcuI2cClient(void)
 	case CCU_I2C_CHANNEL_MAINCAM:
 		{
 			return g_ccuI2cClientMain;
-		}
-	case CCU_I2C_CHANNEL_MAINCAM3:
-		{
-			return g_ccuI2cClientMain3;
 		}
 	case CCU_I2C_CHANNEL_SUBCAM:
 		{
@@ -490,29 +376,4 @@ static void ccu_i2c_dump_info(struct mt_i2c *i2c)
 	       (i2c_readl_dma(i2c, 0x80 + OFFSET_RX_MEM_ADDR2)));
 	pr_info("i2c_dump_info ------------------------------------------\n");
 
-}
-
-/*do i2c apdma warm reset & re-write dma buf addr, txlen*/
-static int ccu_reset_i2c_apdma(struct mt_i2c *i2c)
-{
-	i2c_writel_dma(I2C_DMA_WARM_RST, i2c, OFFSET_RST);
-
-#ifdef CONFIG_MTK_LM_MODE
-	if ((i2c->dev_comp->dma_support == 1) && (enable_4G())) {
-		i2c_writel_dma(0x1, i2c, OFFSET_TX_MEM_ADDR2);
-		i2c_writel_dma(0x1, i2c, OFFSET_RX_MEM_ADDR2);
-	}
-#endif
-
-	i2c_writel_dma(I2C_DMA_INT_FLAG_NONE, i2c, OFFSET_INT_FLAG);
-	i2c_writel_dma(I2C_DMA_CON_TX, i2c, OFFSET_CON);
-	i2c_writel_dma((u32) i2c->dma_buf.paddr, i2c, OFFSET_TX_MEM_ADDR);
-	if ((i2c->dev_comp->dma_support >= 2))
-		i2c_writel_dma(upper_32_bits(i2c->dma_buf.paddr),
-			i2c, OFFSET_TX_MEM_ADDR2);
-
-	/*write ap mda tx len = 128(must > totoal tx len within a frame)*/
-	i2c_writel_dma(CCU_I2C_APDMA_TXLEN, i2c, OFFSET_TX_LEN);
-
-	return 0;
 }

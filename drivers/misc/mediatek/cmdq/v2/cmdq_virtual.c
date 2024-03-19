@@ -18,7 +18,6 @@
 #include <linux/seq_file.h>
 #ifdef CMDQ_CONFIG_SMI
 #include "smi_debug.h"
-#include "smi_public.h"
 #endif
 #ifdef CMDQ_CG_M4U_LARB0
 #include "m4u.h"
@@ -845,7 +844,7 @@ void cmdq_virtual_enable_common_clock_locked(bool enable)
 #ifdef CMDQ_CG_M4U_LARB0
 		m4u_larb0_enable("CMDQ_MDP");
 #else
-		smi_bus_prepare_enable(SMI_LARB0_REG_INDX, "CMDQ_MDP", true);
+		cmdq_dev_enable_clock_SMI_LARB0(enable);
 #endif
 #if defined(CMDQ_USE_CCF) && defined(CMDQ_USE_LEGACY)
 		cmdq_mdp_get_func()->mdpSmiLarbEnableClock(enable);
@@ -860,7 +859,7 @@ void cmdq_virtual_enable_common_clock_locked(bool enable)
 #ifdef CMDQ_CG_M4U_LARB0
 		m4u_larb0_disable("CMDQ_MDP");
 #else
-		smi_bus_disable_unprepare(SMI_LARB0_REG_INDX, "CMDQ_MDP", true);
+		cmdq_dev_enable_clock_SMI_LARB0(enable);
 #endif
 		cmdq_dev_enable_clock_SMI_COMMON(enable);
 #ifdef CMDQ_USE_LEGACY
@@ -972,9 +971,12 @@ int cmdq_virtual_dump_smi(const int showSmiDump)
 {
 	int isSMIHang = 0;
 
-#if defined(CMDQ_CONFIG_SMI) && !defined(CONFIG_MTK_FPGA)
-	isSMIHang = smi_debug_bus_hang_detect(SMI_PARAM_BUS_OPTIMIZATION,
-		showSmiDump, showSmiDump, showSmiDump);
+#if defined(CMDQ_CONFIG_SMI) && !defined(CONFIG_MTK_FPGA) &&                   \
+	!defined(CONFIG_MTK_SMI_VARIANT)
+	isSMIHang = smi_debug_bus_hanging_detect_ext(
+		SMI_DBG_DISPSYS | SMI_DBG_VDEC | SMI_DBG_IMGSYS | SMI_DBG_VENC |
+			SMI_DBG_MJC,
+		showSmiDump, showSmiDump);
 	CMDQ_ERR("SMI Hang? = %d\n", isSMIHang);
 #else
 	CMDQ_LOG("[WARNING]not enable SMI dump now\n");

@@ -24,8 +24,11 @@
 #include <linux/irq.h>
 #include "reg_accdet.h"
 #include <mach/upmu_hw.h>
-
+#include "fm_module.h"
 #define REGISTER_VAL(x)	(x - 1)
+#ifdef CONFIG_HUAWEI_HEADSET_DEBUG
+#include "headset_debug.h"
+#endif
 
 /* for accdet_read_audio_res, less than 5k ohm, return -1 , otherwise ret 0 */
 #define RET_LT_5K		(-1)
@@ -44,7 +47,7 @@ enum pmic_eint_ID {
 	PMIC_EINT1 = 2,
 	PMIC_BIEINT = 3,
 };
-/* #define HW_MODE_SUPPORT */
+//#define HW_MODE_SUPPORT
 /* #define DIGITAL_FASTDISCHARGE_SUPPORT */
 #endif
 
@@ -133,7 +136,6 @@ static int accdet_auxadc_offset;
 static struct wakeup_source *accdet_irq_lock;
 static struct wakeup_source *accdet_timer_lock;
 static DEFINE_MUTEX(accdet_eint_irq_sync_mutex);
-static int s_button_status;
 
 static u32 accdet_eint_type = IRQ_TYPE_LEVEL_LOW;
 static u32 button_press_debounce = 0x400;
@@ -702,9 +704,9 @@ static void send_key_event(u32 keycode, u32 flag)
 		pr_debug("accdet KEY_VOLUMEUP %d\n", flag);
 		break;
 	case MD_KEY:
-		input_report_key(accdet_input_dev, KEY_PLAYPAUSE, flag);
+		input_report_key(accdet_input_dev, KEY_MEDIA, flag);
 		input_sync(accdet_input_dev);
-		pr_debug("accdet KEY_PLAYPAUSE %d\n", flag);
+		pr_debug("accdet KEY_MEDIA %d\n", flag);
 		break;
 	case AS_KEY:
 		input_report_key(accdet_input_dev, KEY_VOICECOMMAND, flag);
@@ -716,10 +718,19 @@ static void send_key_event(u32 keycode, u32 flag)
 
 static void send_accdet_status_event(u32 cable_type, u32 status)
 {
+#ifdef CONFIG_HUAWEI_HEADSET_DEBUG
+	if (status == 0) {
+		headset_debug_input_set_state(HEADSET_DEBUG_JACK_BIT_NONE, false);
+	}
+#endif
+
 	switch (cable_type) {
 	case HEADSET_NO_MIC:
 		input_report_switch(accdet_input_dev, SW_HEADPHONE_INSERT,
 			status);
+
+        setHeadsetStatus(status); //ADD FOR BUILD-IN FM
+
 		/* when plug 4-pole out, if both AB=3 AB=0 happen,3-pole plug
 		 * in will be incorrectly reported, then 3-pole plug-out is
 		 * reported,if no mantory 4-pole plug-out, icon would be
@@ -728,6 +739,10 @@ static void send_accdet_status_event(u32 cable_type, u32 status)
 		if (status == 0)
 			input_report_switch(accdet_input_dev,
 				SW_MICROPHONE_INSERT, status);
+#ifdef CONFIG_HUAWEI_HEADSET_DEBUG
+		else
+			headset_debug_input_set_state(HEADSET_DEBUG_JACK_BIT_HEADPHONE, false);
+#endif
 		input_sync(accdet_input_dev);
 		pr_info("%s HEADPHONE(3-pole) %s\n", __func__,
 			status ? "PlugIn" : "PlugOut");
@@ -736,9 +751,16 @@ static void send_accdet_status_event(u32 cable_type, u32 status)
 		/* when plug 4-pole out, 3-pole plug out should also be
 		 * reported for slow plug-in case
 		 */
+
+        setHeadsetStatus(status); //ADD FOR BUILD-IN FM
+
 		if (status == 0)
 			input_report_switch(accdet_input_dev,
 				SW_HEADPHONE_INSERT, status);
+#ifdef CONFIG_HUAWEI_HEADSET_DEBUG
+		else
+			headset_debug_input_set_state(HEADSET_DEBUG_JACK_BIT_HEADSET, false);
+#endif
 		input_report_switch(accdet_input_dev, SW_MICROPHONE_INSERT,
 			status);
 		input_sync(accdet_input_dev);
@@ -749,6 +771,10 @@ static void send_accdet_status_event(u32 cable_type, u32 status)
 		input_report_switch(accdet_input_dev, SW_LINEOUT_INSERT,
 			status);
 		input_sync(accdet_input_dev);
+#ifdef CONFIG_HUAWEI_HEADSET_DEBUG
+		if(status)
+			headset_debug_input_set_state(HEADSET_DEBUG_JACK_BIT_LINEOUT, false);
+#endif
 		pr_info("%s LineOut %s\n", __func__,
 			status ? "PlugIn" : "PlugOut");
 		break;
@@ -1101,7 +1127,6 @@ static inline void check_cable_type(void)
 	pr_notice("accdet %s(), cur_status:%s current AB = %d\n", __func__,
 		     accdet_status_str[accdet_status], cur_AB);
 
-	s_button_status = 0;
 	pre_status = accdet_status;
 
 	switch (accdet_status) {
@@ -1165,7 +1190,6 @@ static inline void check_cable_type(void)
 				cust_pwm_deb->debounce0);
 			mutex_lock(&accdet_eint_irq_sync_mutex);
 			if (eint_accdet_sync_flag) {
-				s_button_status = 1;
 				accdet_status = HOOK_SWITCH;
 				multi_key_detection(cur_AB);
 			} else
@@ -1953,7 +1977,7 @@ int mt_accdet_probe(struct platform_device *dev)
 	}
 
 	__set_bit(EV_KEY, accdet_input_dev->evbit);
-	__set_bit(KEY_PLAYPAUSE, accdet_input_dev->keybit);
+	__set_bit(KEY_MEDIA, accdet_input_dev->keybit);
 	__set_bit(KEY_VOLUMEDOWN, accdet_input_dev->keybit);
 	__set_bit(KEY_VOLUMEUP, accdet_input_dev->keybit);
 	__set_bit(KEY_VOICECOMMAND, accdet_input_dev->keybit);
@@ -1972,7 +1996,9 @@ int mt_accdet_probe(struct platform_device *dev)
 			ret);
 		goto err_input_reg;
 	}
-
+#ifdef CONFIG_HUAWEI_HEADSET_DEBUG
+	headset_debug_input_init(accdet_input_dev);
+#endif
 	ret = accdet_create_attr(&accdet_driver_hal.driver);
 	if (ret) {
 		pr_notice("%s create_attr fail, ret = %d\n", __func__, ret);
@@ -2091,6 +2117,9 @@ void mt_accdet_remove(void)
 	destroy_workqueue(eint_workqueue);
 	destroy_workqueue(dis_micbias_workqueue);
 	destroy_workqueue(accdet_workqueue);
+#ifdef CONFIG_HUAWEI_HEADSET_DEBUG
+	headset_debug_input_uninit();
+#endif
 	input_unregister_device(accdet_input_dev);
 	input_free_device(accdet_input_dev);
 	device_del(accdet_device);
@@ -2098,22 +2127,5 @@ void mt_accdet_remove(void)
 	cdev_del(accdet_cdev);
 	unregister_chrdev_region(accdet_devno, 1);
 	pr_debug("%s done!\n", __func__);
-}
-
-long mt_accdet_unlocked_ioctl(struct file *file, unsigned int cmd,
-	unsigned long arg)
-{
-	switch (cmd) {
-	case ACCDET_INIT:
-		break;
-	case SET_CALL_STATE:
-		break;
-	case GET_BUTTON_STATUS:
-		return s_button_status;
-	default:
-		pr_debug("[Accdet]accdet_ioctl : default\n");
-		break;
-	}
-	return 0;
 }
 

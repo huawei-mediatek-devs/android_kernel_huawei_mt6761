@@ -133,33 +133,33 @@ static int initAF(void)
 
 	if (*g_pAF_Opened == 1) {
 
-		int i4RetValue = 0;
-		char puSendCmd[2] = {0x00, 0x00}; /* soft power on */
-		char puSendCmd2[2] = {0x01, 0x39};
-		char puSendCmd3[2] = {0x05, 0x65};
+	int i4RetValue = 0;
+	char puSendCmd[2] = {0x00, 0x00}; /* soft power on */
+	char puSendCmd2[2] = {0x01, 0x39};
+	char puSendCmd3[2] = {0x05, 0x65};
 
-		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd, 2);
+	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd, 2);
 
-		if (i4RetValue < 0) {
-			LOG_INF("I2C send 0x00 failed!!\n");
-			return -1;
-		}
+	if (i4RetValue < 0) {
+		LOG_INF("I2C send 0x00 failed!!\n");
+		return -1;
+	}
 
-		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd2, 2);
+	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd2, 2);
 
-		if (i4RetValue < 0) {
-			LOG_INF("I2C send 0x01 failed!!\n");
-			return -1;
-		}
+	if (i4RetValue < 0) {
+		LOG_INF("I2C send 0x01 failed!!\n");
+		return -1;
+	}
 
-		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd3, 2);
+	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd3, 2);
 
-		if (i4RetValue < 0) {
-			LOG_INF("I2C send 0x05 failed!!\n");
-			return -1;
-		}
+	if (i4RetValue < 0) {
+		LOG_INF("I2C send 0x05 failed!!\n");
+		return -1;
+	}
 
-		LOG_INF("driver init success!!\n");
+	LOG_INF("driver init success!!\n");
 
 		spin_lock(g_pAF_SpinLock);
 		*g_pAF_Opened = 2;
@@ -177,7 +177,6 @@ static inline int moveAF(unsigned long a_u4Position)
 	int ret = 0;
 
 	if (s4AF_WriteReg((unsigned short)a_u4Position) == 0) {
-		g_u4CurrPosition = a_u4Position;
 		ret = 0;
 	} else {
 		LOG_INF("set I2C failed when moving the motor\n");
@@ -281,18 +280,12 @@ int DW9718AF_SetI2Cclient(struct i2c_client *pstAF_I2Cclient,
 
 int DW9718AF_GetFileName(unsigned char *pFileName)
 {
-	#if SUPPORT_GETTING_LENS_FOLDER_NAME
-	char FilePath[256];
-	char *FileString;
+	char *FileString = (strrchr(__FILE__, '/') + 1);
 
-	sprintf(FilePath, "%s", __FILE__);
-	FileString = strrchr(FilePath, '/');
-	*FileString = '\0';
-	FileString = (strrchr(FilePath, '/') + 1);
 	strncpy(pFileName, FileString, AF_MOTOR_NAME);
+	FileString = strchr(pFileName, '.');
+	*FileString = '\0';
 	LOG_INF("FileName : %s\n", pFileName);
-	#else
-	pFileName[0] = '\0';
-	#endif
+
 	return 1;
 }

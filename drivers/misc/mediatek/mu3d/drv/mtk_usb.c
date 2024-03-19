@@ -288,45 +288,6 @@ EXPORT_SYMBOL_GPL(mt_usb_disconnect);
 #define BYPASS_PMIC_LINKAGE
 #endif
 
-/* add start for XHCI*/
-static void power_down_work(struct work_struct *data)
-{
-	struct mt_usb_work *work =
-		container_of(data, struct mt_usb_work, dwork.work);
-
-	os_printk(K_INFO, "force_usb_off\n");
-	musb_power_down(_mu3d_musb);
-	/* free mt_usb_work */
-	kfree(work);
-}
-
-void mt_usb_dev_off(void)
-{
-	struct mt_usb_work *work;
-
-	if (!_mu3d_musb) {
-		os_printk(K_INFO, "_mu3d_musb = NULL\n");
-		return;
-	}
-
-	work = kzalloc(sizeof(struct mt_usb_work), GFP_ATOMIC);
-	if (!work)
-		return;
-
-	INIT_DELAYED_WORK(&work->dwork, power_down_work);
-	/* force usb off*/
-	queue_delayed_work(_mu3d_musb->st_wq, &work->dwork, 0);
-}
-
-struct workqueue_struct *mt_usb_get_workqueue(void)
-{
-	if (_mu3d_musb)
-		return _mu3d_musb->st_wq;
-	else
-		return NULL;
-}
-/* add end for XHCI */
-
 static enum charger_type mu3d_hal_get_charger_type(void)
 {
 	enum charger_type chg_type;
@@ -575,11 +536,11 @@ ssize_t musb_cmode_store(struct device *dev, struct device_attribute *attr,
 	musb = dev_to_musb(dev);
 
 	if (sscanf(buf, "%ud", &cmode) == 1) {
-		os_printk(K_INFO, "%s %s --> %s\n", __func__, usb_mode_str[cable_mode],
-			  usb_mode_str[cmode]);
-
 		if (cmode >= CABLE_MODE_MAX)
 			cmode = CABLE_MODE_NORMAL;
+
+		os_printk(K_INFO, "%s %s --> %s\n", __func__, usb_mode_str[cable_mode],
+			  usb_mode_str[cmode]);
 
 		if (cable_mode != cmode) {
 			cable_mode = cmode;

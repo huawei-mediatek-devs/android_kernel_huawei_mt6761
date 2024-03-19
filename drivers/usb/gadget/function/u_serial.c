@@ -538,7 +538,7 @@ static void gs_rx_push(unsigned long _port)
 		}
 
 		/* push data to (open) tty */
-		if (req->actual && tty) {
+		if (req->actual) {
 			char		*packet = req->buf;
 			unsigned	size = req->actual;
 			unsigned	n;
@@ -693,6 +693,7 @@ static int gs_start_io(struct gs_port *port)
 	struct usb_ep		*ep = port->port_usb->out;
 	int			status;
 	unsigned		started;
+	pr_err("Enter gs_start_io!\n");
 
 	/* Allocate RX and TX I/O buffers.  We can't easily do this much
 	 * earlier (with GFP_KERNEL) because the requests are coupled to
@@ -703,12 +704,16 @@ static int gs_start_io(struct gs_port *port)
 	status = gs_alloc_requests(ep, head, gs_read_complete,
 		&port->read_allocated);
 	if (status)
+	{
+		pr_err("gs_start_io: status is: %d!\n", status);
 		return status;
+	}
 
 	status = gs_alloc_requests(port->port_usb->in, &port->write_pool,
 			gs_write_complete, &port->write_allocated);
 	if (status) {
 		gs_free_requests(ep, head, &port->read_allocated);
+		pr_err("gs_start_io: status is: %d!\n", status);
 		return status;
 	}
 
@@ -718,14 +723,20 @@ static int gs_start_io(struct gs_port *port)
 
 	/* unblock any pending writes into our circular buffer */
 	if (started) {
-		tty_wakeup(port->port.tty);
+		if (NULL != port->port.tty) {
+			tty_wakeup(port->port.tty);
+		}
 	} else {
 		gs_free_requests(ep, head, &port->read_allocated);
-		gs_free_requests(port->port_usb->in, &port->write_pool,
-			&port->write_allocated);
+		if (NULL != port->port_usb) {
+			gs_free_requests(port->port_usb->in, &port->write_pool,
+				&port->write_allocated);
+		} else {
+			pr_err("[USB_Debug]: ep or port_usb is NULL!\n");
+		}
 		status = -EIO;
 	}
-
+	pr_err("Exit gs_start_io!\n");
 	return status;
 }
 
@@ -743,6 +754,7 @@ static int gs_open(struct tty_struct *tty, struct file *file)
 	int		port_num = tty->index;
 	struct gs_port	*port;
 	int		status;
+	pr_err("Enter gs_open!\n");
 
 	do {
 		mutex_lock(&ports[port_num].lock);
@@ -772,8 +784,11 @@ static int gs_open(struct tty_struct *tty, struct file *file)
 
 		switch (status) {
 		default:
+		{
+			pr_err("return default fix!\n");
 			/* fully handled */
 			return status;
+		}
 		case -EAGAIN:
 			/* must do the work */
 			break;
@@ -853,6 +868,12 @@ static void gs_close(struct tty_struct *tty, struct file *file)
 {
 	struct gs_port *port = tty->driver_data;
 	struct gserial	*gser;
+
+	if(NULL == port)
+	{
+		pr_err("%s:  port null\n", __func__);
+		return;
+	}
 
 	spin_lock_irq(&port->port_lock);
 
@@ -962,6 +983,12 @@ static int gs_write_room(struct tty_struct *tty)
 	struct gs_port	*port = tty->driver_data;
 	unsigned long	flags;
 	int		room = 0;
+
+	if(NULL == port)
+	{
+		pr_err("%s:  port null\n", __func__);
+		return room;
+	}
 
 	spin_lock_irqsave(&port->port_lock, flags);
 	if (port->port_usb)

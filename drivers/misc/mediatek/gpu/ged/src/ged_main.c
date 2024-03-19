@@ -45,7 +45,6 @@
 #include "ged_fdvfs.h"
 
 #include "ged_ge.h"
-#include "ged_gpu_tuner.h"
 
 #define GED_DRIVER_DEVICE_NAME "ged"
 #ifndef GED_BUFFER_LOG_DISABLE
@@ -140,21 +139,6 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 		/* Make sure that the UM will never break the KM.
 		 * Check IO size are both matched the size of IO sturct.
 		 */
-#define SET_FUNC_AND_CHECK_FOR_NO_TYPEDEF(func, struct_name) do { \
-		pFunc = (ged_bridge_func_type *) func; \
-		if (sizeof(struct GED_BRIDGE_IN_##struct_name) > \
-			psBridgePackageKM->i32InBufferSize || \
-			sizeof(struct GED_BRIDGE_OUT_##struct_name) > \
-			psBridgePackageKM->i32OutBufferSize) { \
-			GED_LOGE("%s fail io_size:%d/%d, expected: %zu/%zu", \
-				"GED_BRIDGE_COMMAND_##cmd", \
-				psBridgePackageKM->i32InBufferSize, \
-				psBridgePackageKM->i32OutBufferSize, \
-				sizeof(struct GED_BRIDGE_IN_##struct_name), \
-				sizeof(struct GED_BRIDGE_OUT_##struct_name)); \
-			goto dispatch_exit; \
-		} } while (0)
-
 #define SET_FUNC_AND_CHECK(func, struct_name) do { \
 		pFunc = (ged_bridge_func_type *) func; \
 		if (sizeof(GED_BRIDGE_IN_##struct_name) > psBridgePackageKM->i32InBufferSize || \
@@ -197,16 +181,6 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 		case GED_BRIDGE_COMMAND_EVENT_NOTIFY:
 			SET_FUNC_AND_CHECK(ged_bridge_event_notify, EVENT_NOTIFY);
 			break;
-		case GED_BRIDGE_COMMAND_GPU_HINT_TO_CPU:
-			SET_FUNC_AND_CHECK_FOR_NO_TYPEDEF(
-				ged_bridge_gpu_hint_to_cpu,
-				GPU_HINT_TO_CPU);
-			break;
-		case GED_BRIDGE_COMMAND_HINT_FORCE_MDP:
-			SET_FUNC_AND_CHECK_FOR_NO_TYPEDEF(
-				ged_bridge_hint_force_mdp,
-				HINT_FORCE_MDP);
-			break;
 		case GED_BRIDGE_COMMAND_GE_ALLOC:
 			SET_FUNC_AND_CHECK(ged_bridge_ge_alloc, GE_ALLOC);
 			break;
@@ -222,11 +196,6 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 		case GED_BRIDGE_COMMAND_GPU_TIMESTAMP:
 			SET_FUNC_AND_CHECK(ged_bridge_gpu_timestamp,
 				GPU_TIMESTAMP);
-			break;
-		case GED_BRIDGE_COMMAND_GPU_TUNER_STATUS:
-			SET_FUNC_AND_CHECK_FOR_NO_TYPEDEF(
-				ged_bridge_gpu_tuner_status,
-				GPU_TUNER_STATUS);
 			break;
 		default:
 			GED_LOGE("Unknown Bridge ID: %u\n", GED_GET_BRIDGE_ID(psBridgePackageKM->ui32FunctionID));
@@ -384,7 +353,6 @@ static void ged_exit(void)
 
 	ged_ge_exit();
 
-	ged_gpu_tuner_exit();
 	remove_proc_entry(GED_DRIVER_DEVICE_NAME, NULL);
 
 }
@@ -497,12 +465,6 @@ static int ged_init(void)
 #endif
 #endif
 
-	err = ged_gpu_tuner_init();
-	if (unlikely(err != GED_OK)) {
-		GED_LOGE("ged: failed to init GPU Tuner!\n");
-		goto ERROR;
-	}
-
 	return 0;
 
 ERROR:
@@ -511,12 +473,7 @@ ERROR:
 	return -EFAULT;
 }
 
-#ifdef GED_MODULE_LATE_INIT
-late_initcall(ged_init);
-
-#else
 module_init(ged_init);
-#endif
 module_exit(ged_exit);
 
 MODULE_LICENSE("GPL");

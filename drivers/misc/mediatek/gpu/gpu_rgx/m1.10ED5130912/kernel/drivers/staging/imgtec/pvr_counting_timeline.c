@@ -164,7 +164,10 @@ void pvr_counting_fence_timeline_force_complete(
 
 	/* This is just a safety measurement. Normally we should never see any
 	 * unsignaled sw fences when we come here. Warn if we still do! */
-	WARN_ON(!list_empty(&timeline->active_fences));
+	/* WARN_ON(!list_empty(&timeline->active_fences));*/
+
+	if (!list_empty(&timeline->active_fences))
+		pr_info("close sw-timeline before fences done\n");
 
 	list_for_each_safe(entry, tmp, &timeline->active_fences) {
 		struct pvr_counting_fence *fence =
@@ -185,7 +188,9 @@ static void pvr_counting_fence_timeline_destroy(
 	struct pvr_counting_fence_timeline *timeline =
 		container_of(kref, struct pvr_counting_fence_timeline, kref);
 
-	WARN_ON(!list_empty(&timeline->active_fences));
+	/* WARN_ON(!list_empty(&timeline->active_fences));*/
+	if (!list_empty(&timeline->active_fences))
+                pr_info("free sw-timeline before fences done\n");
 
 	PVRSRVUnregisterDbgRequestNotify(timeline->dbg_request_handle);
 

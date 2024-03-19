@@ -136,65 +136,42 @@ static int initAF(void)
 
 	if (*g_pAF_Opened == 1) {
 
-		u8 data = 0xFF;
-		int i4RetValue = 0;
-		char puSendCmd0[2] = {0x00, 0x01}; /* Reset */
-		char puSendCmd1[2] = {0x00, 0x00}; /* Power on */
+	u8 data = 0xFF;
+	int i4RetValue = 0;
+	char puSendCmd[2] = {0x00, 0x00}; /* soft power on */
+	char puSendCmd2[2] = {0x01, 0x39};
+	char puSendCmd3[2] = {0x05, 0x07};
 
-		char puSendCmd2[2] = {0x02, 0x00};
-		char puSendCmd3[2] = {0x03, 0xD2}; /* Move 210 Code */
+	g_pstAF_I2Cclient->addr = AF_I2C_SLAVE_ADDR;
+	g_pstAF_I2Cclient->addr = g_pstAF_I2Cclient->addr >> 1;
+	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd, 2);
 
-		char puSendCmd4[2] = {0x01, 0x39}; /* sac3 Mode */
-		char puSendCmd5[2] = {0x05, 0x7C}; /* SAC period Setting */
+	if (i4RetValue < 0) {
+		LOG_INF("I2C send 0x00 failed!!\n");
+		return -1;
+	}
 
-		g_pstAF_I2Cclient->addr = AF_I2C_SLAVE_ADDR;
-		g_pstAF_I2Cclient->addr = g_pstAF_I2Cclient->addr >> 1;
-		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd0, 2);
-		if (i4RetValue < 0) {
-			LOG_INF("I2C send 0x00 failed!!\n");
-			return -1;
-		}
+	data = read_data(0x00);
+	LOG_INF("Addr:0x00 Data:0x%x\n", data);
 
-		mdelay(1);
-		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd1, 2);
-		if (i4RetValue < 0) {
-			LOG_INF("I2C send 0x00 failed!!\n");
-			return -1;
-		}
+	if (data != 0x0)
+		return -1;
 
-		data = read_data(0x00);
-		LOG_INF("Addr:0x00 Data:0x%x\n", data);
-		if (data != 0x0)
-			return -1;
+	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd2, 2);
 
-		mdelay(1);
-		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd2, 2);
-		if (i4RetValue < 0) {
-			LOG_INF("I2C send 0x02 failed!!\n");
-			return -1;
-		}
+	if (i4RetValue < 0) {
+		LOG_INF("I2C send 0x01 failed!!\n");
+		return -1;
+	}
 
-		mdelay(1);
-		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd3, 2);
-		if (i4RetValue < 0) {
-			LOG_INF("I2C send 0x03 failed!!\n");
-			return -1;
-		}
+	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd3, 2);
 
-		mdelay(1);
-		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd4, 2);
-		if (i4RetValue < 0) {
-			LOG_INF("I2C send 0x01 failed!!\n");
-			return -1;
-		}
+	if (i4RetValue < 0) {
+		LOG_INF("I2C send 0x05 failed!!\n");
+		return -1;
+	}
 
-		mdelay(1);
-		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd5, 2);
-		if (i4RetValue < 0) {
-			LOG_INF("I2C send 0x05 failed!!\n");
-			return -1;
-		}
-		LOG_INF("driver init success!!\n");
+	LOG_INF("driver init success!!\n");
 
 		spin_lock(g_pAF_SpinLock);
 		*g_pAF_Opened = 2;
@@ -212,7 +189,6 @@ static inline int moveAF(unsigned long a_u4Position)
 	int ret = 0;
 
 	if (s4AF_WriteReg((unsigned short)a_u4Position) == 0) {
-		g_u4CurrPosition = a_u4Position;
 		ret = 0;
 	} else {
 		LOG_INF("set I2C failed when moving the motor\n");
@@ -278,14 +254,21 @@ long DW9718SAF_Ioctl(struct file *a_pstFile, unsigned int a_u4Command,
 /* Q1 : Try release multiple times. */
 int DW9718SAF_Release(struct inode *a_pstInode, struct file *a_pstFile)
 {
-	/* power down mode */
-	char puSendCmd[2] = {0x00, 0x01};
-
 	LOG_INF("Start\n");
 
 	if (*g_pAF_Opened == 2) {
-		LOG_INF("apply +\n");
-		LOG_INF("apply -\n");
+		int i4RetValue = 0;
+		u8 data = 0x0;
+		char puSendCmd[2] = {0x00, 0x01};
+
+		LOG_INF("apply\n");
+
+		g_pstAF_I2Cclient->addr = AF_I2C_SLAVE_ADDR;
+		g_pstAF_I2Cclient->addr = g_pstAF_I2Cclient->addr >> 1;
+		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd, 2);
+
+		data = read_data(0x00);
+		LOG_INF("Addr:0x00 Data:0x%x (%d)\n", data, i4RetValue);
 	}
 
 	if (*g_pAF_Opened) {
@@ -295,9 +278,6 @@ int DW9718SAF_Release(struct inode *a_pstInode, struct file *a_pstFile)
 		*g_pAF_Opened = 0;
 		spin_unlock(g_pAF_SpinLock);
 	}
-
-	if (i2c_master_send(g_pstAF_I2Cclient, puSendCmd, 2) < 0)
-		LOG_INF("DW9718S Power down mode fail!\n");
 
 	LOG_INF("End\n");
 
@@ -347,18 +327,12 @@ int DW9718SAF_SetI2Cclient(struct i2c_client *pstAF_I2Cclient,
 
 int DW9718SAF_GetFileName(unsigned char *pFileName)
 {
-	#if SUPPORT_GETTING_LENS_FOLDER_NAME
-	char FilePath[256];
-	char *FileString;
+	char *FileString = (strrchr(__FILE__, '/') + 1);
 
-	sprintf(FilePath, "%s", __FILE__);
-	FileString = strrchr(FilePath, '/');
-	*FileString = '\0';
-	FileString = (strrchr(FilePath, '/') + 1);
 	strncpy(pFileName, FileString, AF_MOTOR_NAME);
+	FileString = strchr(pFileName, '.');
+	*FileString = '\0';
 	LOG_INF("FileName : %s\n", pFileName);
-	#else
-	pFileName[0] = '\0';
-	#endif
+
 	return 1;
 }

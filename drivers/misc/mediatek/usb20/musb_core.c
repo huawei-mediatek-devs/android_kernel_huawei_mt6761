@@ -128,13 +128,11 @@ int kernel_init_done;
 int musb_force_on;
 int musb_host_dynamic_fifo = 1;
 int musb_host_dynamic_fifo_usage_msk;
-bool musb_host_db_enable;
-bool musb_host_db_workaround1;
+bool musb_host_db_enable = false;
+bool musb_host_db_workaround1 = false;
 bool musb_host_db_workaround2;
 long musb_host_db_delay_ns;
 long musb_host_db_workaround_cnt;
-int mtk_host_audio_free_ep_udelay = 1000;
-
 module_param(musb_fake_CDP, int, 0644);
 module_param(kernel_init_done, int, 0644);
 module_param(musb_host_dynamic_fifo, int, 0644);
@@ -144,8 +142,6 @@ module_param(musb_host_db_workaround1, bool, 0644);
 module_param(musb_host_db_workaround2, bool, 0644);
 module_param(musb_host_db_delay_ns, long, 0644);
 module_param(musb_host_db_workaround_cnt, long, 0644);
-module_param(mtk_host_audio_free_ep_udelay, int, 0644);
-
 #ifdef CONFIG_MTK_MUSB_QMU_SUPPORT
 int mtk_host_qmu_concurrent = 1;
 /* | (PIPE_BULK + 1) | (PIPE_INTERRUPT+ 1) */
@@ -2124,8 +2120,7 @@ irqreturn_t musb_interrupt(struct musb *musb)
 				static DEFINE_RATELIMIT_STATE(rlmt, HZ, 2);
 				static int skip_cnt;
 
-				if (musb_host_db_enable &&
-					host_tx_refcnt_dec(ep_num) < 0) {
+				if (host_tx_refcnt_dec(ep_num) < 0) {
 					int ref_cnt;
 
 					musb_host_db_workaround_cnt++;
@@ -2697,6 +2692,8 @@ static int musb_probe(struct platform_device *pdev)
 	struct resource *iomem;
 
 	iomem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!iomem)
+		return -EINVAL;
 	base = devm_ioremap(dev, iomem->start, resource_size(iomem));
 	if (IS_ERR(base))
 		return PTR_ERR(base);

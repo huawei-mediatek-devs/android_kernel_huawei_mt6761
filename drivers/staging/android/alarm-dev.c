@@ -339,8 +339,9 @@ static long alarm_do_ioctl(struct file *file, unsigned int cmd,
 
 static long alarm_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	struct timespec ts = {0};
-	struct rtc_wkalrm pwron_alm = {0};
+	struct timespec ts;
+	struct rtc_wkalrm pwron_alm;
+
 	int rv;
 
 	switch (ANDROID_ALARM_BASE_CMD(cmd)) {
@@ -382,8 +383,8 @@ static long alarm_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 static long alarm_compat_ioctl(struct file *file,
 			       unsigned int cmd, unsigned long arg)
 {
-	struct timespec ts = {0};
-	struct rtc_wkalrm pwron_alm = {0};
+	struct timespec ts;
+	struct rtc_wkalrm pwron_alm;
 	int rv;
 
 	switch (ANDROID_ALARM_BASE_CMD(cmd)) {

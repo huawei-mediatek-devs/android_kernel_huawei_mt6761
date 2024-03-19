@@ -84,7 +84,6 @@ struct flashlight_arg {
 	int channel;
 	int level;
 	int dur;
-	int decouple;
 };
 
 /* flashlight devices */

@@ -321,6 +321,23 @@ void hal_rtc_get_pwron_alarm(struct rtc_time *tm, struct rtc_wkalrm *alm)
 	hal_rtc_get_alarm_time(tm);
 }
 
+//wfq +
+extern bool mtk_disable_rtc;
+void hal_rtc_dis_alarm(void)
+{
+	u16 irqsta, irqen, pdn2;
+
+	irqen = rtc_read(RTC_IRQ_EN) & ~RTC_IRQ_EN_AL;
+	pdn2 = rtc_read(RTC_PDN2) & ~RTC_PDN2_PWRON_ALARM;
+	rtc_write(RTC_IRQ_EN, irqen);
+	rtc_write(RTC_PDN2, pdn2);
+	rtc_write_trigger();
+	irqsta = rtc_read(RTC_IRQ_STA);	/* read clear */
+ 
+
+}
+//wfq -
+
 bool hal_rtc_is_lp_irq(void)
 {
 	u16 irqsta;
@@ -376,6 +393,10 @@ void hal_rtc_get_alarm(struct rtc_time *tm, struct rtc_wkalrm *alm)
 void hal_rtc_set_alarm(struct rtc_time *tm)
 {
 	u16 irqen;
+//wfq+
+	if(mtk_disable_rtc)
+		return;
+//wfq-
 
 	hal_rtc_set_alarm_time(tm);
 

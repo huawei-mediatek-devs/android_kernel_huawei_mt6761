@@ -31,6 +31,9 @@
 
 #include "flashlight-core.h"
 #include "flashlight-dt.h"
+#ifdef CONFIG_HUAWEI_DEV_SELFCHECK
+#include <huawei_platform/dev_detect/hw_dev_detect.h>
+#endif
 
 /* device tree should be defined in flashlight-dt.h */
 #ifndef LM3643_DTNAME
@@ -47,6 +50,8 @@
 #define LM3643_MASK_ENABLE_LED1 (0x01)
 #define LM3643_MASK_ENABLE_LED2 (0x02)
 #define LM3643_DISABLE (0x00)
+#define LM3643_ENABLE_LED2_TORCH_CTL (0x0)
+#define LM3643_DISABLE_LED2_TORCH_CTL (0x8)
 #define LM3643_ENABLE_LED1 (0x01)
 #define LM3643_ENABLE_LED1_TORCH (0x09)
 #define LM3643_ENABLE_LED1_FLASH (0x0D)
@@ -71,8 +76,8 @@
 #define LM3643_CHANNEL_CH1 0
 #define LM3643_CHANNEL_CH2 1
 
-#define LM3643_LEVEL_NUM 26
-#define LM3643_LEVEL_TORCH 7
+#define LM3643_LEVEL_NUM 32
+#define LM3643_LEVEL_TORCH 16
 
 #define LM3643_HW_TIMEOUT 400 /* ms */
 
@@ -83,13 +88,23 @@ static struct work_struct lm3643_work_ch2;
 
 /* define pinctrl */
 #define LM3643_PINCTRL_PIN_HWEN 0
+#define LM3643_PINCTRL_PIN_FLASH 1
+#define LM3643_PINCTRL_PIN_TROCH 2
 #define LM3643_PINCTRL_PINSTATE_LOW 0
 #define LM3643_PINCTRL_PINSTATE_HIGH 1
 #define LM3643_PINCTRL_STATE_HWEN_HIGH "hwen_high"
 #define LM3643_PINCTRL_STATE_HWEN_LOW  "hwen_low"
+#define LM3643_PINCTRL_STATE_FLASH_HIGH "flashlight_high"
+#define LM3643_PINCTRL_STATE_FLASH_LOW  "flashlight_low"
+#define LM3643_PINCTRL_STATE_TROCH_HIGH "trochlight_high"
+#define LM3643_PINCTRL_STATE_TROCH_LOW  "trochlight_low"
 static struct pinctrl *lm3643_pinctrl;
 static struct pinctrl_state *lm3643_hwen_high;
 static struct pinctrl_state *lm3643_hwen_low;
+static struct pinctrl_state *lm3643_flash_high;
+static struct pinctrl_state *lm3643_flash_low;
+static struct pinctrl_state *lm3643_troch_high;
+static struct pinctrl_state *lm3643_troch_low;
 
 /* define usage count */
 static int use_count;
@@ -123,6 +138,7 @@ static int lm3643_pinctrl_init(struct platform_device *pdev)
 	if (IS_ERR(lm3643_pinctrl)) {
 		pr_err("Failed to get flashlight pinctrl.\n");
 		ret = PTR_ERR(lm3643_pinctrl);
+		return ret;
 	}
 
 	/* Flashlight HWEN pin initialization */
@@ -137,6 +153,34 @@ static int lm3643_pinctrl_init(struct platform_device *pdev)
 	if (IS_ERR(lm3643_hwen_low)) {
 		pr_err("Failed to init (%s)\n", LM3643_PINCTRL_STATE_HWEN_LOW);
 		ret = PTR_ERR(lm3643_hwen_low);
+	}
+
+	/* Flashlight FLASH pin initialization */
+	lm3643_flash_high= pinctrl_lookup_state(
+			lm3643_pinctrl, LM3643_PINCTRL_STATE_FLASH_HIGH);
+	if (IS_ERR(lm3643_flash_high)) {
+		pr_err("Failed to init (%s)\n", LM3643_PINCTRL_STATE_FLASH_HIGH);
+		ret = PTR_ERR(lm3643_flash_high);
+	}
+	lm3643_flash_low= pinctrl_lookup_state(
+			lm3643_pinctrl, LM3643_PINCTRL_STATE_FLASH_LOW);
+	if (IS_ERR(lm3643_flash_low)) {
+		pr_err("Failed to init (%s)\n", LM3643_PINCTRL_STATE_FLASH_LOW);
+		ret = PTR_ERR(lm3643_flash_low);
+	}
+
+	/* Flashlight TORCH pin initialization */
+	lm3643_troch_high= pinctrl_lookup_state(
+			lm3643_pinctrl, LM3643_PINCTRL_STATE_TROCH_HIGH);
+	if (IS_ERR(lm3643_troch_high)) {
+		pr_err("Failed to init (%s)\n", LM3643_PINCTRL_STATE_TROCH_HIGH);
+		ret = PTR_ERR(lm3643_troch_high);
+	}
+	lm3643_troch_low= pinctrl_lookup_state(
+			lm3643_pinctrl, LM3643_PINCTRL_STATE_TROCH_LOW);
+	if (IS_ERR(lm3643_troch_low)) {
+		pr_err("Failed to init (%s)\n", LM3643_PINCTRL_STATE_TROCH_LOW);
+		ret = PTR_ERR(lm3643_troch_low);
 	}
 
 	return ret;
@@ -154,11 +198,37 @@ static int lm3643_pinctrl_set(int pin, int state)
 	switch (pin) {
 	case LM3643_PINCTRL_PIN_HWEN:
 		if (state == LM3643_PINCTRL_PINSTATE_LOW &&
-				!IS_ERR(lm3643_hwen_low))
+				!IS_ERR(lm3643_hwen_low)){
 			pinctrl_select_state(lm3643_pinctrl, lm3643_hwen_low);
+		}
 		else if (state == LM3643_PINCTRL_PINSTATE_HIGH &&
-				!IS_ERR(lm3643_hwen_high))
+				!IS_ERR(lm3643_hwen_high)){
 			pinctrl_select_state(lm3643_pinctrl, lm3643_hwen_high);
+		}
+		else
+			pr_err("set err, pin(%d) state(%d)\n", pin, state);
+		break;
+	case LM3643_PINCTRL_PIN_FLASH:
+		if (state == LM3643_PINCTRL_PINSTATE_LOW &&
+				!IS_ERR(lm3643_flash_low)){
+			pinctrl_select_state(lm3643_pinctrl, lm3643_flash_low);
+		}
+		else if (state == LM3643_PINCTRL_PINSTATE_HIGH &&
+				!IS_ERR(lm3643_flash_high)){
+			pinctrl_select_state(lm3643_pinctrl, lm3643_flash_high);
+		}
+		else
+			pr_err("set err, pin(%d) state(%d)\n", pin, state);
+		break;
+	case LM3643_PINCTRL_PIN_TROCH:
+		if (state == LM3643_PINCTRL_PINSTATE_LOW &&
+				!IS_ERR(lm3643_troch_low)){
+			pinctrl_select_state(lm3643_pinctrl, lm3643_troch_low);
+		}
+		else if (state == LM3643_PINCTRL_PINSTATE_HIGH &&
+				!IS_ERR(lm3643_troch_high)){
+			pinctrl_select_state(lm3643_pinctrl, lm3643_troch_high);
+		}
 		else
 			pr_err("set err, pin(%d) state(%d)\n", pin, state);
 		break;
@@ -176,21 +246,24 @@ static int lm3643_pinctrl_set(int pin, int state)
  * lm3643 operations
  *****************************************************************************/
 static const int lm3643_current[LM3643_LEVEL_NUM] = {
-	 22,  46,  70,  93,  116, 140, 163, 198, 245, 304,
-	351, 398, 445, 503,  550, 597, 656, 703, 750, 796,
-	855, 902, 949, 996, 1054, 1101
+	22,  46,  70,  93, 127, 150, 174, 197,  220,  257,
+	280, 304, 328, 351, 375, 409, 457, 503,  553,  600,
+	646, 703, 750, 796, 853, 900, 950, 1008, 1054, 1101,
+	1148, 1206
 };
 
 static const unsigned char lm3643_torch_level[LM3643_LEVEL_NUM] = {
-	0x0F, 0x20, 0x31, 0x42, 0x52, 0x63, 0x74, 0x00, 0x00, 0x00,
+	0x07, 0x0F, 0x17, 0x1B, 0x2B, 0x33, 0x3B, 0x43, 0x4B, 0x58,
+	0x5F, 0x68, 0x70, 0x78, 0x80, 0x8C, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+	0x00, 0x00
 };
 
 static const unsigned char lm3643_flash_level[LM3643_LEVEL_NUM] = {
-	0x01, 0x03, 0x05, 0x07, 0x09, 0x0B, 0x0D, 0x10, 0x14, 0x19,
-	0x1D, 0x21, 0x25, 0x2A, 0x2E, 0x32, 0x37, 0x3B, 0x3F, 0x43,
-	0x48, 0x4C, 0x50, 0x54, 0x59, 0x5D
+	0x01, 0x03, 0x05, 0x09, 0x0A, 0x0C, 0x0E, 0x10, 0x12, 0x15,
+	0x17, 0x19, 0x1B, 0x1D, 0x1F, 0x22, 0x26, 0x2A, 0x2E, 0x32,
+	0x36, 0x3B, 0x3F, 0x43, 0x48, 0x4C, 0x50, 0x55, 0x59, 0x5D,
+	0x61, 0x66
 };
 
 static unsigned char lm3643_reg_enable;
@@ -259,6 +332,29 @@ static int lm3643_enable_ch1(void)
 	val = lm3643_reg_enable;
 
 	return lm3643_write_reg(lm3643_i2c_client, reg, val);
+}
+
+static int lm3643_enable_ch2_torch_ctl(bool enable)
+{
+	unsigned char reg, val;
+
+	/********************************************************
+	*1.LM3643_ENABLE_LED2_TORCH_CTL(0x0)bit7=0
+	* LED2 Troch Current is not set to LED1 Troch Current
+	*2.LM3643_DISABLE_LED2_TORCH_CTL(0x8)bit7=1
+	* LED2 Troch Current is set to LED1 Troch Current(DEFAULT)
+	**********************************************************/
+	reg = LM3643_REG_TORCH_LEVEL_LED1;
+	if(enable) {
+		val = LM3643_ENABLE_LED2_TORCH_CTL;
+	} else {
+		val = LM3643_DISABLE_LED2_TORCH_CTL;
+	}
+	if(lm3643_reg_enable & LM3643_ENABLE_LED2_TORCH) {
+		return lm3643_write_reg(lm3643_i2c_client, reg, val);
+	}
+
+	return 0;
 }
 
 static int lm3643_enable_ch2(void)
@@ -374,7 +470,9 @@ static int lm3643_set_level_ch2(int level)
 	/* set torch brightness level */
 	reg = LM3643_REG_TORCH_LEVEL_LED2;
 	val = lm3643_torch_level[level];
+	(void)lm3643_enable_ch2_torch_ctl(true);
 	ret = lm3643_write_reg(lm3643_i2c_client, reg, val);
+	(void)lm3643_enable_ch2_torch_ctl(false);
 
 	lm3643_level_ch2 = level;
 
@@ -419,6 +517,10 @@ int lm3643_init(void)
 
 	lm3643_pinctrl_set(
 			LM3643_PINCTRL_PIN_HWEN, LM3643_PINCTRL_PINSTATE_HIGH);
+	lm3643_pinctrl_set(
+			LM3643_PINCTRL_PIN_FLASH, LM3643_PINCTRL_PINSTATE_LOW);
+	lm3643_pinctrl_set(
+			LM3643_PINCTRL_PIN_TROCH, LM3643_PINCTRL_PINSTATE_LOW);
 	msleep(20);
 
 	/* clear enable register */
@@ -443,6 +545,10 @@ int lm3643_uninit(void)
 	lm3643_disable(LM3643_CHANNEL_CH2);
 	lm3643_pinctrl_set(
 			LM3643_PINCTRL_PIN_HWEN, LM3643_PINCTRL_PINSTATE_LOW);
+	lm3643_pinctrl_set(
+			LM3643_PINCTRL_PIN_FLASH, LM3643_PINCTRL_PINSTATE_LOW);
+	lm3643_pinctrl_set(
+			LM3643_PINCTRL_PIN_TROCH, LM3643_PINCTRL_PINSTATE_LOW);
 
 	return 0;
 }
@@ -757,6 +863,13 @@ static int lm3643_i2c_probe(
 
 	/* init chip hw */
 	lm3643_chip_init(chip);
+
+#ifdef CONFIG_HUAWEI_DEV_SELFCHECK
+	/* detect current device successful, set the flag as present */
+	set_hw_dev_detect_result(DEV_DETECT_FFLASH);
+#endif
+
+
 
 	pr_debug("i2c probe done.\n");
 

@@ -268,8 +268,6 @@ void msdc_emmc_power(struct msdc_host *host, u32 on)
 		msdc_set_rdsel(host, MSDC_TDRDSEL_1V8, 0);
 	}
 
-	msdc_ldo_power(on, host->mmc->supply.vmmc,
-		VOL_3000, &host->power_flash);
 #endif
 #ifdef MTK_MSDC_BRINGUP_DEBUG
 	msdc_dump_ldo_sts(NULL, 0, NULL, host);
@@ -1190,6 +1188,8 @@ int msdc_of_parse(struct platform_device *pdev, struct mmc_host *mmc)
 
 	host->mmc = mmc;
 	host->hw = kzalloc(sizeof(struct msdc_hw), GFP_KERNEL);
+	if (!host->hw)
+		return -ENOMEM;
 
 	/* iomap register */
 	host->base = of_iomap(np, 0);

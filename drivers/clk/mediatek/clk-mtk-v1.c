@@ -28,16 +28,10 @@
 #endif
 
 static DEFINE_SPINLOCK(clk_ops_lock);
-static DEFINE_SPINLOCK(mtcmos_ops_lock);
 
 spinlock_t *get_mtk_clk_lock(void)
 {
 	return &clk_ops_lock;
-}
-
-spinlock_t *get_mtk_mtcmos_lock(void)
-{
-	return &mtcmos_ops_lock;
 }
 
 /*
@@ -59,7 +53,6 @@ struct clk *mtk_clk_register_mux(
 	struct clk_hw *gate_hw = NULL;
 	const struct clk_ops *gate_ops = NULL;
 	u32 mask = BIT(width) - 1;
-	int ret;
 
 #if MT_CCF_DEBUG
 	pr_debug("name: %s, num_parents: %d, gate_bit: %d\n",
@@ -79,8 +72,8 @@ struct clk *mtk_clk_register_mux(
 	if (gate_bit <= MAX_MUX_GATE_BIT) {
 		gate = kzalloc(sizeof(struct clk_gate), GFP_KERNEL);
 		if (!gate) {
-			ret = -ENOMEM;
-			goto err_out;
+			kfree(mux);
+			return ERR_PTR(-ENOMEM);
 		}
 
 		gate->reg = base_addr;
@@ -99,14 +92,9 @@ struct clk *mtk_clk_register_mux(
 		CLK_IGNORE_UNUSED);
 
 	if (IS_ERR(clk)) {
-		ret = PTR_ERR(clk);
-		goto err_out;
+		kfree(gate);
+		kfree(mux);
 	}
 
 	return clk;
-err_out:
-	kfree(gate);
-	kfree(mux);
-
-	return ERR_PTR(ret);
 }

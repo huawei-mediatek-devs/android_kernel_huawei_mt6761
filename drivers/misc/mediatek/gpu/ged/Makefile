@@ -17,13 +17,13 @@ MTK_TOP = $(srctree)/drivers/misc/mediatek/
 VER:=eng
 
 #ccflags-y += -DGED_KPI_DEBUG
-ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6759" "mt6799" "mt6763" "mt6739" "mt6758" "mt6775" "mt6771" "mt6765" "mt6761" "mt3967" "mt6779"))
+ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6759" "mt6799" "mt6763" "mt6739" "mt6758" "mt6775" "mt6771" "mt6765" "mt6761" "mt3967"))
 ccflags-y += -DGED_KPI_MET_DEBUG
 ccflags-y += -DMTK_GED_KPI
 ccflags-y += -DGED_KPI_CPU_BOOST
 endif
 
-ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6775" "mt6771" "mt6765" "mt6761" "mt6763" "mt6779"))
+ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6775" "mt6771" "mt6765" "mt6761"))
 ifeq ($(CONFIG_MTK_GPU_COMMON_DVFS_SUPPORT),y)
 ccflags-y += -DGED_ENABLE_FB_DVFS
 endif
@@ -33,10 +33,8 @@ ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6775" "mt6771"))
 ccflags-y += -DGED_KPI_CPU_INFO
 endif
 
-ifeq ($(CONFIG_MTK_DYNAMIC_FPS_FRAMEWORK_SUPPORT),y)
 ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6759" "mt6799" "mt6763" "mt6775" "mt6771"))
 ccflags-y += -DGED_KPI_DFRC
-endif
 endif
 
 ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6759" "mt6799"))
@@ -51,19 +49,6 @@ ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6765"))
 #ccflags-y += -DCONFIG_MTK_QOS_SUPPORT
 endif
 
-ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6761" "mt6765" "mt6779"))
-ifeq ($(CONFIG_MTK_GPU_COMMON_DVFS_SUPPORT),y)
-ccflags-y += -DGED_ENABLE_DYNAMIC_DVFS_MARGIN
-ccflags-y += -DGED_CONFIGURE_LOADING_BASE_DVFS_STEP
-ccflags-y += -DGED_ENABLE_TIMER_BASED_DVFS_MARGIN
-endif
-endif
-
-ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6779"))
-ifeq ($(CONFIG_MTK_GPU_COMMON_DVFS_SUPPORT),y)
-ccflags-y += -DGED_MODULE_LATE_INIT
-endif
-endif
 
 ifneq ($(strip $(TARGET_BUILD_VARIANT)),)
 ifneq ($(strip $(TARGET_BUILD_VARIANT)),eng)
@@ -158,6 +143,5 @@ ged-y += \
 	src/ged_ge.o \
 	src/ged_dvfs.o \
 	src/ged_kpi.o \
-	src/ged_fdvfs.o \
-	src/ged_gpu_tuner.o
+	src/ged_fdvfs.o
 

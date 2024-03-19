@@ -281,23 +281,21 @@ int ccci_hif_state_notification(int md_id, unsigned char state)
 		break;
 	case READY:
 		break;
-	case RESET:
-		break;
 	case EXCEPTION:
-	case WAITING_TO_STOP:
+		/* maybe we can move here */
 		if (ccci_hif[DPMAIF_HIF_ID] != NULL) {
 			ccci_hif_dump_status(1 << DPMAIF_HIF_ID,
 				DUMP_FLAG_REG, -1);
 			dpmaif_stop_hw();
 		}
 		break;
+	case RESET:
+	case WAITING_TO_STOP:
+		break;
 	case GATED:
 		/* later than ccmni */
-		if (ccci_hif[DPMAIF_HIF_ID] != NULL) {
-			ccci_hif_dump_status(1 << DPMAIF_HIF_ID,
-				DUMP_FLAG_REG, -1);
+		if (ccci_hif[DPMAIF_HIF_ID] != NULL)
 			ret = dpmaif_stop(DPMAIF_HIF_ID);
-		}
 		break;
 	default:
 		break;

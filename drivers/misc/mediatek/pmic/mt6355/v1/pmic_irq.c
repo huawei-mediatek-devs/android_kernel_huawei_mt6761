@@ -64,7 +64,7 @@
 /*#include <mt-plat/mtk_gpt.h> TBD*/
 #endif
 
-#if defined(CONFIG_MTK_SMART_BATTERY) && !defined(CONFIG_MACH_MT6757)
+#if defined(CONFIG_MTK_SMART_BATTERY)
 #include <mt-plat/battery_common.h>
 /*#include <mach/mtk_battery_meter.h> TBD*/
 /*#include <mt-plat/battery_meter.h> TBD*/
@@ -657,8 +657,6 @@ int pmic_thread_kthread(void *x)
 		set_current_state(TASK_INTERRUPTIBLE);
 		enable_irq(g_pmic_irq);
 		schedule();
-		if (g_pmic_irq < 0)
-			break;
 	}
 
 	return 0;
@@ -713,9 +711,9 @@ static void enable_pmic_irqs(void)
 #endif
 }
 
-void PMIC_EINT_SETTING(struct platform_device *pdev)
+void PMIC_EINT_SETTING(void)
 {
-	struct device_node *node = pdev->dev.of_node;
+	struct device_node *node = NULL;
 	int ret = 0;
 
 	/* create pmic irq thread handler*/
@@ -739,6 +737,11 @@ void PMIC_EINT_SETTING(struct platform_device *pdev)
 	register_irq_handlers();
 	enable_pmic_irqs();
 
+#if defined(CONFIG_MACH_MT6758)
+	node = of_find_compatible_node(NULL, NULL, "mediatek, mt6355_pmic");
+#else
+	node = of_find_compatible_node(NULL, NULL, "mediatek,mt6355-pmic");
+#endif
 	if (node) {
 		/* no debounce setting */
 		g_pmic_irq = irq_of_parse_and_map(node, 0);

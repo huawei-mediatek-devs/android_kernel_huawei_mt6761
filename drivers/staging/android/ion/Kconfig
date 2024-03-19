@@ -54,3 +54,9 @@ config ION_OF
 	  extensions
 
 	  If using Ion and devicetree, you should say Y here
+
+config HUAWEI_SPECIAL_SCENE_POOL
+        bool "Support Hisilicon Special Scenes Pool"
+        default n
+        help
+          This driver supports Hisilicon Special Scenes Pool.

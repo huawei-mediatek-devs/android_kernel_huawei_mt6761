@@ -24,9 +24,6 @@
 
 #define MEM_REGION_ON_OFF_STREE_ROUND (100ULL)
 
-#define MULTIPLE_REGION_MULTIPLE_THREAD_TEST_ENABLE (0)
-#define MTEE_MCHUNKS_MULTIPLE_THREAD_TEST_ENABLE (1)
-
 enum UT_RET_STATE all_regmgr_state_off_check(void);
 enum UT_RET_STATE mem_basic_test(enum TRUSTED_MEM_TYPE mem_type,
 				 int region_final_state);
@@ -51,11 +48,7 @@ enum UT_RET_STATE mem_region_on_off_stress_test(enum TRUSTED_MEM_TYPE mem_type,
 						int region_final_state,
 						int round);
 enum UT_RET_STATE mem_alloc_multithread_test(enum TRUSTED_MEM_TYPE mem_type);
-enum UT_RET_STATE mem_alloc_mixed_size_test(enum TRUSTED_MEM_TYPE mem_type,
-					    u8 *mem_owner,
-					    int region_final_state);
 enum UT_RET_STATE mem_multi_type_alloc_multithread_test(void);
-enum UT_RET_STATE mem_mtee_mchunks_alloc_multithread_test(void);
 bool is_multi_type_alloc_multithread_test_locked(void);
 
 #endif /* end of TMEM_UT_COMMON_H */

@@ -20,7 +20,7 @@
 #else
 #include "mtk_battery_internal.h"
 #endif
-
+#include "../../../../../auxadc/mtk_auxadc.h"
 /* ============================================================
  * define
  * ============================================================
@@ -31,7 +31,7 @@
 #define Q_MAX_H_CURRENT 10000
 
 /* multiple battery profile compile options */
-/*#define MTK_GET_BATTERY_ID_BY_AUXADC*/
+#define MTK_GET_BATTERY_ID_BY_AUXADC
 
 
 /* if ACTIVE_TABLE == 0 && MULTI_BATTERY == 0
@@ -41,6 +41,7 @@
 #define BATTERY_ID_CHANNEL_NUM 1
 #define BATTERY_PROFILE_ID 0
 #define TOTAL_BATTERY_NUMBER 4
+#define BATTERY_ID_NUMBER 3
 
 /*
  * if ACTIVE_TABLE == 0 , use DTSI table
@@ -84,8 +85,59 @@ int g_Q_MAX_SYS_VOLTAGE[TOTAL_BATTERY_NUMBER] = { 3400, 3400, 3400, 3400};
 
 /* 0~0.5V for battery 0, 0.5~1V for battery 1*/
 /* 1~1.5V for battery 2, -1 for the last one (battery 3) */
-int g_battery_id_voltage[TOTAL_BATTERY_NUMBER] = {
-	500000, 1000000, 1500000, -1};
+struct battery_id_voltage
+{
+	char *vendor_name;
+	int id_voltage_low;
+	int id_voltage_high;
+};
+
+struct battery_id_voltage g_battery_id_voltage[BATTERY_ID_NUMBER] =
+{
+	{
+		.vendor_name="desay+ATL",
+		.id_voltage_low = 1500,
+		.id_voltage_high =1800,
+	},
+	{
+		.vendor_name="scud+guangyu",
+		.id_voltage_low = 2400,
+		.id_voltage_high = 2700,
+	},
+	{
+		.vendor_name="xinwangda+SONY",
+		.id_voltage_low = 3400,
+		.id_voltage_high =3700,
+	}
+};
+
+bool batt_id_volt_by_adc = false;
+#define BATT_ID_CHANNEL_NUM 2
+#define BATT_ID_NUMBER	4
+//Do not change structure sequence.
+struct battery_id_voltage g_batt_id_voltage[BATT_ID_NUMBER] =
+{
+	{
+		.vendor_name="desay+ATL",
+		.id_voltage_low = 250000,
+		.id_voltage_high = 350000,
+	},
+	{
+		.vendor_name="scud+guangyu",
+		.id_voltage_low = 400000,
+		.id_voltage_high = 510000,
+	},
+	{
+		.vendor_name="xinwangda+murata",
+		.id_voltage_low = 590000,
+		.id_voltage_high = 690000,
+	},
+	{
+		.vendor_name="xinwangda+ATL",
+		.id_voltage_low = 830000,
+		.id_voltage_high = 960000,
+	}
+};
 
 int g_FG_PSEUDO1[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 	/*bat1,   bat2,   bat3,    bat4*/
@@ -139,8 +191,8 @@ int g_PMIC_MIN_VOL[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 	{33500, 33500, 33500, 33500},/*T0*/
 	{33500, 33500, 33500, 33500},/*T1*/
 	{33500, 33500, 33500, 33500},/*T2*/
-	{32200, 32200, 32200, 32200},/*T3*/
-	{31000, 31000, 31000, 31000},/*T4*/
+	{32000, 32000, 32000, 32000},/*T3*/
+	{32000, 32000, 32000, 32000},/*T4*/
 	{33001, 33006, 33009, 33004},/*T5*/
 	{33002, 33007, 33008, 33003},/*T6*/
 	{33003, 33008, 33007, 33002},/*T7*/
@@ -169,8 +221,8 @@ int g_QMAX_SYS_VOL[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 	{33500, 33500, 33500, 33500},/*T0*/
 	{33500, 33500, 33500, 33500},/*T1*/
 	{33500, 33500, 33500, 33500},/*T2*/
-	{32900, 32900, 32900, 32900},/*T3*/
-	{32800, 32800, 32800, 32800},/*T4*/
+	{32000, 32000, 32000, 32000},/*T3*/
+	{33000, 33000, 33000, 33000},/*T4*/
 	{33500, 33500, 33500, 33500},/*T5*/
 	{33500, 33500, 33500, 33500},/*T6*/
 	{33500, 33500, 33500, 33500},/*T7*/
@@ -200,7 +252,7 @@ int g_temperature[MAX_TABLE] = {
 #define BAT_NTC_47 0
 
 #if (BAT_NTC_10 == 1)
-#define RBAT_PULL_UP_R             16900
+#define RBAT_PULL_UP_R             18000
 #endif
 
 #if (BAT_NTC_47 == 1)

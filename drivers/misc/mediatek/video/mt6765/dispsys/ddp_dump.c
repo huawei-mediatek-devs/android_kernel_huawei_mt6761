@@ -1432,7 +1432,8 @@ static void ccorr_dump_analyze(enum DISP_MODULE_ENUM module)
 {
 	int i;
 	unsigned int offset = 0x1000;
-	int ccorr_en, ccorr_cfg, ccorr_size, ccorr_in_cnt, ccorr_out_cnt;
+	unsigned int ccorr_en, ccorr_cfg, ccorr_size;
+	unsigned int ccorr_in_cnt, ccorr_out_cnt;
 
 	if (module == DISP_MODULE_CCORR0)
 		i = 0;
@@ -1506,7 +1507,7 @@ static void dither_dump_analyze(enum DISP_MODULE_ENUM module)
 {
 	int i;
 	unsigned int offset = 0x1000;
-	int dither_size, dither_in_cnt, dither_out_cnt;
+	unsigned int dither_size, dither_in_cnt, dither_out_cnt;
 
 	if (module == DISP_MODULE_DITHER0)
 		i = 0;

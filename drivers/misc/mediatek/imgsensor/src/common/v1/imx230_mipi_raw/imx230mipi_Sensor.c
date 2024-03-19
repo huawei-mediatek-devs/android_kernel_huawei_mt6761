@@ -221,7 +221,6 @@ static struct imgsensor_struct imgsensor = {
 
 	.ihdr_mode = 0,	/* sensor need support LE, SE with HDR feature */
 	.i2c_write_id = 0x6c,	/* record current sensor's i2c write id */
-	.current_ae_effective_frame = 2,
 };
 
 
@@ -279,7 +278,7 @@ static struct SENSOR_ATR_INFO sensorATR_Info[4] = {	/* Strength Range Min */
 };
 #endif
 
-#define IMX230MIPI_MaxGainIndex (116)
+#define IMX230MIPI_MaxGainIndex (115)
 kal_uint16 IMX230MIPI_sensorGainMapping[IMX230MIPI_MaxGainIndex][2] = {
 	{64, 0},
 	{65, 8},
@@ -395,7 +394,6 @@ kal_uint16 IMX230MIPI_sensorGainMapping[IMX230MIPI_MaxGainIndex][2] = {
 	{437, 437},
 	{449, 439},
 	{468, 442},
-	{489, 445},
 	{512, 448},
 };
 
@@ -703,17 +701,12 @@ static void set_shutter(kal_uint32 shutter)
 		 */
 
 		write_cmos_sensor(0x3028,
-		    (read_cmos_sensor(0x3028) & 0xf8) | (l_shift & 0x7));
+		    read_cmos_sensor(0x3028) | (l_shift & 0x7));
 
 		/* pr_debug("0x3028 0x%x\n", read_cmos_sensor(0x3028)); */
 
-		/* Frame exposure mode customization for LE*/
-		imgsensor.ae_frm_mode.frame_mode_1 = IMGSENSOR_AE_MODE_SE;
-		imgsensor.ae_frm_mode.frame_mode_2 = IMGSENSOR_AE_MODE_SE;
-		imgsensor.current_ae_effective_frame = 2;
 	} else {
 		write_cmos_sensor(0x3028, read_cmos_sensor(0x3028) & 0xf8);
-		imgsensor.current_ae_effective_frame = 2;
 	}
 
 	shutter =
@@ -4082,13 +4075,6 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 			break;
 		}
 
-		break;
-	case SENSOR_FEATURE_GET_AE_FRAME_MODE_FOR_LE:
-		memcpy(feature_return_para_32, &imgsensor.ae_frm_mode,
-		       sizeof(struct IMGSENSOR_AE_FRM_MODE));
-		break;
-	case SENSOR_FEATURE_GET_AE_EFFECTIVE_FRAME_FOR_LE:
-		*feature_return_para_32 = imgsensor.current_ae_effective_frame;
 		break;
 
 	default:

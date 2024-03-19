@@ -67,6 +67,26 @@ int charger_dev_enable(struct charger_device *chg_dev, bool en)
 	return -ENOTSUPP;
 }
 EXPORT_SYMBOL(charger_dev_enable);
+int charger_dev_get_ibus_current(struct charger_device *chg_dev, u32 *ibus)
+{
+	if (chg_dev != NULL && chg_dev->ops != NULL &&
+	    chg_dev->ops->get_ibus_adc )
+		return chg_dev->ops->get_ibus_adc (chg_dev, ibus);
+
+	return -ENOTSUPP;
+}
+EXPORT_SYMBOL(charger_dev_get_ibus_current);
+
+int charger_dev_set_dpm(struct charger_device *charger_dev, int vbat_dpm)
+{
+	if ((charger_dev != NULL) &&
+		(charger_dev->ops != NULL) &&
+		(charger_dev->ops->set_mivr)) {
+		return charger_dev->ops->set_mivr(charger_dev, vbat_dpm);
+	}
+
+	return -ENOTSUPP;
+}
 
 int charger_dev_is_enabled(struct charger_device *chg_dev, bool *en)
 {
@@ -175,16 +195,6 @@ int charger_dev_kick_direct_charging_wdt(struct charger_device *chg_dev)
 }
 EXPORT_SYMBOL(charger_dev_kick_direct_charging_wdt);
 
-int charger_dev_get_vbus(struct charger_device *chg_dev, u32 *vbus)
-{
-	if (chg_dev != NULL && chg_dev->ops != NULL &&
-	    chg_dev->ops->get_vbus_adc)
-		return chg_dev->ops->get_vbus_adc(chg_dev, vbus);
-
-	return -ENOTSUPP;
-}
-EXPORT_SYMBOL(charger_dev_get_vbus);
-
 int charger_dev_get_ibus(struct charger_device *chg_dev, u32 *ibus)
 {
 	if (chg_dev != NULL && chg_dev->ops != NULL &&
@@ -194,16 +204,6 @@ int charger_dev_get_ibus(struct charger_device *chg_dev, u32 *ibus)
 	return -ENOTSUPP;
 }
 EXPORT_SYMBOL(charger_dev_get_ibus);
-
-int charger_dev_get_ibat(struct charger_device *chg_dev, u32 *ibat)
-{
-	if (chg_dev != NULL && chg_dev->ops != NULL &&
-	    chg_dev->ops->get_ibat_adc)
-		return chg_dev->ops->get_ibat_adc(chg_dev, ibat);
-
-	return -ENOTSUPP;
-}
-EXPORT_SYMBOL(charger_dev_get_ibat);
 
 int charger_dev_get_temperature(struct charger_device *chg_dev, int *tchg_min,
 		int *tchg_max)
@@ -335,15 +335,6 @@ int charger_dev_set_mivr(struct charger_device *chg_dev, u32 uV)
 }
 EXPORT_SYMBOL(charger_dev_set_mivr);
 
-int charger_dev_get_mivr(struct charger_device *chg_dev, u32 *uV)
-{
-	if (chg_dev != NULL && chg_dev->ops != NULL && chg_dev->ops->get_mivr)
-		return chg_dev->ops->get_mivr(chg_dev, uV);
-
-	return -ENOTSUPP;
-}
-EXPORT_SYMBOL(charger_dev_get_mivr);
-
 int charger_dev_enable_powerpath(struct charger_device *chg_dev, bool en)
 {
 	if (chg_dev != NULL && chg_dev->ops != NULL &&
@@ -373,17 +364,6 @@ int charger_dev_enable_safety_timer(struct charger_device *chg_dev, bool en)
 	return -ENOTSUPP;
 }
 EXPORT_SYMBOL(charger_dev_enable_safety_timer);
-
-int charger_dev_get_adc(struct charger_device *charger_dev,
-	enum adc_channel chan, int *min, int *max)
-{
-	if (charger_dev != NULL && charger_dev->ops != NULL &&
-	    charger_dev->ops->get_adc)
-		return charger_dev->ops->get_adc(charger_dev, chan, min, max);
-
-	return -ENOTSUPP;
-}
-EXPORT_SYMBOL(charger_dev_get_adc);
 
 int charger_dev_is_safety_timer_enabled(struct charger_device *chg_dev,
 					bool *en)
@@ -560,11 +540,29 @@ int charger_dev_reset_eoc_state(struct charger_device *chg_dev)
 }
 EXPORT_SYMBOL(charger_dev_reset_eoc_state);
 
-int charger_dev_safety_check(struct charger_device *chg_dev, u32 polling_ieoc)
+int charger_dev_enable_hz(struct charger_device *chg_dev, bool en)
+{
+    if (chg_dev != NULL && chg_dev->ops != NULL && chg_dev->ops->enable_hz)
+        return chg_dev->ops->enable_hz(chg_dev, en);
+
+    return -ENOTSUPP;
+}
+EXPORT_SYMBOL(charger_dev_enable_hz);
+
+int charger_dev_get_ts_vbat_adc(struct charger_device *chg_dev)
+{
+    if (chg_dev != NULL && chg_dev->ops != NULL && chg_dev->ops->get_ts_vbat_adc)
+        return chg_dev->ops->get_ts_vbat_adc(chg_dev);
+
+    return -ENOTSUPP;
+}
+EXPORT_SYMBOL(charger_dev_get_ts_vbat_adc);
+
+int charger_dev_safety_check(struct charger_device *chg_dev)
 {
 	if (chg_dev != NULL && chg_dev->ops != NULL &&
 	    chg_dev->ops->safety_check)
-		return chg_dev->ops->safety_check(chg_dev, polling_ieoc);
+		return chg_dev->ops->safety_check(chg_dev);
 
 	return -ENOTSUPP;
 }
@@ -575,70 +573,35 @@ int charger_dev_notify(struct charger_device *chg_dev, int event)
 		&chg_dev->evt_nh, event, &chg_dev->noti);
 }
 
-int charger_dev_enable_usbid(struct charger_device *charger_dev, bool en)
+int charger_dev_get_fod_status(struct charger_device *charger_dev, u8 *status)
 {
 	if (charger_dev != NULL && charger_dev->ops != NULL &&
-	    charger_dev->ops->enable_usbid)
-		return charger_dev->ops->enable_usbid(charger_dev, en);
+					       charger_dev->ops->get_fod_status)
+		return charger_dev->ops->get_fod_status(charger_dev, status);
 
 	return -ENOTSUPP;
 }
-EXPORT_SYMBOL(charger_dev_enable_usbid);
+EXPORT_SYMBOL(charger_dev_get_fod_status);
 
-int charger_dev_set_usbid_rup(struct charger_device *charger_dev, u32 rup)
+int charger_dev_enable_fod_oneshot(struct charger_device *charger_dev, bool en)
 {
 	if (charger_dev != NULL && charger_dev->ops != NULL &&
-	    charger_dev->ops->set_usbid_rup)
-		return charger_dev->ops->set_usbid_rup(charger_dev, rup);
+					   charger_dev->ops->enable_fod_oneshot)
+		return charger_dev->ops->enable_fod_oneshot(charger_dev, en);
 
 	return -ENOTSUPP;
 }
-EXPORT_SYMBOL(charger_dev_set_usbid_rup);
+EXPORT_SYMBOL(charger_dev_enable_fod_oneshot);
 
-int charger_dev_set_usbid_src_ton(struct charger_device *charger_dev,
-				  u32 src_ton)
+int charger_dev_is_typec_ot(struct charger_device *charger_dev, bool *ot)
 {
 	if (charger_dev != NULL && charger_dev->ops != NULL &&
-	    charger_dev->ops->set_usbid_src_ton)
-		return charger_dev->ops->set_usbid_src_ton(charger_dev,
-							   src_ton);
+						  charger_dev->ops->is_typec_ot)
+		return charger_dev->ops->is_typec_ot(charger_dev, ot);
 
 	return -ENOTSUPP;
 }
-EXPORT_SYMBOL(charger_dev_set_usbid_src_ton);
-
-int charger_dev_enable_usbid_floating(struct charger_device *charger_dev,
-				      bool en)
-{
-	if (charger_dev != NULL && charger_dev->ops != NULL &&
-	    charger_dev->ops->enable_usbid_floating)
-		return charger_dev->ops->enable_usbid_floating(charger_dev, en);
-
-	return -ENOTSUPP;
-}
-EXPORT_SYMBOL(charger_dev_enable_usbid_floating);
-
-int charger_dev_get_ctd_dischg_status(struct charger_device *charger_dev,
-				      u8 *status)
-{
-	if (charger_dev != NULL && charger_dev->ops != NULL &&
-	    charger_dev->ops->get_ctd_dischg_status)
-		return charger_dev->ops->get_ctd_dischg_status(charger_dev,
-							       status);
-
-	return -ENOTSUPP;
-}
-EXPORT_SYMBOL(charger_dev_get_ctd_dischg_status);
-
-int charger_dev_enable_hidden_mode(struct charger_device *charger_dev, bool en)
-{
-	if (charger_dev != NULL && charger_dev->ops != NULL &&
-					   charger_dev->ops->enable_hidden_mode)
-		return charger_dev->ops->enable_hidden_mode(charger_dev, en);
-
-	return -ENOTSUPP;
-}
-EXPORT_SYMBOL(charger_dev_enable_hidden_mode);
+EXPORT_SYMBOL(charger_dev_is_typec_ot);
 
 static DEVICE_ATTR(name, 0444, charger_show_name, NULL);
 
@@ -695,7 +658,7 @@ struct charger_device *charger_device_register(const char *name,
 	struct srcu_notifier_head *head;
 	int rc;
 
-	pr_debug("%s: name=%s\n", __func__, name);
+	pr_debug("charger_device_register: name=%s\n", name);
 	chg_dev = kzalloc(sizeof(*chg_dev), GFP_KERNEL);
 	if (!chg_dev)
 		return ERR_PTR(-ENOMEM);

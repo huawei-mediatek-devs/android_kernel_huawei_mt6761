@@ -80,8 +80,6 @@ typedef void (*CmdqMdpEnableCommonClock) (bool enable);
 
 typedef void (*CmdqCheckHwStatus) (struct cmdqRecStruct *handle);
 
-typedef u64(*CmdqMdpGetSecEngine) (u64 engine_flag);
-
 struct cmdqMDPFuncStruct {
 	CmdqDumpMMSYSConfig dumpMMSYSConfig;
 	CmdqVEncDumpInfo vEncDumpInfo;
@@ -113,7 +111,6 @@ struct cmdqMDPFuncStruct {
 	CmdqBeginTaskCB beginISPTask;
 	CmdqEndTaskCB endISPTask;
 	CmdqCheckHwStatus CheckHwStatus;
-	CmdqMdpGetSecEngine mdpGetSecEngine;
 };
 
 struct mdp_pmqos_record {
@@ -131,12 +128,7 @@ struct mdp_pmqos_record {
 #define MDP_BUF_INFO_STR_LEN 8 /* each buf info length */
 /* dispatch key format is MDP_(ThreadName) */
 #define MDP_DISPATCH_KEY_STR_LEN (TASK_COMM_LEN + 5)
-#define MDP_TOTAL_THREAD 16
-#ifdef CMDQ_SECURE_PATH_SUPPORT
-#define MDP_THREAD_START (CMDQ_MIN_SECURE_THREAD_ID + 2)
-#else
-#define MDP_THREAD_START CMDQ_DYNAMIC_THREAD_ID_START
-#endif
+#define MDP_TOTAL_THREAD 8
 
 /* MDP common kernel logic */
 
@@ -147,9 +139,7 @@ bool cmdq_mdp_is_request_from_user_space(
 s32 cmdq_mdp_query_usage(s32 *counters);
 
 void cmdq_mdp_reset_resource(void);
-void cmdq_mdp_dump_thread_usage(void);
-void cmdq_mdp_dump_engine_usage(void);
-void cmdq_mdp_dump_resource(u32 event);
+void cmdq_mdp_dump_resource(void);
 void cmdq_mdp_init_resource(u32 engine_id,
 	enum cmdq_event res_event);
 void cmdq_mdp_enable_res(u64 engine_flag, bool enable);
@@ -174,18 +164,6 @@ void cmdq_mdp_resume(void);
 void cmdq_mdp_release_task_by_file_node(void *file_node);
 void cmdq_mdp_init(void);
 void cmdq_mdp_deinit_pmqos(void);
-s32 cmdq_mdp_handle_create(struct cmdqRecStruct **handle_out);
-s32 cmdq_mdp_handle_flush(struct cmdqRecStruct *handle);
-s32 cmdq_mdp_handle_sec_setup(struct cmdqSecDataStruct *secData,
-			struct cmdqRecStruct *handle);
-
-struct op_meta;
-struct mdp_submit;
-s32 cmdq_mdp_update_sec_addr_index(struct cmdqRecStruct *handle,
-	u32 sec_handle, u32 index, u32 instr_index);
-u32 cmdq_mdp_handle_get_instr_count(struct cmdqRecStruct *handle);
-void cmdq_mdp_meta_replace_sec_addr(struct op_meta *metas,
-	struct mdp_submit *user_job, struct cmdqRecStruct *handle);
 
 /* Platform dependent function */
 
@@ -241,9 +219,6 @@ u32 cmdq_mdp_wrot_get_reg_offset_dst_addr(void);
 u32 cmdq_mdp_wdma_get_reg_offset_dst_addr(void);
 
 void testcase_clkmgr_mdp(void);
-
-u32 cmdq_mdp_get_hw_reg(enum MDP_ENG_BASE base, u16 offset);
-u32 cmdq_mdp_get_hw_port(enum MDP_ENG_BASE base);
 
 /* Platform virtual function setting */
 void cmdq_mdp_platform_function_setting(void);

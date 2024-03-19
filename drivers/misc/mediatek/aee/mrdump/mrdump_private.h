@@ -77,7 +77,7 @@ void mrdump_save_current_backtrace(struct pt_regs *regs);
 void mrdump_save_control_register(void *creg);
 
 extern int mrdump_rsv_conflict;
-extern void dis_D_inner_flush_all(void);
+extern void dis_D_inner_fL1L2(void);
 extern void __inner_flush_dcache_all(void);
 extern void mrdump_mini_add_entry(unsigned long addr, unsigned long size);
 
@@ -107,13 +107,7 @@ static inline void mrdump_mini_save_regs(struct pt_regs *regs)
 			  "stp	x28, x1, [x0],#16\n\t"
 			  "mov	x1, sp\n\t"
 			  "stp	x30, x1, [x0],#16\n\t"
-			  "mrs	x1, currentel\n\t"
-			  "mrs	x30, daif\n\t"
-			  "orr	x1, x1, x30\n\t"
-			  "mrs	x30, nzcv\n\t"
-			  "orr	x1, x1, x30\n\t"
-			  "mrs	x30, spsel\n\t"
-			  "orr	x1, x1, x30\n\t"
+			  "mrs	x1, daif\n\t"
 			  "adr	x30, 1b\n\t"
 			  "stp	x30, x1, [x0],#16\n\t"
 			  "sub	x1, x0, #272\n\t"
@@ -137,7 +131,6 @@ static inline void show_kaslr(void)
 
 	pr_notice("Kernel Offset: 0x%llx from 0x%lx\n",
 			kaslr_offset, KIMAGE_VADDR);
-	pr_notice("PHYS_OFFSET: 0x%llx\n", PHYS_OFFSET);
 #ifdef CONFIG_MTK_RAM_CONSOLE
 	aee_rr_rec_kaslr_offset(kaslr_offset);
 #endif

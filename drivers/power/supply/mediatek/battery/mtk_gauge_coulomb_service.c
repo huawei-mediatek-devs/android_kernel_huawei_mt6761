@@ -35,8 +35,9 @@ static int fgclog_level;
 static int pre_coulomb;
 static bool init;
 static int coulomb_lock_cnt, hw_coulomb_lock_cnt;
-static int fix_coverity;
+static int fix_coverity_coulomb;
 
+#define EXITLOOP	36500
 #define FTLOG_ERROR_LEVEL   1
 #define FTLOG_DEBUG_LEVEL   2
 #define FTLOG_TRACE_LEVEL   3
@@ -103,8 +104,7 @@ void wake_up_gauge_coulomb(void)
 		return;
 	}
 
-	ft_err("%s %d %d %d %d\n",
-		__func__,
+	ft_err("wake_up_gauge_coulomb %d %d %d %d\n",
 		wlock.active,
 		coulomb_thread_timeout,
 		coulomb_lock_cnt,
@@ -121,7 +121,7 @@ void wake_up_gauge_coulomb(void)
 
 	coulomb_thread_timeout = true;
 	wake_up(&wait_que);
-	ft_debug("%s end\n", __func__);
+	ft_debug("wake_up_gauge_coulomb end\n");
 }
 
 void gauge_coulomb_set_log_level(int x)
@@ -148,8 +148,7 @@ void gauge_coulomb_dump_list(void)
 		return;
 	}
 
-	ft_debug("%s %d %d\n",
-		__func__,
+	ft_debug("gauge_coulomb_dump_list %d %d\n",
 		wlock.active,
 		coulomb_thread_timeout);
 
@@ -195,9 +194,7 @@ void gauge_coulomb_before_reset(void)
 	mutex_coulomb_unlock();
 
 	reset_coulomb = gauge_get_coulomb();
-	ft_err("%s car=%ld\n",
-		__func__,
-		reset_coulomb);
+	ft_err("gauge_coulomb_before_reset car=%ld\n", reset_coulomb);
 	gauge_coulomb_dump_list();
 }
 
@@ -214,8 +211,7 @@ void gauge_coulomb_after_reset(void)
 		return;
 	}
 
-	ft_err("%s\n",
-		__func__);
+	ft_err("gauge_coulomb_after_reset\n");
 	mutex_coulomb_lock();
 
 	/* check plus list */
@@ -227,8 +223,7 @@ void gauge_coulomb_after_reset(void)
 		duraction = ptr->end - now;
 		ptr->end = duraction;
 		ptr->variable = duraction;
-		ft_debug("[%s]+ %s %ld %ld %d\n",
-			__func__,
+		ft_debug("[gauge_coulomb_after_reset]+ %s %ld %ld %d\n",
 			ptr->name,
 		ptr->start, ptr->end, ptr->variable);
 	}
@@ -242,8 +237,7 @@ void gauge_coulomb_after_reset(void)
 		duraction = ptr->end - now;
 		ptr->end = duraction;
 		ptr->variable = duraction;
-		ft_debug("[%s]- %s %ld %ld %d\n",
-			__func__,
+		ft_debug("[gauge_coulomb_after_reset]- %s %ld %ld %d\n",
 			ptr->name,
 		ptr->start, ptr->end, ptr->variable);
 	}
@@ -358,7 +352,6 @@ void gauge_coulomb_stop(struct gauge_consumer *coulomb)
 	if (is_fg_disabled()) {
 		gauge_set_coulomb_interrupt1_ht(0);
 		gauge_set_coulomb_interrupt1_lt(0);
-		fix_coverity = 1;
 		return;
 	}
 
@@ -382,8 +375,7 @@ void gauge_coulomb_int_handler(void)
 
 	get_monotonic_boottime(&sstart[0]);
 	car = gauge_get_coulomb();
-	ft_trace("[%s] car:%d preCar:%d\n",
-		__func__,
+	ft_trace("[gauge_coulomb_int_handler] car:%d preCar:%d\n",
 		car, pre_coulomb);
 	get_monotonic_boottime(&sstart[1]);
 
@@ -399,8 +391,7 @@ void gauge_coulomb_int_handler(void)
 				pos = pos->next;
 				list_del_init(ptmp);
 				ft_trace(
-					"[%s]+ %s s:%ld e:%ld car:%d %d int:%d timeout\n",
-					__func__,
+					"[gauge_coulomb_int_handler]+ %s s:%ld e:%ld car:%d %d int:%d timeout\n",
 					ptr->name,
 					ptr->start, ptr->end, car,
 					pre_coulomb, ptr->variable);
@@ -419,8 +410,7 @@ void gauge_coulomb_int_handler(void)
 			ptr = container_of(pos, struct gauge_consumer, list);
 			hw_car = ptr->end - car;
 			ft_trace(
-				"[%s]+ %s %ld %ld %d now:%d dif:%d\n",
-				__func__,
+				"[gauge_coulomb_int_handler]+ %s %ld %ld %d now:%d dif:%d\n",
 					ptr->name,
 					ptr->start, ptr->end,
 					ptr->variable, car, hw_car);
@@ -445,8 +435,7 @@ void gauge_coulomb_int_handler(void)
 				pos = pos->next;
 				list_del_init(ptmp);
 				ft_trace(
-					"[%s]- %s s:%ld e:%ld car:%d %d int:%d timeout\n",
-					__func__,
+					"[gauge_coulomb_int_handler]- %s s:%ld e:%ld car:%d %d int:%d timeout\n",
 					ptr->name,
 					ptr->start, ptr->end,
 					car, pre_coulomb, ptr->variable);
@@ -466,8 +455,7 @@ void gauge_coulomb_int_handler(void)
 			ptr = container_of(pos, struct gauge_consumer, list);
 			hw_car = car - ptr->end;
 			ft_trace(
-				"[%s]- %s %ld %ld %d now:%d dif:%d\n",
-				__func__,
+				"[gauge_coulomb_int_handler]- %s %ld %ld %d now:%d dif:%d\n",
 				ptr->name,
 				ptr->start, ptr->end,
 				ptr->variable, car, hw_car);
@@ -487,14 +475,14 @@ void gauge_coulomb_int_handler(void)
 
 static int gauge_coulomb_thread(void *arg)
 {
-	unsigned long flags = 0;
+	unsigned long flags;
 	struct timespec start, end, duraction;
 
 	while (1) {
 		wait_event(wait_que, (coulomb_thread_timeout == true));
 		coulomb_thread_timeout = false;
 		get_monotonic_boottime(&start);
-		ft_trace("[%s]=>\n", __func__);
+		ft_trace("[gauge_coulomb_thread]=>\n");
 		mutex_coulomb_lock();
 		gauge_coulomb_int_handler();
 		mutex_coulomb_unlock();
@@ -508,14 +496,13 @@ static int gauge_coulomb_thread(void *arg)
 		duraction = timespec_sub(end, start);
 
 		ft_trace(
-			"%s time:%d ms %d %d\n",
-			__func__,
+			"gauge_coulomb_thread time:%d ms %d %d\n",
 			(int)(duraction.tv_nsec / 1000000),
 			(int)(sstart[0].tv_nsec / 1000000),
 			(int)(sstart[1].tv_nsec / 1000000));
 
-		if (fix_coverity == 1)
-			break;
+		if (fix_coverity_coulomb == EXITLOOP)
+			return 0;
 	}
 
 	return 0;
@@ -524,8 +511,6 @@ static int gauge_coulomb_thread(void *arg)
 void gauge_coulomb_service_init(void)
 {
 	ft_trace("gauge coulomb_service_init\n");
-	INIT_LIST_HEAD(&coulomb_head_minus);
-	INIT_LIST_HEAD(&coulomb_head_plus);
 	mutex_init(&coulomb_lock);
 	mutex_init(&hw_coulomb_lock);
 	spin_lock_init(&slock);
@@ -539,11 +524,4 @@ void gauge_coulomb_service_init(void)
 		FG_BAT1_INT_H_NO, wake_up_gauge_coulomb);
 	pre_coulomb = gauge_get_coulomb();
 	init = true;
-
-#ifdef _DEA_MODIFY_
-	wait_que.function = gauge_coulomb_int_handler;
-	INIT_LIST_HEAD(&wait_que.list);
-	wait_que.name = "gauge coulomb service";
-#endif
-
 }

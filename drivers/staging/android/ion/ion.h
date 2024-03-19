@@ -173,6 +173,9 @@ struct ion_handle *ion_import_dma_buf(struct ion_client *client,
  */
 struct ion_handle *ion_import_dma_buf_fd(struct ion_client *client, int fd);
 
+extern unsigned long get_ion_total(void);
+int dump_ion_memory_info(bool verbose);
+
 /**
  * ion_phys - returns the physical address and len of a handle
  * @client:	the client

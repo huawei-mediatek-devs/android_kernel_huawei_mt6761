@@ -345,14 +345,14 @@ struct fw_update_info {
 };
 
 /* Export form gt1x_update.c */
-extern struct fw_update_info update_info;
+extern struct fw_update_info mtk_update_info;
 
 extern u8 gt1x_default_FW[];
 extern int gt1x_hold_ss51_dsp(void);
 extern int gt1x_auto_update_proc(void *data);
-extern int gt1x_update_firmware(char *filename);
+extern int mtk_gt1x_update_firmware(char *filename);
 extern void gt1x_enter_update_mode(void);
-extern void gt1x_leave_update_mode(void);
+extern void mtk_gt1x_leave_update_mode(void);
 extern int gt1x_hold_ss51_dsp_no_reset(void);
 extern int gt1x_load_patch(
 	u8 *patch, u32 patch_size, int offset, int bank_size);
@@ -362,8 +362,8 @@ extern int gt1x_is_tpd_halt(void);
 
 /* Export from gt1x_tool.c */
 #ifdef CONFIG_GTP_CREATE_WR_NODE
-extern int gt1x_init_tool_node(void);
-extern void gt1x_deinit_tool_node(void);
+extern int mtk_gt1x_init_tool_node(void);
+extern void mtk_gt1x_deinit_tool_node(void);
 #endif
 
 /* Export from gt1x_generic.c */
@@ -377,10 +377,10 @@ extern void gt1x_deinit_debug_node(void);
 
 extern s32 _do_i2c_read(struct i2c_msg *msgs, u16 addr, u8 *buffer, s32 len);
 extern s32 _do_i2c_write(struct i2c_msg *msg, u16 addr, u8 *buffer, s32 len);
-extern s32 gt1x_i2c_write(u16 addr, u8 *buffer, s32 len);
-extern s32 gt1x_i2c_read(u16 addr, u8 *buffer, s32 len);
+extern s32 mtk_gt1x_i2c_write(u16 addr, u8 *buffer, s32 len);
+extern s32 mtk_gt1x_i2c_read(u16 addr, u8 *buffer, s32 len);
 extern s32 gt1x_i2c_test(void);
-extern s32 gt1x_i2c_read_dbl_check(u16 addr, u8 *buffer, s32 len);
+extern s32 mtk_gt1x_i2c_read_dbl_check(u16 addr, u8 *buffer, s32 len);
 
 extern u8 gt1x_config[];
 extern u32 gt1x_cfg_length;
@@ -395,7 +395,7 @@ extern u8 gt1x_init_failed;
 
 extern s32 gt1x_init(void);
 extern void gt1x_deinit(void);
-extern s32 gt1x_read_version(struct gt1x_version_info *ver_info);
+extern s32 mtk_gt1x_read_version(struct gt1x_version_info *ver_info);
 extern s32 gt1x_enter_sleep(void);
 extern s32 gt1x_wakeup_sleep(void);
 extern s32 gt1x_init_panel(void);
@@ -405,7 +405,7 @@ extern int gt1x_send_cmd(u8 cmd, u8 data);
 extern s32 gt1x_send_cfg(u8 *config, int cfg_len);
 extern void gt1x_select_addr(void);
 extern s32 gt1x_reset_guitar(void);
-extern void gt1x_power_reset(void);
+extern int gt1x_power_reset(void);
 extern void gt1x_power_reset2(void);
 extern int gt1x_parse_config(char *filename, u8 *gt1x_config);
 extern s32 gt1x_touch_event_handler(

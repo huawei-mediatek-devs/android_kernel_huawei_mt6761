@@ -28,7 +28,9 @@
 
 static char *partition_nametab[] = {
 	"system",
-	"userdata",
+	"vendor",
+	"cust",
+	"product",
 };
 
 static int partition_num = ARRAY_SIZE(partition_nametab);
@@ -47,7 +49,7 @@ static int emmc_get_partition_info(char *name, unsigned long long *start,
 		pr_debug("%s: start address: %llu, size =%llu\n", __func__,
 			(*start)<<9, (*size)<<9);
 	} else {
-		pr_notice("%s: There is no %s partition info\n",
+		pr_err("%s: There is no %s partition info\n",
 			__func__, name);
 		return  -1;
 	}
@@ -93,18 +95,18 @@ static int emmc_set_usr_wp(struct mmc_card *card, unsigned char wp)
 	mrq.cmd = &cmd;
 	mmc_wait_for_req(card->host, &mrq);
 	if (cmd.error) {
-		pr_notice("%s: cmd error %d\n", __func__, cmd.error);
+		pr_err("%s: cmd error %d\n", __func__, cmd.error);
 		return cmd.error;
-		}
+	}
 
 	/* set usr_wp*/
 	cmd.arg = (MMC_SWITCH_MODE_SET_BITS << 24) |
 		(EXT_CSD_USR_WP << 16) | (wp << 8) | EXT_CSD_CMD_SET_NORMAL;
 	mmc_wait_for_req(card->host, &mrq);
 	if (cmd.error) {
-		pr_notice("%s: cmd error %d\n", __func__, cmd.error);
+		pr_err("%s: cmd error %d\n", __func__, cmd.error);
 		return cmd.error;
-		}
+	}
 
 	return 0;
 }
@@ -160,8 +162,10 @@ static int emmc_set_wp(struct mmc_card *card, char *partition_name)
 		return err;
 	}
 	err = emmc_get_partition_info(partition_name, &start, &size);
-	if (err)
+	if (err) {
+		pr_err("%s: emmc_get_partition_info failed, err = %d\n", __func__, err);
 		return err;
+	}
 
 	wp_grp_size = card->wp_grp_size; //unit: 512B
 
@@ -172,6 +176,9 @@ static int emmc_set_wp(struct mmc_card *card, char *partition_name)
      */
 	get_fixed_wp_params(&start, size, wp_grp_size, &cnt);
 
+	pr_info("%s: start set sys_wp for %s, start = %llu, size = %llu, wp_grp_size = %lu, cnt = %lu\n",
+			__func__, partition_name, start, size, wp_grp_size, cnt);
+
 	mrq.cmd = &cmd;
 	cmd.opcode = MMC_SET_WRITE_PROT;
 	cmd.flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
@@ -180,7 +187,7 @@ static int emmc_set_wp(struct mmc_card *card, char *partition_name)
 		cmd.arg = start + i * wp_grp_size;
 		mmc_wait_for_req(card->host, &mrq);
 		if (cmd.error) {
-			pr_notice("%s: cmd error %d\n", __func__, cmd.error);
+			pr_err("%s: cmd error %d\n", __func__, cmd.error);
 			return cmd.error;
 		}
 	}
@@ -195,13 +202,16 @@ int emmc_set_wp_by_partitions(struct mmc_card *card,
 	int err;
 
 	err = emmc_set_usr_wp(card, wp_type);
-	if (err)
+	if (err) {
+		pr_err("%s: set_user_wp failed, err = %d\n", __func__, err);
 		return err;
+	}
+	pr_info("%s: emmc_set_usr_wp success, and then start to set wp for %d partitions\n", __func__, partition_num);
 
 	for (index = 0; index < partition_num; index++) {
 		err = emmc_set_wp(card, partition_nametab[index]);
 		if (err) {
-			pr_notice("%s: set partition %s wp is failed!\n",
+			pr_err("%s: set partition %s wp is failed!\n",
 				__func__, partition_nametab[index]);
 			return err;
 		}

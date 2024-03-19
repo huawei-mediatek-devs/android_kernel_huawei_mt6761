@@ -1089,7 +1089,7 @@ static int mt6370_set_low_power_mode(
 			data |= MT6370_REG_BMCIO_LPRPRD;
 
 #ifdef CONFIG_TYPEC_CAP_NORP_SRC
-		data |= (MT6370_REG_VBUS_DET_EN | MT6370_REG_BMCIO_BG_EN);
+		data |= MT6370_REG_VBUS_DET_EN;
 #endif	/* CONFIG_TYPEC_CAP_NORP_SRC */
 	} else {
 		data = MT6370_REG_BMCIO_BG_EN |
@@ -1461,10 +1461,7 @@ static int mt6370_tcpcdev_init(struct mt6370_chip *chip, struct device *dev)
 	}
 #endif	/* CONFIG_TCPC_VCONN_SUPPLY_MODE */
 
-	if (of_property_read_string(np, "mt-tcpc,name",
-				(char const **)&name) < 0) {
-		dev_info(dev, "use default name\n");
-	}
+	of_property_read_string(np, "mt-tcpc,name", (char const **)&name);
 
 	len = strlen(name);
 	desc->name = kzalloc(len+1, GFP_KERNEL);

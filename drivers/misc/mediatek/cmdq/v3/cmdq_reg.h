@@ -58,12 +58,6 @@
 #define CMDQ_TOKEN_1_EN_LO	(GCE_BASE_VA + 0x10E8)
 #define CMDQ_TOKEN_1_EN_HI	(GCE_BASE_VA + 0x10EC)
 
-#define GCE_DBG_CTL		(GCE_BASE_VA + 0x3000)
-#define GCE_DBG0		(GCE_BASE_VA + 0x3004)
-#define GCE_DBG1		(GCE_BASE_VA + 0x3008)
-#define GCE_DBG2		(GCE_BASE_VA + 0x300C)
-#define GCE_DBG3		(GCE_BASE_VA + 0x3010)
-
 #define CMDQ_GPR_R32(id)		(GCE_BASE_VA + (0x004 * id) + 0x80)
 #define CMDQ_GPR_R32_PA(id)		(GCE_BASE_PA + (0x004 * id) + 0x80)
 
@@ -91,11 +85,6 @@
 #define CMDQ_THR_CURR_ADDR_PA(id)	(GCE_BASE_PA + (0x080 * id) + 0x120)
 #define CMDQ_THR_END_ADDR_PA(id)	(GCE_BASE_PA + (0x080 * id) + 0x124)
 #define CMDQ_THR_EXEC_CNT_PA(id)	(GCE_BASE_PA + (0x080 * id) + 0x128)
-#define CMDQ_THR_SPR0_PA(id)		(GCE_BASE_PA + (0x080 * id) + 0x160)
-#define CMDQ_THR_SPR1_PA(id)		(GCE_BASE_PA + (0x080 * id) + 0x164)
-#define CMDQ_THR_SPR2_PA(id)		(GCE_BASE_PA + (0x080 * id) + 0x168)
-#define CMDQ_THR_SPR3_PA(id)		(GCE_BASE_PA + (0x080 * id) + 0x16c)
-
 
 #define CMDQ_SECURITY_CTL_PA		(GCE_BASE_PA + 0x054)
 #define CMDQ_SYNC_TOKEN_ID_PA		(GCE_BASE_PA + 0x060)

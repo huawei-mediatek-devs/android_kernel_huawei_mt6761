@@ -66,11 +66,6 @@ void pmic_enable_smart_reset(unsigned char smart_en,
 		__func__, smart_en, smart_sdn_en);
 }
 
-void enable_bat_temp_det(bool en)
-{
-	pmic_set_register_value(PMIC_AUXADC_BAT_TEMP_FROZE_EN, !en);
-}
-
 static unsigned int pmic_scp_set_regulator(struct mtk_regulator mt_reg,
 	enum PMU_FLAGS_LIST vosel_reg, unsigned int voltage, bool is_sleep_vol)
 {
@@ -116,7 +111,7 @@ int pmic_scp_ctrl_enable(bool vcore_en, bool vsram_en, bool is_pmrc_mode)
 	pmic_set_register_value(PMIC_RG_BUCK_VCORE_SSHUB_EN, vcore_en);
 	pmic_set_register_value(PMIC_RG_LDO_VSRAM_OTHERS_SSHUB_EN, vsram_en);
 	pmic_set_register_value(PMIC_RG_VR_SSHUB_MODE, is_pmrc_mode);
-	pr_info("[%s] vcore_en:%d vsram_en:%d is_pmic_mode:%d\n",
+	pr_info("[%s]_vcore_en:%d vsram_en:%d is_pmic_mode:%d\n",
 		__func__, vcore_en, vsram_en, is_pmrc_mode);
 	return ret;
 }

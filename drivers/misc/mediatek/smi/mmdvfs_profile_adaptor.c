@@ -18,19 +18,16 @@
 #define OPP_UNREQ -1
 #endif
 #include <mt-plat/mtk_chip.h>
+#include <mtk_dramc.h>
 
 #if defined(SMI_VIN)
 #include "mmdvfs_config_mt6758.h"
-#elif defined(SMI_BIA)
-#include "mmdvfs_config_mt6763.h"
 #elif defined(SMI_CER)
 #include "mmdvfs_config_mt6765.h"
 #elif defined(SMI_MER)
 #include "mmdvfs_config_mt6761.h"
 #elif defined(SMI_EIG)
 #include "mmdvfs_config_mt3967.h"
-#elif defined(SMI_LAF)
-#include "mmdvfs_config_mt6779.h"
 #endif
 
 #include "mmdvfs_mgr.h"
@@ -41,7 +38,6 @@
 
 #ifdef USE_DDR_TYPE
 #include "mt_emi_api.h"
-#include <mtk_dramc.h>
 #endif
 #include "mmdvfs_pmqos.h"
 
@@ -58,17 +54,6 @@ struct mmdvfs_step_util mmdvfs_step_util_obj_mt6758 = {
 	MMDVFS_SCEN_COUNT,
 	{0},
 	MT6758_MMDVFS_OPP_MAX,
-	MMDVFS_FINE_STEP_OPP0,
-	mmdvfs_step_util_init,
-	mmdvfs_step_util_set_step,
-};
-
-#elif defined(SMI_BIA)
-struct mmdvfs_step_util mmdvfs_step_util_obj_mt6763 = {
-	{0},
-	MMDVFS_SCEN_COUNT,
-	{0},
-	MT6763_MMDVFS_OPP_MAX,
 	MMDVFS_FINE_STEP_OPP0,
 	mmdvfs_step_util_init,
 	mmdvfs_step_util_set_step,
@@ -102,17 +87,6 @@ struct mmdvfs_step_util mmdvfs_step_util_obj_mt3967 = {
 	MMDVFS_SCEN_COUNT,
 	{0},
 	MT3967_MMDVFS_OPP_MAX,
-	MMDVFS_FINE_STEP_OPP0,
-	mmdvfs_step_util_init,
-	mmdvfs_step_util_set_step,
-};
-
-#elif defined(SMI_LAF)
-struct mmdvfs_step_util mmdvfs_step_util_obj_mt6779 = {
-	{0},
-	MMDVFS_SCEN_COUNT,
-	{0},
-	MT6779_MMDVFS_OPP_MAX,
 	MMDVFS_FINE_STEP_OPP0,
 	mmdvfs_step_util_init,
 	mmdvfs_step_util_set_step,
@@ -153,61 +127,6 @@ struct mmdvfs_adaptor mmdvfs_adaptor_obj_mt6758 = {
 	mt6758_step_profile, MT6758_MMDVFS_OPP_MAX,
 	MT6758_MMDVFS_USER_CONTROL_SCEN_MASK,
 	mmdvfs_profile_dump,
-	mmdvfs_hw_config_dump,
-	mmdvfs_determine_step,
-	mmdvfs_apply_hw_config,
-	mmdvfs_apply_vcore_hw_config,
-	mmdvfs_apply_clk_hw_config,
-	mmdvfs_get_cam_sys_clk,
-	mmdvfs_single_profile_dump,
-};
-
-#elif defined(SMI_BIA)
-struct mmdvfs_adaptor mmdvfs_adaptor_obj_mt6763 = {
-	KIR_MM,
-	0, 0, 0,
-	mt6763_mmdvfs_clk_sources_setting, MT6763_MMDVFS_CLK_SOURCE_NUM,
-	mt6763_mmdvfs_clk_hw_map_setting, MMDVFS_CLK_MUX_NUM,
-	mt6763_step_profile, MT6763_MMDVFS_OPP_MAX,
-	MT6763_MMDVFS_SMI_USER_CONTROL_SCEN_MASK,
-	mmdvfs_profile_dump,
-	mmdvfs_single_hw_config_dump,
-	mmdvfs_hw_config_dump,
-	mmdvfs_determine_step,
-	mmdvfs_apply_hw_config,
-	mmdvfs_apply_vcore_hw_config,
-	mmdvfs_apply_clk_hw_config,
-	mmdvfs_get_cam_sys_clk,
-	mmdvfs_single_profile_dump,
-};
-
-struct mmdvfs_adaptor mmdvfs_adaptor_obj_mt6763_lp4_1ch = {
-	KIR_MM,
-	0, 0, 0,
-	mt6763_mmdvfs_clk_sources_setting, MT6763_MMDVFS_CLK_SOURCE_NUM,
-	mt6763_mmdvfs_clk_hw_map_setting, MMDVFS_CLK_MUX_NUM,
-	mt6763_step_profile_lp4_1ch, MT6763_MMDVFS_OPP_MAX,
-	MT6763_MMDVFS_SMI_USER_CONTROL_SCEN_MASK,
-	mmdvfs_profile_dump,
-	mmdvfs_single_hw_config_dump,
-	mmdvfs_hw_config_dump,
-	mmdvfs_determine_step,
-	mmdvfs_apply_hw_config,
-	mmdvfs_apply_vcore_hw_config,
-	mmdvfs_apply_clk_hw_config,
-	mmdvfs_get_cam_sys_clk,
-	mmdvfs_single_profile_dump,
-};
-
-struct mmdvfs_adaptor mmdvfs_adaptor_obj_mt6763_lp3 = {
-	KIR_MM,
-	0, 0, 0,
-	mt6763_mmdvfs_clk_sources_setting, MT6763_MMDVFS_CLK_SOURCE_NUM,
-	mt6763_mmdvfs_clk_hw_map_setting, MMDVFS_CLK_MUX_NUM,
-	mt6763_step_profile_lp3, MT6763_MMDVFS_OPP_MAX,
-	MT6763_MMDVFS_SMI_USER_CONTROL_SCEN_MASK,
-	mmdvfs_profile_dump,
-	mmdvfs_single_hw_config_dump,
 	mmdvfs_hw_config_dump,
 	mmdvfs_determine_step,
 	mmdvfs_apply_hw_config,
@@ -290,24 +209,6 @@ struct mmdvfs_adaptor mmdvfs_adaptor_obj_mt3967 = {
 	mmdvfs_single_profile_dump,
 };
 
-#elif defined(SMI_LAF)
-struct mmdvfs_adaptor mmdvfs_adaptor_obj_mt6779 = {
-	0, 0, 0, 0,
-	NULL, 0,
-	NULL, 0,
-	mt6779_step_profile, MT6779_MMDVFS_OPP_MAX,
-	0,
-	mmdvfs_profile_dump,
-	mmdvfs_single_hw_config_dump,
-	mmdvfs_hw_config_dump,
-	mmdvfs_determine_step,
-	mmdvfs_apply_hw_config,
-	mmdvfs_apply_vcore_hw_config,
-	mmdvfs_apply_clk_hw_config,
-	mmdvfs_get_cam_sys_clk,
-	mmdvfs_single_profile_dump,
-};
-
 #endif
 
 /* class: ISP PMQoS Handler */
@@ -323,13 +224,6 @@ struct mmdvfs_thres_handler mmdvfs_thres_handler_obj = {
 #if defined(SMI_VIN)
 struct mmdvfs_thres_handler mmdvfs_thres_handler_mt6758 = {
 	mt6758_thres_handler,
-	MMDVFS_PM_QOS_SUB_SYS_NUM,
-	get_step_by_threshold
-};
-
-#elif defined(SMI_BIA)
-struct mmdvfs_thres_handler mmdvfs_thres_handler_mt6763 = {
-	mt6763_thres_handler,
 	MMDVFS_PM_QOS_SUB_SYS_NUM,
 	get_step_by_threshold
 };
@@ -917,29 +811,36 @@ static int mmdvfs_step_util_set_step(struct mmdvfs_step_util *self,
 		}
 	}
 
-	if (camera_bw_config && in_camera_scenario != has_camera_scenario) {
+	if (in_camera_scenario != has_camera_scenario) {
+		if (camera_bw_config) {
 #if defined(SPECIAL_BW_CONFIG_MM)
-		u32 bw_config =
-			has_camera_scenario ?
-				camera_bw_config : normal_bw_config;
-		u32 old_bw_config, new_bw_config;
+			u32 bw_config =
+				has_camera_scenario ?
+					camera_bw_config : normal_bw_config;
+			u32 old_bw_config, new_bw_config;
 
-		MMDVFSDEBUG(
-			3, "[DRAM setting] in camera? %d\n",
-			has_camera_scenario);
-		in_camera_scenario = has_camera_scenario;
-		old_bw_config = BM_GetBW();
-		BM_SetBW(bw_config);
-		new_bw_config = BM_GetBW();
-		MMDVFSDEBUG(
-			3,
-			"[DRAM setting] old:0x%08x, want:0x%08x, new:0x%08x\n",
-			old_bw_config, bw_config, new_bw_config);
+			MMDVFSDEBUG(
+				3, "[DRAM setting] in camera? %d\n",
+				has_camera_scenario);
+			old_bw_config = BM_GetBW();
+			BM_SetBW(bw_config);
+			new_bw_config = BM_GetBW();
+			MMDVFSDEBUG(
+				3,
+				"[DRAM setting] old:0x%08x, want:0x%08x, new:0x%08x\n",
+				old_bw_config, bw_config, new_bw_config);
 #else
-		MMDVFSDEBUG(3, "[DRAM setting] not support\n");
+			MMDVFSDEBUG(3, "[DRAM setting] not support\n");
 #endif
+		}
 	}
+	in_camera_scenario = has_camera_scenario;
 	return final_opp;
+}
+
+bool get_in_camera_scenario(void)
+{
+	return in_camera_scenario;
 }
 
 
@@ -985,7 +886,8 @@ struct mmdvfs_step_util *g_mmdvfs_step_util;
 struct mmdvfs_step_util *g_mmdvfs_non_force_step_util;
 struct mmdvfs_thres_handler *g_mmdvfs_threshandler;
 
-#ifdef MMDVFS_QOS_SUPPORT
+/* #ifdef MMDVFS_QOS_SUPPORT */
+#if 1
 static int mask_concur[MMDVFS_OPP_NUM_LIMITATION];
 static void update_qos_scenario(void);
 #endif
@@ -999,30 +901,6 @@ void mmdvfs_config_util_init(void)
 		g_mmdvfs_adaptor = &mmdvfs_adaptor_obj_mt6758;
 		g_mmdvfs_step_util = &mmdvfs_step_util_obj_mt6758;
 		g_mmdvfs_threshandler = &mmdvfs_thres_handler_mt6758;
-#endif
-		break;
-	case MMDVFS_PROFILE_BIA:
-#if defined(SMI_BIA)
-#if defined(USE_DDR_TYPE)
-		if (get_dram_type() == TYPE_LPDDR3) {
-			camera_bw_config = 0x07000507;
-			normal_bw_config = 0x05000407;
-			g_mmdvfs_adaptor = &mmdvfs_adaptor_obj_mt6763_lp3;
-			MMDVFSMSG("g_mmdvfs_step_util init with lp3\n");
-		} else if (get_dram_type() == TYPE_LPDDR4
-			&& get_ch_num() == 1) {
-			g_mmdvfs_adaptor = &mmdvfs_adaptor_obj_mt6763_lp4_1ch;
-			MMDVFSMSG("g_mmdvfs_step_util init with lp4 1-ch\n");
-		} else {
-			g_mmdvfs_adaptor = &mmdvfs_adaptor_obj_mt6763;
-			MMDVFSMSG("g_mmdvfs_step_util init with lp4 2-ch\n");
-		}
-#else
-		g_mmdvfs_adaptor = &mmdvfs_adaptor_obj_mt6763;
-		MMDVFSMSG("g_mmdvfs_step_util init with lp4 2-ch\n");
-#endif
-		g_mmdvfs_step_util = &mmdvfs_step_util_obj_mt6763;
-		g_mmdvfs_threshandler = &mmdvfs_thres_handler_mt6763;
 #endif
 		break;
 	case MMDVFS_PROFILE_CER:
@@ -1057,13 +935,6 @@ void mmdvfs_config_util_init(void)
 		g_mmdvfs_threshandler = &mmdvfs_thres_handler_obj;
 #endif
 		break;
-	case MMDVFS_PROFILE_LAF:
-#if defined(SMI_LAF)
-		g_mmdvfs_adaptor = &mmdvfs_adaptor_obj_mt6779;
-		g_mmdvfs_step_util = &mmdvfs_step_util_obj_mt6779;
-		g_mmdvfs_threshandler = &mmdvfs_thres_handler_obj;
-#endif
-		break;
 	default:
 		break;
 	}
@@ -1078,7 +949,8 @@ void mmdvfs_config_util_init(void)
 		g_mmdvfs_non_force_step_util->init(
 			g_mmdvfs_non_force_step_util);
 
-#ifdef MMDVFS_QOS_SUPPORT
+/* #ifdef MMDVFS_QOS_SUPPORT */
+#if 1
 	update_qos_scenario();
 #endif
 }
@@ -1200,7 +1072,8 @@ u32 mmdvfs_qos_get_cur_thres(struct mmdvfs_pm_qos_request *req,
 	return 0;
 }
 
-#ifdef MMDVFS_QOS_SUPPORT
+/* #ifdef MMDVFS_QOS_SUPPORT */
+#if 1
 static int get_qos_step(s32 opp)
 {
 	if (opp == MMDVFS_FINE_STEP_UNREQUEST)

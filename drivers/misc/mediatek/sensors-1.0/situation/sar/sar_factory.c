@@ -1,16 +1,3 @@
-/*
- * Copyright (C) 2016 MediaTek Inc.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
- * See http://www.gnu.org/licenses/gpl-2.0.html for more details.
- */
-
 #define pr_fmt(fmt) "<SAR_FAC>" fmt
 
 #include "sar_factory.h"
@@ -84,13 +71,12 @@ static long sar_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 					"SAR_IOCTL_READ_SENSORDATA read data fail!\n");
 				return -EINVAL;
 			}
-			pr_debug("SAR_IOCTL_READ_SENSORDATA: (%d, %d, %d)!\n",
-				data_buf[0], data_buf[1], data_buf[2]);
-			sensor_data.x = data_buf[0];
-			sensor_data.y = data_buf[1];
-			sensor_data.z = data_buf[2];
-			if (copy_to_user(ptr, &sensor_data,
-							sizeof(sensor_data)))
+			pr_debug("SAR_IOCTL_READ_SENSORDATA: (%d, %d, %d)!\n", data_buf[0],
+			data_buf[1], data_buf[2]);
+		    sensor_data.x = data_buf[0];
+		    sensor_data.y = data_buf[1];
+		    sensor_data.z = data_buf[2];
+			if (copy_to_user(ptr, &sensor_data, sizeof(sensor_data)))
 				return -EFAULT;
 		} else {
 			pr_err("SAR_IOCTL_READ_SENSORDATA NULL\n");
@@ -124,8 +110,8 @@ static long sar_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 			return -EINVAL;
 		}
 
-		pr_debug("SAR_IOCTL_GET_CALI: (%d, %d, %d)!\n",
-			data_buf[0], data_buf[1], data_buf[2]);
+		pr_debug("SAR_IOCTL_READ_SENSORDATA: (%d, %d, %d)!\n", data_buf[0],
+			data_buf[1], data_buf[2]);
 		sensor_data.x = data_buf[0];
 		sensor_data.y = data_buf[1];
 		sensor_data.z = data_buf[2];
@@ -153,7 +139,7 @@ static long compat_sar_factory_unlocked_ioctl(struct file *filp,
 	switch (cmd) {
 	case COMPAT_SAR_IOCTL_INIT:
 	case COMPAT_SAR_IOCTL_READ_SENSORDATA:
-	case COMPAT_SAR_IOCTL_ENABLE_CALI:
+	case COMPAT_SAR_IOCTL_ENABLE_CALI: 
 	case COMPAT_SAR_IOCTL_GET_CALI: {
 		pr_debug(
 			"compat_ion_ioctl : SAR_IOCTL_XXX command is 0x%x\n",

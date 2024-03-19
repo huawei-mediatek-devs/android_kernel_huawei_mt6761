@@ -477,8 +477,8 @@ irqreturn_t disp_irq_handler(int irq, void *dev_id)
 
 static void disp_irq_rdma_underflow_aee_trigger(void)
 {
-	static unsigned long long last_timer;
-	static unsigned int considerable_cnt;
+	static unsigned long long last_timer = 0;
+	static unsigned int considerable_cnt = 0;
 
 	if (disp_irq_rdma_underflow) {
 		/* Request highest dvfs */

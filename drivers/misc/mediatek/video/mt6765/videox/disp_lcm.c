@@ -25,6 +25,10 @@
 #include <linux/of.h>
 #endif
 
+#ifdef CONFIG_LOG_JANK
+#include <huawei_platform/log/log_jank.h>
+#endif
+
 /* This macro and arrya is designed for multiple LCM support */
 /* for multiple LCM, we should assign I/F Port id in lcm driver, */
 /* such as DPI0, DSI0/1 */
@@ -1309,6 +1313,9 @@ int disp_lcm_init(struct disp_lcm_handle *plcm, int force)
 	if (lcm_drv->init) {
 		if (!disp_lcm_is_inited(plcm) || force) {
 			DISPMSG("lcm init()\n");
+#ifdef CONFIG_LOG_JANK
+			LOG_JANK_D(JLID_KERNEL_LCD_POWER_ON, "%s", "JL_KERNEL_LCD_POWER_ON");
+#endif
 			lcm_drv->init();
 		}
 	} else {
@@ -1413,6 +1420,9 @@ int disp_lcm_suspend(struct disp_lcm_handle *plcm)
 	if (_is_lcm_inited(plcm)) {
 		lcm_drv = plcm->drv;
 		if (lcm_drv->suspend) {
+#ifdef CONFIG_LOG_JANK
+			LOG_JANK_D(JLID_KERNEL_LCD_POWER_OFF, "%s", "JL_KERNEL_LCD_POWER_OFF");
+#endif
 			lcm_drv->suspend();
 		} else {
 			DISPERR("FATAL ERROR, lcm_drv->suspend is null\n");
@@ -1420,7 +1430,9 @@ int disp_lcm_suspend(struct disp_lcm_handle *plcm)
 		}
 
 		if (lcm_drv->suspend_power)
+		{
 			lcm_drv->suspend_power();
+		}
 
 
 		return 0;
@@ -1438,10 +1450,15 @@ int disp_lcm_resume(struct disp_lcm_handle *plcm)
 		lcm_drv = plcm->drv;
 
 		if (lcm_drv->resume_power)
+		{
 			lcm_drv->resume_power();
+		}
 
 
 		if (lcm_drv->resume) {
+#ifdef CONFIG_LOG_JANK
+			LOG_JANK_D(JLID_KERNEL_LCD_POWER_ON, "%s", "JL_KERNEL_LCD_POWER_ON");
+#endif
 			lcm_drv->resume();
 		} else {
 			DISPERR("FATAL ERROR, lcm_drv->resume is null\n");

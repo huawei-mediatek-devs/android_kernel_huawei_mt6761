@@ -601,9 +601,13 @@ void dpm_resume_noirq(pm_message_t state)
 	async_synchronize_full();
 
 #ifdef CONFIG_MTK_RAM_CONSOLE
-	aee_rr_rec_last_async_func(0);
-	aee_rr_rec_last_sync_func(0);
+	dev = to_device(dpm_prepared_list.prev);
+	if (is_async(dev))
+		aee_rr_rec_last_async_func(0);
+	else
+		aee_rr_rec_last_sync_func(0);
 #endif
+
 	dpm_show_time(starttime, state, "noirq");
 	resume_device_irqs();
 	device_wakeup_disarm_wake_irqs();
@@ -735,9 +739,13 @@ void dpm_resume_early(pm_message_t state)
 	async_synchronize_full();
 
 #ifdef CONFIG_MTK_RAM_CONSOLE
-	aee_rr_rec_last_async_func(0);
-	aee_rr_rec_last_sync_func(0);
+	dev = to_device(dpm_prepared_list.prev);
+	if (is_async(dev))
+		aee_rr_rec_last_async_func(0);
+	else
+		aee_rr_rec_last_sync_func(0);
 #endif
+
 	dpm_show_time(starttime, state, "early");
 	trace_suspend_resume(TPS("dpm_resume_early"), state.event, false);
 }
@@ -918,9 +926,13 @@ void dpm_resume(pm_message_t state)
 	async_synchronize_full();
 
 #ifdef CONFIG_MTK_RAM_CONSOLE
-	aee_rr_rec_last_async_func(0);
-	aee_rr_rec_last_sync_func(0);
+	dev = to_device(dpm_prepared_list.prev);
+	if (is_async(dev))
+		aee_rr_rec_last_async_func(0);
+	else
+		aee_rr_rec_last_sync_func(0);
 #endif
+
 	dpm_show_time(starttime, state, NULL);
 
 	cpufreq_resume();
@@ -1152,6 +1164,7 @@ static int device_suspend_noirq(struct device *dev)
  */
 int dpm_suspend_noirq(pm_message_t state)
 {
+	struct device *dev;
 	ktime_t starttime = ktime_get();
 	int error = 0;
 
@@ -1164,7 +1177,7 @@ int dpm_suspend_noirq(pm_message_t state)
 	async_error = 0;
 
 	while (!list_empty(&dpm_late_early_list)) {
-		struct device *dev = to_device(dpm_late_early_list.prev);
+		dev = to_device(dpm_late_early_list.prev);
 
 		get_device(dev);
 		mutex_unlock(&dpm_list_mtx);
@@ -1189,9 +1202,13 @@ int dpm_suspend_noirq(pm_message_t state)
 	async_synchronize_full();
 
 #ifdef CONFIG_MTK_RAM_CONSOLE
-	aee_rr_rec_last_async_func(0);
-	aee_rr_rec_last_sync_func(0);
+	dev = to_device(dpm_prepared_list.prev);
+	if (is_async(dev))
+		aee_rr_rec_last_async_func(0);
+	else
+		aee_rr_rec_last_sync_func(0);
 #endif
+
 	if (!error)
 		error = async_error;
 
@@ -1308,6 +1325,7 @@ static int device_suspend_late(struct device *dev)
  */
 int dpm_suspend_late(pm_message_t state)
 {
+	struct device *dev;
 	ktime_t starttime = ktime_get();
 	int error = 0;
 
@@ -1317,7 +1335,7 @@ int dpm_suspend_late(pm_message_t state)
 	async_error = 0;
 
 	while (!list_empty(&dpm_suspended_list)) {
-		struct device *dev = to_device(dpm_suspended_list.prev);
+		dev = to_device(dpm_suspended_list.prev);
 
 		get_device(dev);
 		mutex_unlock(&dpm_list_mtx);
@@ -1343,9 +1361,13 @@ int dpm_suspend_late(pm_message_t state)
 	async_synchronize_full();
 
 #ifdef CONFIG_MTK_RAM_CONSOLE
-	aee_rr_rec_last_async_func(0);
-	aee_rr_rec_last_sync_func(0);
+	dev = to_device(dpm_prepared_list.prev);
+	if (is_async(dev))
+		aee_rr_rec_last_async_func(0);
+	else
+		aee_rr_rec_last_sync_func(0);
 #endif
+
 	if (!error)
 		error = async_error;
 	if (error) {
@@ -1424,10 +1446,8 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 
 	dpm_wait_for_children(dev, async);
 
-	if (async_error) {
-		dev->power.direct_complete = false;
+	if (async_error)
 		goto Complete;
-	}
 
 	/*
 	 * If a device configured to wake up the system from sleep states
@@ -1442,17 +1462,12 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 		pm_get_active_wakeup_sources(suspend_abort,
 			MAX_SUSPEND_ABORT_LEN);
 		log_suspend_abort_reason(suspend_abort);
-		dev->power.direct_complete = false;
 		async_error = -EBUSY;
 		goto Complete;
 	}
 
 	if (dev->power.syscore)
 		goto Complete;
-
-	/* Avoid direct_complete to let wakeup_path propagate. */
-	if (device_may_wakeup(dev) || dev->power.wakeup_path)
-		dev->power.direct_complete = false;
 
 	if (dev->power.direct_complete) {
 		if (pm_runtime_status_suspended(dev)) {
@@ -1582,6 +1597,7 @@ static int device_suspend(struct device *dev)
  */
 int dpm_suspend(pm_message_t state)
 {
+	struct device *dev;
 	ktime_t starttime = ktime_get();
 	int error = 0;
 
@@ -1594,7 +1610,7 @@ int dpm_suspend(pm_message_t state)
 	pm_transition = state;
 	async_error = 0;
 	while (!list_empty(&dpm_prepared_list)) {
-		struct device *dev = to_device(dpm_prepared_list.prev);
+		dev = to_device(dpm_prepared_list.prev);
 
 		get_device(dev);
 		mutex_unlock(&dpm_list_mtx);
@@ -1618,9 +1634,13 @@ int dpm_suspend(pm_message_t state)
 	async_synchronize_full();
 
 #ifdef CONFIG_MTK_RAM_CONSOLE
-	aee_rr_rec_last_async_func(0);
-	aee_rr_rec_last_sync_func(0);
+	dev = to_device(dpm_prepared_list.prev);
+	if (is_async(dev))
+		aee_rr_rec_last_async_func(0);
+	else
+		aee_rr_rec_last_sync_func(0);
 #endif
+
 	if (!error)
 		error = async_error;
 	if (error) {

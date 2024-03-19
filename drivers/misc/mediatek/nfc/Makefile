@@ -11,5 +11,6 @@
 # GNU General Public License for more details.
 #
 
-obj-$(CONFIG_NFC_CHIP_SUPPORT) += st21nfc/
-obj-$(CONFIG_NFC_ST54_SPI)     += st54spi.o
+ifeq ($(CONFIG_NFC_CHIP_NXP),y)
+obj-y += pn547/
+endif

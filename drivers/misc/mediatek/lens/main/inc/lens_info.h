@@ -22,52 +22,8 @@
 
 #define AF_MAGIC 'A'
 
-#ifdef CONFIG_MACH_MT6761
-#define SUPPORT_GETTING_LENS_FOLDER_NAME 0
-#else
-#define SUPPORT_GETTING_LENS_FOLDER_NAME 1
-#endif
-
 /* AFDRV_XXXX be the same as AF_DRVNAME in (*af).c */
-#define AFDRV_AD5820AF "AD5820AF"
-#define AFDRV_AD5823 "AD5823"
-#define AFDRV_AD5823AF "AD5823AF"
-#define AFDRV_AK7345AF "AK7345AF"
-#define AFDRV_AK7371AF "AK7371AF"
-#define AFDRV_BU63165AF "BU63165AF"
-#define AFDRV_BU63169AF "BU63169AF"
-#define AFDRV_BU6424AF "BU6424AF"
-#define AFDRV_BU6429AF "BU6429AF"
-#define AFDRV_BU64748AF "BU64748AF"
-#define AFDRV_BU64745GWZAF "BU64745GWZAF"
-#define AFDRV_DW9714A "DW9714A"
 #define AFDRV_DW9714AF "DW9714AF"
-#define AFDRV_DW9718AF "DW9718AF"
-#define AFDRV_DW9718SAF "DW9718SAF"
-#define AFDRV_DW9719TAF "DW9719TAF"
-#define AFDRV_DW9763AF "DW9763AF"
-#define AFDRV_DW9814AF "DW9814AF"
-#define AFDRV_FP5510E2AF "FP5510E2AF"
-#define AFDRV_FM50AF "FM50AF"
-#define AFDRV_GAF001AF "GAF001AF"
-#define AFDRV_GAF002AF "GAF002AF"
-#define AFDRV_GAF008AF "GAF008AF"
-#define AFDRV_LC898122AF "LC898122AF"
-#define AFDRV_LC898212AF "LC898212AF"
-#define AFDRV_LC898212XDAF "LC898212XDAF"
-#define AFDRV_LC898212XDAF_TVC700 "LC898212XDAF_TVC700"
-#define AFDRV_LC898212XDAF_F "LC898212XDAF_F"
-#define AFDRV_LC898214AF "LC898214AF"
-#define AFDRV_LC898217AF "LC898217AF"
-#define AFDRV_LC898217AFA "LC898217AFA"
-#define AFDRV_LC898217AFB "LC898217AFB"
-#define AFDRV_LC898217AFC "LC898217AFC"
-#define AFDRV_MT9P017AF "MT9P017AF"
-#define AFDRV_OV8825AF "OV8825AF"
-#define AFDRV_WV511AAF "WV511AAF"
-
-
-#define CONVERT_CCU_TIMESTAMP 0x1000
 
 /* Structures */
 struct stAF_MotorInfo {
@@ -105,12 +61,6 @@ struct stAF_MotorName {
 struct stAF_MotorCmd {
 	u32 u4CmdID;
 	u32 u4Param;
-};
-
-/* Structures */
-struct stAF_CtrlCmd {
-	long long i8CmdID;
-	long long i8Param[2];
 };
 
 /* Structures */
@@ -173,6 +123,22 @@ struct stAF_MotorI2CSendCmd {
 	struct stAF_DrvI2CFormat I2CFmt[I2CSEND_MAXSIZE];
 	u8 I2CSendNum;
 };
+/* Structures */
+struct af_i2c_reg {
+	unsigned short addr;
+	unsigned short data;
+	unsigned short delay;
+};
+struct af_exit_reg {
+	unsigned short data;
+	unsigned short delay;
+};
+/* Structures */
+struct af_drv_select_func {
+	char uMotorName[AF_MOTOR_NAME+1];
+	int (*initAF)(void);
+	int (*exitAF)(void);
+};
 
 /* Control commnad */
 /* S means "set through a ptr" */
@@ -210,7 +176,5 @@ struct stAF_MotorI2CSendCmd {
 #define AFIOC_S_SETDRVINIT _IOW(AF_MAGIC, 16, u32)
 
 #define AFIOC_G_GETDRVNAME _IOWR(AF_MAGIC, 17, struct stAF_MotorName)
-
-#define AFIOC_X_CTRLPARA _IOWR(AF_MAGIC, 18, struct stAF_CtrlCmd)
 
 #endif

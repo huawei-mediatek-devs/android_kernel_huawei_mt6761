@@ -34,9 +34,6 @@
 #include <ap_thermal_limit.h>
 #ifdef ATM_USES_PPM
 #include "mtk_ppm_api.h"
-#ifndef CONFIG_MACH_MT6757
-#include "mtk_ppm_platform.h"
-#endif
 #else
 #include "mt_cpufreq.h"
 #endif
@@ -51,17 +48,6 @@
 #include "mtk_thermal_ipi.h"
 #include "linux/delay.h"
 #endif
-#if defined(THERMAL_VPU_SUPPORT)
-#if defined(CONFIG_MTK_VPU_SUPPORT)
-#include "vpu_dvfs.h"
-#endif
-#endif
-#if defined(THERMAL_MDLA_SUPPORT)
-#if defined(CONFIG_MTK_MDLA_SUPPORT)
-#include "mdla_dvfs.h"
-#endif
-#endif
-#include "mtk_cooler_setting.h"
 
 /*****************************************************************************
  *  Local switches
@@ -86,20 +72,8 @@ static kuid_t uid = KUIDT_INIT(0);
 static kgid_t gid = KGIDT_INIT(1000);
 unsigned int adaptive_cpu_power_limit = 0x7FFFFFFF;
 unsigned int adaptive_gpu_power_limit = 0x7FFFFFFF;
-#if defined(THERMAL_VPU_SUPPORT)
-unsigned int adaptive_vpu_power_limit = 0x7FFFFFFF;
-#endif
-#if defined(THERMAL_MDLA_SUPPORT)
-unsigned int adaptive_mdla_power_limit = 0x7FFFFFFF;
-#endif
 static unsigned int prv_adp_cpu_pwr_lim;
 static unsigned int prv_adp_gpu_pwr_lim;
-#if defined(THERMAL_VPU_SUPPORT)
-static unsigned int prv_adp_vpu_pwr_lim;
-#endif
-#if defined(THERMAL_MDLA_SUPPORT)
-static unsigned int prv_adp_mdla_pwr_lim;
-#endif
 unsigned int gv_cpu_power_limit = 0x7FFFFFFF;
 unsigned int gv_gpu_power_limit = 0x7FFFFFFF;
 #if CPT_ADAPTIVE_AP_COOLER
@@ -117,14 +91,6 @@ static int MAXIMUM_GPU_POWER = 676;
 static int MINIMUM_TOTAL_POWER = 500 + 676;
 static int MAXIMUM_TOTAL_POWER = 1240 + 676;
 static int FIRST_STEP_TOTAL_POWER_BUDGET = 1750;
-#if defined(THERMAL_VPU_SUPPORT)
-static int MINIMUM_VPU_POWER = 300;
-static int MAXIMUM_VPU_POWER = 1000;
-#endif
-#if defined(THERMAL_MDLA_SUPPORT)
-static int MINIMUM_MDLA_POWER = 300;
-static int MAXIMUM_MDLA_POWER = 1000;
-#endif
 
 /* 1. MINIMUM_BUDGET_CHANGE = 0 ==> thermal equilibrium
  * maybe at higher than TARGET_TJ_HIGH
@@ -132,9 +98,6 @@ static int MAXIMUM_MDLA_POWER = 1000;
 /* 2. Set MINIMUM_BUDGET_CHANGE > 0 if to keep Tj at TARGET_TJ */
 static int MINIMUM_BUDGET_CHANGE = 50;
 static int g_total_power;
-#if defined(THERMAL_VPU_SUPPORT) || defined(THERMAL_MDLA_SUPPORT)
-static int g_delta_power;
-#endif
 #endif
 
 #if CPT_ADAPTIVE_AP_COOLER
@@ -207,28 +170,6 @@ static int MINIMUM_CPU_POWERS[MAX_CPT_ADAPTIVE_COOLERS] = { 1200, 0 };
 static int MAXIMUM_CPU_POWERS[MAX_CPT_ADAPTIVE_COOLERS] = { 4400, 0 };
 static int MINIMUM_GPU_POWERS[MAX_CPT_ADAPTIVE_COOLERS] = { 350, 0 };
 static int MAXIMUM_GPU_POWERS[MAX_CPT_ADAPTIVE_COOLERS] = { 960, 0 };
-#endif
-
-#ifndef CLATM_USE_MIN_CPU_OPP
-#define CLATM_USE_MIN_CPU_OPP			(0)
-#endif
-
-#if CLATM_USE_MIN_CPU_OPP
-struct atm_cpu_min_opp {
-	/* mode is
-	 * 0: Didn't initialize or Some errors occurred
-	 * 1: Use a min CPU power budget to guarantee minimum performance
-	 * 2: Use a set of CPU OPPs to gurantee minimum performance
-	 */
-	int mode[MAX_CPT_ADAPTIVE_COOLERS];
-	/* To keep original min CPU power budgets */
-	int min_CPU_power[MAX_CPT_ADAPTIVE_COOLERS];
-	/* To keep min CPU power budgets calculated from a set of CPU OPP */
-	int min_CPU_power_from_opp[MAX_CPT_ADAPTIVE_COOLERS];
-	struct ppm_cluster_status
-		cpu_opp_set[MAX_CPT_ADAPTIVE_COOLERS][NR_PPM_CLUSTERS];
-};
-static struct atm_cpu_min_opp g_c_min_opp;
 #endif
 
 #if defined(CLATM_SET_INIT_CFG)
@@ -353,27 +294,21 @@ static unsigned long atm_hrtimer_polling_delay =
 #elif KRTATM_TIMER == KRTATM_NORMAL
 static struct timer_list atm_timer;
 static unsigned long atm_timer_polling_delay = CLATM_INIT_HRTIMER_POLLING_DELAY;
-	/**
-	 * If curr_temp >= polling_trip_temp0, use interval/polling_factor0
-	 * else If curr_temp >= polling_trip_temp1, use interval
-	 * else if cur_temp >= polling_trip_temp2 &&
-	 * curr_temp < polling_trip_temp1,
-	 * use interval*polling_factor1
-	 * else, use interval*polling_factor2
-	 */
-	static int polling_trip_temp0 = 75000;
-	static int polling_trip_temp1 = 65000;
-	static int polling_trip_temp2 = 40000;
-	static int polling_factor0 = 2;
-	static int polling_factor1 = 2;
-	static int polling_factor2 = 4;
+/**
+ * If curr_temp >= polling_trip_temp1, use interval
+ * else if cur_temp >= polling_trip_temp2 && curr_temp < polling_trip_temp1,
+ * use interval*polling_factor1
+ * else, use interval*polling_factor2
+ */
+static int polling_trip_temp1 = 65000;
+static int polling_trip_temp2 = 40000;
+static int polling_factor1 = 2;
+static int polling_factor2 = 4;
 #endif
 static int atm_curr_maxtj;
 static int atm_prev_maxtj;
 static int krtatm_curr_maxtj;
 static int krtatm_prev_maxtj;
-static u64 atm_curr_maxtj_time;
-static u64 atm_prev_maxtj_time;
 static struct task_struct *krtatm_thread_handle;
 #endif
 
@@ -403,10 +338,6 @@ s64 gpu_pwr_lmt_latest_delay;
 unsigned int gpu_pwr_lmt_cnt = 1;
 #endif
 
-
-#if defined(THERMAL_APU_UNLIMIT)
-static unsigned long total_apu_polling_time;
-#endif
 /*=============================================================
  *Local function prototype
  *=============================================================
@@ -431,15 +362,6 @@ mt_cpufreq_thermal_protect(unsigned int limited_power)
 }
 #endif
 #endif
-
-int __attribute__((weak))
-mtk_eara_thermal_pb_handle(int total_pwr_budget,
-	int max_cpu_power, int max_gpu_power,
-	int max_vpu_power,  int max_mdla_power)
-{
-	pr_notice("E_WF: %s doesn't exist\n", __func__);
-	return 0;
-}
 
 	bool __attribute__((weak))
 mtk_get_gpu_loading(unsigned int *pLoading)
@@ -513,7 +435,7 @@ mt_get_uartlog_status(void)
 
 int tsatm_thermal_get_catm_type(void)
 {
-	tscpu_dprintk("%s ctm_on = %d\n", __func__, ctm_on);
+	tscpu_dprintk("tsatm_thermal_get_catm_type ctm_on = %d\n", ctm_on);
 	return ctm_on;
 }
 
@@ -540,12 +462,6 @@ static int atm_prev_active_atm_cl_id = -100;
 
 static DEFINE_MUTEX(atm_cpu_lmt_mutex);
 static DEFINE_MUTEX(atm_gpu_lmt_mutex);
-#if defined(THERMAL_VPU_SUPPORT)
-static DEFINE_MUTEX(atm_vpu_lmt_mutex);
-#endif
-#if defined(THERMAL_MDLA_SUPPORT)
-static DEFINE_MUTEX(atm_mdla_lmt_mutex);
-#endif
 
 static int atm_update_atm_param_to_sspm(void)
 {
@@ -915,80 +831,6 @@ static void set_adaptive_gpu_power_limit(unsigned int limit)
 #endif
 }
 
-#if defined(THERMAL_VPU_SUPPORT)
-static void set_adaptive_vpu_power_limit(unsigned int limit)
-{
-#ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
-#if THERMAL_ENABLE_TINYSYS_SSPM && CPT_ADAPTIVE_AP_COOLER &&	\
-	PRECISE_HYBRID_POWER_BUDGET && CONTINUOUS_TM
-		mutex_lock(&atm_vpu_lmt_mutex);
-#endif
-#endif
-
-	prv_adp_vpu_pwr_lim = adaptive_vpu_power_limit;
-	adaptive_vpu_power_limit = (limit != 0) ? limit : 0x7FFFFFFF;
-#ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
-#if THERMAL_ENABLE_TINYSYS_SSPM && CPT_ADAPTIVE_AP_COOLER &&	\
-	PRECISE_HYBRID_POWER_BUDGET && CONTINUOUS_TM
-	if (atm_sspm_enabled)
-		adaptive_vpu_power_limit = 0x7FFFFFFF;
-#endif
-#endif
-
-	if (prv_adp_vpu_pwr_lim != adaptive_vpu_power_limit) {
-		tscpu_dprintk("%s %d\n", __func__,
-		     (adaptive_vpu_power_limit != 0x7FFFFFFF) ?
-						adaptive_vpu_power_limit : 0);
-		apthermolmt_set_vpu_power_limit(&ap_atm,
-			adaptive_vpu_power_limit);
-	}
-
-#ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
-#if THERMAL_ENABLE_TINYSYS_SSPM && CPT_ADAPTIVE_AP_COOLER &&	\
-	PRECISE_HYBRID_POWER_BUDGET && CONTINUOUS_TM
-	mutex_unlock(&atm_vpu_lmt_mutex);
-#endif
-#endif
-}
-#endif
-
-#if defined(THERMAL_MDLA_SUPPORT)
-static void set_adaptive_mdla_power_limit(unsigned int limit)
-{
-#ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
-#if THERMAL_ENABLE_TINYSYS_SSPM && CPT_ADAPTIVE_AP_COOLER &&	\
-	PRECISE_HYBRID_POWER_BUDGET && CONTINUOUS_TM
-		mutex_lock(&atm_mdla_lmt_mutex);
-#endif
-#endif
-
-	prv_adp_mdla_pwr_lim = adaptive_mdla_power_limit;
-	adaptive_mdla_power_limit = (limit != 0) ? limit : 0x7FFFFFFF;
-#ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
-#if THERMAL_ENABLE_TINYSYS_SSPM && CPT_ADAPTIVE_AP_COOLER &&	\
-	PRECISE_HYBRID_POWER_BUDGET && CONTINUOUS_TM
-	if (atm_sspm_enabled)
-		adaptive_mdla_power_limit = 0x7FFFFFFF;
-#endif
-#endif
-
-	if (prv_adp_mdla_pwr_lim != adaptive_mdla_power_limit) {
-		tscpu_dprintk("%s %d\n", __func__,
-		     (adaptive_mdla_power_limit != 0x7FFFFFFF) ?
-						adaptive_mdla_power_limit : 0);
-		apthermolmt_set_mdla_power_limit(&ap_atm,
-			adaptive_mdla_power_limit);
-	}
-
-#ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
-#if THERMAL_ENABLE_TINYSYS_SSPM && CPT_ADAPTIVE_AP_COOLER &&	\
-	PRECISE_HYBRID_POWER_BUDGET && CONTINUOUS_TM
-	mutex_unlock(&atm_mdla_lmt_mutex);
-#endif
-#endif
-}
-#endif
-
 #if CPT_ADAPTIVE_AP_COOLER
 int is_cpu_power_unlimit(void)
 {
@@ -1031,36 +873,6 @@ int tscpu_get_min_gpu_pwr(void)
 	return MINIMUM_GPU_POWER;
 }
 EXPORT_SYMBOL(tscpu_get_min_gpu_pwr);
-
-#if defined(THERMAL_VPU_SUPPORT)
-int tscpu_get_min_vpu_pwr(void)
-{
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1)
-		return MAXIMUM_VPU_POWER;
-	else
-		return MINIMUM_VPU_POWER;
-#else
-	return MINIMUM_VPU_POWER;
-#endif
-}
-EXPORT_SYMBOL(tscpu_get_min_vpu_pwr);
-#endif
-
-#if defined(THERMAL_MDLA_SUPPORT)
-int tscpu_get_min_mdla_pwr(void)
-{
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1)
-		return MAXIMUM_MDLA_POWER;
-	else
-		return MINIMUM_MDLA_POWER;
-#else
-	return MINIMUM_MDLA_POWER;
-#endif
-}
-EXPORT_SYMBOL(tscpu_get_min_mdla_pwr);
-#endif
 
 #if CONTINUOUS_TM
 /**
@@ -1175,46 +987,6 @@ static int adjust_gpu_power(int power)
 #endif
 #endif
 
-/*
- *Pass ATM total power budget to EARA for C/G/... allocation
- *ATM follow up if ERAR bypass
- */
-static int EARA_handled(int total_power)
-{
-#if defined(EARA_THERMAL_SUPPORT)
-	int ret = 0;
-	int total_power_eara;
-
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1) {/*APU hint*/
-		total_power = 0;/*let EARA unlimit VPU/MDLA freq*/
-	}
-#endif
-
-#if defined(THERMAL_VPU_SUPPORT) && defined(THERMAL_MDLA_SUPPORT)
-	if (total_power == 0)
-		total_power_eara = 0;
-	else if (is_cpu_power_unlimit())
-		total_power_eara = total_power +
-			MAXIMUM_VPU_POWER + MAXIMUM_MDLA_POWER;
-	else
-		total_power_eara = total_power +
-			MINIMUM_VPU_POWER + MINIMUM_MDLA_POWER;
-	ret = mtk_eara_thermal_pb_handle(total_power_eara,
-		MAXIMUM_CPU_POWER, MAXIMUM_GPU_POWER,
-		MAXIMUM_VPU_POWER, MAXIMUM_MDLA_POWER);
-#else
-	total_eara_power = total_power;
-	ret = mtk_eara_thermal_pb_handle(total_power_eara,
-		MAXIMUM_CPU_POWER, MAXIMUM_GPU_POWER, -1, -1);
-#endif
-		return ret;
-
-#else
-		return 0;
-#endif
-}
-
 static int P_adaptive(int total_power, unsigned int gpu_loading)
 {
 	/*
@@ -1225,32 +997,13 @@ static int P_adaptive(int total_power, unsigned int gpu_loading)
 	 */
 	static int cpu_power = 0, gpu_power;
 	static int last_cpu_power = 0, last_gpu_power;
-#if defined(THERMAL_VPU_SUPPORT)
-	static int vpu_power, last_vpu_power;
-#endif
-#if defined(THERMAL_MDLA_SUPPORT)
-	static int mdla_power, last_mdla_power;
-#endif
 
 	last_cpu_power = cpu_power;
 	last_gpu_power = gpu_power;
-#if defined(THERMAL_VPU_SUPPORT)
-	last_vpu_power = vpu_power;
-#endif
-#if defined(THERMAL_MDLA_SUPPORT)
-	last_mdla_power = mdla_power;
-#endif
 	g_total_power = total_power;
 
-	if (EARA_handled(total_power) || (total_power == 0)) {
+	if (total_power == 0) {
 		cpu_power = gpu_power = 0;
-#if defined(THERMAL_VPU_SUPPORT)
-		vpu_power = 0;
-#endif
-#if defined(THERMAL_MDLA_SUPPORT)
-		mdla_power = 0;
-#endif
-
 #if THERMAL_HEADROOM
 		if (thp_max_cpu_power != 0)
 			set_adaptive_cpu_power_limit(
@@ -1262,12 +1015,6 @@ static int P_adaptive(int total_power, unsigned int gpu_loading)
 		set_adaptive_cpu_power_limit(0);
 #endif
 		set_adaptive_gpu_power_limit(0);
-#if defined(THERMAL_VPU_SUPPORT)
-		set_adaptive_vpu_power_limit(0);
-#endif
-#if defined(THERMAL_MDLA_SUPPORT)
-		set_adaptive_mdla_power_limit(0);
-#endif
 #if (CONFIG_THERMAL_AEE_RR_REC == 1)
 		aee_rr_rec_thermal_ATM_status(ATM_DONE);
 #endif
@@ -1352,26 +1099,6 @@ static int P_adaptive(int total_power, unsigned int gpu_loading)
 		cpu_power = MIN((total_power - gpu_power), MAXIMUM_CPU_POWER);
 	}
 
-#if defined(THERMAL_VPU_SUPPORT) && defined(THERMAL_MDLA_SUPPORT)
-	g_delta_power = g_delta_power / 2;
-#endif
-
-#if defined(THERMAL_VPU_SUPPORT)
-	if (total_power <= MINIMUM_TOTAL_POWER)
-		vpu_power = MAX(last_vpu_power + g_delta_power,
-			MINIMUM_VPU_POWER);
-	else
-		vpu_power = MAXIMUM_VPU_POWER;
-#endif
-
-#if defined(THERMAL_MDLA_SUPPORT)
-	if (total_power <= MINIMUM_TOTAL_POWER)
-		mdla_power = MAX(last_mdla_power + g_delta_power,
-			MINIMUM_MDLA_POWER);
-	else
-		mdla_power = MAXIMUM_MDLA_POWER;
-#endif
-
 #if 0
 	/* TODO: check if this segment can be used in original design
 	 * GPU SMA
@@ -1395,55 +1122,6 @@ static int P_adaptive(int total_power, unsigned int gpu_loading)
 	}
 
 	tscpu_dprintk("%s cpu %d, gpu %d\n", __func__, cpu_power, gpu_power);
-
-#if defined(THERMAL_VPU_SUPPORT)
-	/*APU hint*/
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1) {
-		set_adaptive_vpu_power_limit(0);
-	} else {
-		if (vpu_power != last_vpu_power) {
-			if (vpu_power >= MAXIMUM_VPU_POWER)
-				set_adaptive_vpu_power_limit(0);
-			else
-				set_adaptive_vpu_power_limit(vpu_power);
-		}
-	}
-#else
-	if (vpu_power != last_vpu_power) {
-		if (vpu_power >= MAXIMUM_VPU_POWER)
-			set_adaptive_vpu_power_limit(0);
-		else
-			set_adaptive_vpu_power_limit(vpu_power);
-	}
-#endif
-	tscpu_dprintk("%s vpu %d\n",
-		__func__, vpu_power);
-#endif
-#if defined(THERMAL_MDLA_SUPPORT)
-	/*APU hint*/
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1) {
-		set_adaptive_mdla_power_limit(0);
-	} else {
-		if (mdla_power != last_mdla_power) {
-			if (mdla_power >= MAXIMUM_MDLA_POWER)
-				set_adaptive_mdla_power_limit(0);
-			else
-				set_adaptive_mdla_power_limit(mdla_power);
-		}
-	}
-#else
-	if (mdla_power != last_mdla_power) {
-		if (mdla_power >= MAXIMUM_MDLA_POWER)
-			set_adaptive_mdla_power_limit(0);
-		else
-			set_adaptive_mdla_power_limit(mdla_power);
-	}
-#endif
-	tscpu_dprintk("%s mdla %d\n",
-		__func__, mdla_power);
-#endif
 
 #if (CONFIG_THERMAL_AEE_RR_REC == 1)
 	aee_rr_rec_thermal_ATM_status(ATM_DONE);
@@ -1560,21 +1238,14 @@ static int phpb_calc_total(int prev_total_power, long curr_temp, long prev_temp)
 	 * calculated based on current opp
 	 */
 	int delta_power, total_power, curr_power;
-#if 0 /* Just use previous total power to avoid conflict with fpsgo */
 	int tt = TARGET_TJ - curr_temp;
 	int tp = prev_temp - curr_temp;
-#endif
 
 	delta_power = phpb_calc_delta(curr_temp, prev_temp);
-#if defined(THERMAL_VPU_SUPPORT) || defined(THERMAL_MDLA_SUPPORT)
-	g_delta_power = delta_power;
-#endif
 	if (delta_power == 0)
 		return prev_total_power;
 
 	curr_power = get_total_curr_power();
-
-#if 0 /* Just use previous total power to avoid conflict with fpsgo */
 	/* In some conditions, we will consider using current request power to
 	 * avoid giving unlimit power budget.
 	 * Temp. rising is large,  requset power is of course less than power
@@ -1597,14 +1268,6 @@ static int phpb_calc_total(int prev_total_power, long curr_temp, long prev_temp)
 
 		total_power = prev_total_power + delta_power;
 	}
-#else
-	tscpu_dprintk(
-	"%s prev_temp %ld, curr_temp %ld, prev %d, delta %d, curr %d\n",
-	__func__, prev_temp, curr_temp, prev_total_power,
-	delta_power, curr_power);
-
-	total_power = prev_total_power + delta_power;
-#endif
 
 	total_power = clamp(total_power, MINIMUM_TOTAL_POWER,
 						MAXIMUM_TOTAL_POWER);
@@ -1964,8 +1627,8 @@ static int decide_ttj(void)
 		if (ctm_on == 1) {
 			TARGET_TJ = MIN(MAX_TARGET_TJ,
 					MAX(STEADY_TARGET_TJ,
-						(COEF_AE - COEF_BE * (curr_tpcb
-								/ 1000))));
+						(COEF_AE - COEF_BE * curr_tpcb
+								/ 1000)));
 
 		} else if (ctm_on == 2) {
 			/* +++ cATM+ +++ */
@@ -1975,8 +1638,8 @@ static int decide_ttj(void)
 
 		current_ETJ = MIN(MAX_EXIT_TJ,
 				MAX(STEADY_EXIT_TJ,
-					(COEF_AX - COEF_BX * (curr_tpcb
-								/ 1000))));
+					(COEF_AX - COEF_BX * curr_tpcb
+								/ 1000)));
 
 		/* tscpu_printk("cttj %d cetj %d tpcb %d\n",
 		 *			TARGET_TJ, current_ETJ, curr_tpcb);
@@ -2011,8 +1674,8 @@ static int decide_ttj(void)
 			MAXIMUM_GPU_POWER = (int)mt_gpufreq_get_max_power();
 			MINIMUM_GPU_POWER = (int)mt_gpufreq_get_min_power();
 			tscpu_printk(
-				"%s: MAXIMUM_GPU_POWER=%d, MINIMUM_GPU_POWER=%d\n",
-				__func__, MAXIMUM_GPU_POWER, MINIMUM_GPU_POWER);
+				"decide_ttj: MAXIMUM_GPU_POWER=%d, MINIMUM_GPU_POWER=%d\n",
+				MAXIMUM_GPU_POWER, MINIMUM_GPU_POWER);
 		}
 #else
 		MINIMUM_GPU_POWER = MINIMUM_GPU_POWERS[active_cooler_id];
@@ -2184,15 +1847,6 @@ static ssize_t tscpu_write_atm_setting
 		i_budget_change = -1, i_min_cpu_pwr = -1, i_max_cpu_pwr = -1,
 		i_min_gpu_pwr = -1, i_max_gpu_pwr = -1;
 
-#if defined(THERMAL_VPU_SUPPORT)
-	MINIMUM_VPU_POWER = vpu_power_table[VPU_OPP_NUM - 1].power;
-	MAXIMUM_VPU_POWER = vpu_power_table[VPU_OPP_0].power;
-#endif
-#if defined(THERMAL_MDLA_SUPPORT) && defined(CONFIG_MTK_MDLA_SUPPORT)
-	MINIMUM_MDLA_POWER = mdla_power_table[MDLA_OPP_NUM - 1].power;
-	MAXIMUM_MDLA_POWER = mdla_power_table[MDLA_OPP_0].power;
-#endif
-
 	len = (count < (sizeof(desc) - 1)) ? count : (sizeof(desc) - 1);
 	if (copy_from_user(desc, buffer, len))
 		return 0;
@@ -2205,7 +1859,7 @@ static ssize_t tscpu_write_atm_setting
 		&i_min_gpu_pwr, &i_max_gpu_pwr) >= 9) {
 
 		tscpu_printk(
-			"%s input %d %d %d %d %d %d %d %d %d\n", __func__,
+			"tscpu_write_atm_setting input %d %d %d %d %d %d %d %d %d\n",
 			i_id, i_first_step,
 			i_theta_r, i_theta_f, i_budget_change,
 			i_min_cpu_pwr, i_max_cpu_pwr, i_min_gpu_pwr,
@@ -2220,7 +1874,7 @@ static ssize_t tscpu_write_atm_setting
 #ifdef CONFIG_MTK_AEE_FEATURE
 				aee_kernel_warning_api(__FILE__, __LINE__,
 						DB_OPT_DEFAULT,
-						__func__,
+						"tscpu_write_atm_setting",
 						"Wrong thermal policy");
 #endif
 			}
@@ -2230,7 +1884,7 @@ static ssize_t tscpu_write_atm_setting
 #ifdef CONFIG_MTK_AEE_FEATURE
 				aee_kernel_warning_api(__FILE__, __LINE__,
 						DB_OPT_DEFAULT,
-						__func__,
+						"tscpu_write_atm_setting",
 						"Wrong thermal policy");
 #endif
 			}
@@ -2240,7 +1894,7 @@ static ssize_t tscpu_write_atm_setting
 #ifdef CONFIG_MTK_AEE_FEATURE
 				aee_kernel_warning_api(__FILE__, __LINE__,
 						DB_OPT_DEFAULT,
-						__func__,
+						"tscpu_write_atm_setting",
 						"Wrong thermal policy");
 #endif
 			}
@@ -2250,7 +1904,7 @@ static ssize_t tscpu_write_atm_setting
 #ifdef CONFIG_MTK_AEE_FEATURE
 				aee_kernel_warning_api(__FILE__, __LINE__,
 						DB_OPT_DEFAULT,
-						__func__,
+						"tscpu_write_atm_setting",
 						"Wrong thermal policy");
 #endif
 			}
@@ -2266,7 +1920,7 @@ static ssize_t tscpu_write_atm_setting
 #ifdef CONFIG_MTK_AEE_FEATURE
 				aee_kernel_warning_api(__FILE__, __LINE__,
 						DB_OPT_DEFAULT,
-						__func__,
+						"tscpu_write_atm_setting",
 						"Wrong thermal policy");
 #endif
 			}
@@ -2282,7 +1936,7 @@ static ssize_t tscpu_write_atm_setting
 #ifdef CONFIG_MTK_AEE_FEATURE
 				aee_kernel_warning_api(__FILE__, __LINE__,
 						DB_OPT_DEFAULT,
-						__func__,
+						"tscpu_write_atm_setting",
 						"Wrong thermal policy");
 #endif
 			}
@@ -2302,7 +1956,7 @@ static ssize_t tscpu_write_atm_setting
 #ifdef CONFIG_MTK_AEE_FEATURE
 				aee_kernel_warning_api(__FILE__, __LINE__,
 						DB_OPT_DEFAULT,
-						__func__,
+						"tscpu_write_atm_setting",
 						"Wrong thermal policy");
 #endif
 			}
@@ -2323,7 +1977,7 @@ static ssize_t tscpu_write_atm_setting
 #ifdef CONFIG_MTK_AEE_FEATURE
 				aee_kernel_warning_api(__FILE__, __LINE__,
 						DB_OPT_DEFAULT,
-						__func__,
+						"tscpu_write_atm_setting",
 						"Wrong thermal policy");
 #endif
 			}
@@ -2352,7 +2006,7 @@ static ssize_t tscpu_write_atm_setting
 #ifdef CONFIG_MTK_AEE_FEATURE
 			aee_kernel_warning_api(__FILE__, __LINE__,
 					DB_OPT_DEFAULT,
-					__func__,
+					"tscpu_write_atm_setting",
 					"Wrong thermal policy");
 #endif
 		}
@@ -2385,7 +2039,7 @@ static ssize_t tscpu_write_gpu_threshold
 	desc[len] = '\0';
 
 	if (sscanf(desc, "%d %d", &gpu_h, &gpu_l) >= 2) {
-		tscpu_printk("%s input %d %d\n", __func__,
+		tscpu_printk("tscpu_write_gpu_threshold input %d %d\n",
 								gpu_h, gpu_l);
 
 		if ((gpu_h > 0) && (gpu_l > 0) && (gpu_h > gpu_l)) {
@@ -2400,16 +2054,16 @@ static ssize_t tscpu_write_gpu_threshold
 #endif
 
 			tscpu_printk(
-				"%s applied %d %d\n", __func__,
+				"tscpu_write_gpu_threshold applied %d %d\n",
 				GPU_L_H_TRIP, GPU_L_L_TRIP);
 		} else {
 			tscpu_dprintk(
-				"%s out of range\n", __func__);
+				"tscpu_write_gpu_threshold out of range\n");
 		}
 
 		return count;
 	}
-	tscpu_dprintk("%s bad argument\n", __func__);
+	tscpu_dprintk("tscpu_write_gpu_threshold bad argument\n");
 	return -EINVAL;
 }
 
@@ -2417,7 +2071,7 @@ static ssize_t tscpu_write_gpu_threshold
 static int tscpu_read_atm(struct seq_file *m, void *v)
 {
 
-	seq_printf(m, "[%s] ver = %d\n", __func__, tscpu_atm);
+	seq_printf(m, "[tscpu_read_atm] ver = %d\n", tscpu_atm);
 	seq_printf(m, "tt_ratio_high_rise = %d\n", tt_ratio_high_rise);
 	seq_printf(m, "tt_ratio_high_fall = %d\n", tt_ratio_high_fall);
 	seq_printf(m, "tt_ratio_low_rise = %d\n", tt_ratio_low_rise);
@@ -2480,7 +2134,7 @@ static ssize_t tscpu_write_atm
 
 		return count;
 	}
-	tscpu_printk("%s bad argument\n", __func__);
+	tscpu_printk("tscpu_write_atm bad argument\n");
 	return -EINVAL;
 
 }
@@ -2591,7 +2245,7 @@ struct file *file, const char __user *buffer, size_t count, loff_t *data)
 #ifdef CONFIG_MTK_AEE_FEATURE
 			aee_kernel_warning_api(__FILE__, __LINE__,
 							DB_OPT_DEFAULT,
-							__func__,
+							"tscpu_write_ctm",
 							"Wrong thermal policy");
 #endif
 		}
@@ -2599,7 +2253,7 @@ struct file *file, const char __user *buffer, size_t count, loff_t *data)
 #ifdef CONFIG_MTK_AEE_FEATURE
 			aee_kernel_warning_api(__FILE__, __LINE__,
 							DB_OPT_DEFAULT,
-							__func__,
+							"tscpu_write_ctm",
 							"Wrong thermal policy");
 #endif
 		}
@@ -2608,7 +2262,7 @@ struct file *file, const char __user *buffer, size_t count, loff_t *data)
 #ifdef CONFIG_MTK_AEE_FEATURE
 			aee_kernel_warning_api(__FILE__, __LINE__,
 							DB_OPT_DEFAULT,
-							__func__,
+							"tscpu_write_ctm",
 							"Wrong thermal policy");
 #endif
 		}
@@ -2616,7 +2270,7 @@ struct file *file, const char __user *buffer, size_t count, loff_t *data)
 #ifdef CONFIG_MTK_AEE_FEATURE
 			aee_kernel_warning_api(__FILE__, __LINE__,
 							DB_OPT_DEFAULT,
-							__func__,
+							"tscpu_write_ctm",
 							"Wrong thermal policy");
 #endif
 		}
@@ -2625,7 +2279,7 @@ struct file *file, const char __user *buffer, size_t count, loff_t *data)
 #ifdef CONFIG_MTK_AEE_FEATURE
 			aee_kernel_warning_api(__FILE__, __LINE__,
 							DB_OPT_DEFAULT,
-							__func__,
+							"tscpu_write_ctm",
 							"Wrong thermal policy");
 #endif
 		}
@@ -2633,7 +2287,7 @@ struct file *file, const char __user *buffer, size_t count, loff_t *data)
 #ifdef CONFIG_MTK_AEE_FEATURE
 			aee_kernel_warning_api(__FILE__, __LINE__,
 							DB_OPT_DEFAULT,
-							__func__,
+							"tscpu_write_ctm",
 							"Wrong thermal policy");
 #endif
 		}
@@ -2641,7 +2295,7 @@ struct file *file, const char __user *buffer, size_t count, loff_t *data)
 #ifdef CONFIG_MTK_AEE_FEATURE
 			aee_kernel_warning_api(__FILE__, __LINE__,
 							DB_OPT_DEFAULT,
-							__func__,
+							"tscpu_write_ctm",
 							"Wrong thermal policy");
 #endif
 		}
@@ -2650,7 +2304,7 @@ struct file *file, const char __user *buffer, size_t count, loff_t *data)
 #ifdef CONFIG_MTK_AEE_FEATURE
 			aee_kernel_warning_api(__FILE__, __LINE__,
 							DB_OPT_DEFAULT,
-							__func__,
+							"tscpu_write_ctm",
 							"Wrong thermal policy");
 #endif
 		}
@@ -2916,165 +2570,6 @@ static const struct file_operations mtktscpu_atm_setting_fops = {
 	.release = single_release,
 };
 
-#if CLATM_USE_MIN_CPU_OPP
-static int tscpu_atm_cpu_min_opp_read(struct seq_file *m, void *v)
-{
-	int i, j;
-
-	for (i = 0; i < MAX_CPT_ADAPTIVE_COOLERS; i++) {
-		seq_printf(m, "%s%02d\n", adaptive_cooler_name, i);
-		seq_printf(m, "mode = %d\n", g_c_min_opp.mode[i]);
-
-		seq_printf(m, "min CPU power = %d\n",
-			g_c_min_opp.min_CPU_power[i]);
-
-		seq_printf(m, "min CPU power from opp = %d\n",
-			g_c_min_opp.min_CPU_power_from_opp[i]);
-
-		seq_printf(m, "current min cpu power = %d\n",
-			MINIMUM_CPU_POWERS[i]);
-
-		for (j = 0; j < NR_PPM_CLUSTERS; j++) {
-			seq_printf(m, "cluster%02d core %d, freq_idx %d\n",
-				j, g_c_min_opp.cpu_opp_set[i][j].core_num,
-				g_c_min_opp.cpu_opp_set[i][j].freq_idx);
-		}
-
-		seq_puts(m, "\n");
-	}
-
-	seq_puts(m, "Two commands\n");
-	seq_puts(m, "1. Set a set of min cpu opp\n");
-	seq_puts(m, "   echo [ATM_ID] [N_CLUSTER] [CORE_0] [F_IDX0] [CORE_1] [F_IDX1]");
-	seq_puts(m, " [CORE_2] [F_IDX2] > /proc/driver/thermal/clatm_cpu_min_opp\n");
-	seq_puts(m, "   ATM_ID: 0:cpu_adaptive_00, 1: cpu_adaptive_01, 2: cpu_adaptive_02\n");
-	seq_puts(m, "   N_CLUSTER: number of clusters in this platform\n");
-	seq_puts(m, "   CORE_0: number of cores in cluster 0\n");
-	seq_puts(m, "   F_IDX_0: frequency opp index in cluster 0\n");
-	seq_puts(m, "   and etc.\n");
-	seq_puts(m, "2. Change mode\n");
-	seq_puts(m, "   echo chmod [MODE_ID] > /proc/driver/thermal/clatm_cpu_min_opp\n");
-	seq_puts(m, "   MODE_ID:\n");
-	seq_puts(m, "      1: Use a conventional min cpu power budget\n");
-	seq_puts(m, "      2: Use a set of min cpu opp\n");
-
-	return 0;
-}
-
-static ssize_t tscpu_atm_cpu_min_opp_write
-(struct file *file, const char __user *buffer, size_t count, loff_t *data)
-{
-	char desc[128], cmd[20];
-	int i, len = 0, arg;
-	int atm_id, num_cluster, core[3],
-		freq_idx[3];
-
-	len = (count < (sizeof(desc) - 1)) ? count : (sizeof(desc) - 1);
-	if (copy_from_user(desc, buffer, len))
-		return 0;
-
-	desc[len] = '\0';
-	if (sscanf(desc, "%d %d %d %d %d %d %d %d", &atm_id, &num_cluster,
-		&core[0], &freq_idx[0], &core[1], &freq_idx[1],
-		&core[2], &freq_idx[2]) == 8) {
-		if (atm_id < 0 || atm_id >= MAX_CPT_ADAPTIVE_COOLERS) {
-			tscpu_printk("Bad arg: atm_id error\n");
-			goto BAD_ARG;
-		}
-
-		if (num_cluster != NR_PPM_CLUSTERS) {
-			g_c_min_opp.mode[atm_id] = 0;
-			tscpu_printk("Bad arg: Total number of clusters doesn't match\n");
-			goto BAD_ARG;
-		}
-
-		for (i = 0; i < NR_PPM_CLUSTERS; i++) {
-			g_c_min_opp.cpu_opp_set[atm_id][i].core_num = core[i];
-			g_c_min_opp.cpu_opp_set[atm_id][i].freq_idx
-				= freq_idx[i];
-		}
-
-		if (g_c_min_opp.min_CPU_power[atm_id] == 0)
-			g_c_min_opp.min_CPU_power[atm_id] =
-				MINIMUM_CPU_POWERS[atm_id];
-
-		g_c_min_opp.min_CPU_power_from_opp[atm_id] =
-			ppm_find_pwr_idx(g_c_min_opp.cpu_opp_set[atm_id]);
-
-		if (g_c_min_opp.min_CPU_power_from_opp[atm_id] == -1) {
-			g_c_min_opp.mode[atm_id] = 0;
-			tscpu_printk("Error: When transfer a CPU opp to a power budget\n");
-			goto BAD_ARG;
-		}
-
-		g_c_min_opp.min_CPU_power_from_opp[atm_id] += 1;
-		MINIMUM_CPU_POWERS[atm_id] =
-			g_c_min_opp.min_CPU_power_from_opp[atm_id];
-		thermal_spa_t.t_spa_Tpolicy_info.min_cpu_power[atm_id] =
-			g_c_min_opp.min_CPU_power_from_opp[atm_id];
-
-		g_c_min_opp.mode[atm_id] = 2;
-
-		return count;
-	} else if (sscanf(desc, "%19s %d", cmd, &arg) == 2) {
-		if ((strncmp(cmd, "chmod", 5) == 0)) {
-			if (arg != 1 && arg != 2) {
-				tscpu_printk("Bad arg: mode should only be 1 and 2\n");
-				goto BAD_ARG;
-			}
-
-			for (i = 0; i < MAX_CPT_ADAPTIVE_COOLERS; i++) {
-				if (g_c_min_opp.mode[i] == 0) {
-					tscpu_printk("Skip cpu_adaptive_%d, because didn't initialized\n",
-						i);
-					continue;
-				}
-				if (arg == 1) {
-					if (g_c_min_opp.min_CPU_power[i] == 0)
-						continue;
-
-					MINIMUM_CPU_POWERS[i] =
-						g_c_min_opp.min_CPU_power[i];
-					thermal_spa_t.t_spa_Tpolicy_info.
-						min_cpu_power[i] = g_c_min_opp.
-						min_CPU_power[i];
-				} else if (arg == 2) {
-					MINIMUM_CPU_POWERS[i] =
-						g_c_min_opp.
-						min_CPU_power_from_opp[i];
-					thermal_spa_t.t_spa_Tpolicy_info.
-						min_cpu_power[i] = g_c_min_opp.
-						min_CPU_power_from_opp[i];
-				}
-
-				g_c_min_opp.mode[i] = arg;
-			}
-			return count;
-		}
-
-		tscpu_printk("Bad arg: No this command\n");
-		goto BAD_ARG;
-	}
-BAD_ARG:
-	tscpu_printk("%s,%d: bad argument, %s\n", __func__, __LINE__, desc);
-	return -EINVAL;
-}
-
-static int tscpu_atm_cpu_min_opp_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, tscpu_atm_cpu_min_opp_read, NULL);
-}
-
-static const struct file_operations mtktscpu_atm_cpu_min_opp_fops = {
-	.owner = THIS_MODULE,
-	.open = tscpu_atm_cpu_min_opp_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.write = tscpu_atm_cpu_min_opp_write,
-	.release = single_release,
-};
-#endif
-
 static int tscpu_gpu_threshold_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, tscpu_read_gpu_threshold, NULL);
@@ -3208,15 +2703,6 @@ static void tscpu_cooler_create_fs(void)
 		if (entry)
 			proc_set_user(entry, uid, gid);
 
-#if CLATM_USE_MIN_CPU_OPP
-		entry = proc_create("clatm_cpu_min_opp",
-				0664,
-				mtktscpu_dir, &mtktscpu_atm_cpu_min_opp_fops);
-
-		if (entry)
-			proc_set_user(entry, uid, gid);
-#endif
-
 		entry = proc_create("clatm_gpu_threshold",
 				0664,
 				mtktscpu_dir, &mtktscpu_gpu_threshold_fops);
@@ -3327,14 +2813,12 @@ static unsigned long atm_get_timeout_time(int curr_temp)
 	return atm_timer_polling_delay;
 #else
 
-	if (curr_temp >= polling_trip_temp0)
-		return atm_timer_polling_delay / polling_factor0;
-	else if (curr_temp >= polling_trip_temp1)
+	if (curr_temp >= polling_trip_temp1)
 		return atm_timer_polling_delay;
-	else if (curr_temp >= polling_trip_temp2)
-		return atm_timer_polling_delay * polling_factor1;
-	else
+	else if (curr_temp < polling_trip_temp2)
 		return atm_timer_polling_delay * polling_factor2;
+	else
+		return atm_timer_polling_delay * polling_factor1;
 #endif
 }
 #endif
@@ -3345,7 +2829,7 @@ static enum hrtimer_restart atm_loop(struct hrtimer *timer)
 {
 	ktime_t ktime;
 #elif KRTATM_TIMER == KRTATM_NORMAL
-static void atm_loop(unsigned long data)
+static int atm_loop(void)
 {
 #endif
 	int temp;
@@ -3360,18 +2844,11 @@ static void atm_loop(unsigned long data)
 	unsigned long polling_time_s;
 	unsigned long polling_time_ns;
 #endif
-	ktime_t now;
-
-	now = ktime_get();
 
 	tscpu_workqueue_start_timer();
 
 	atm_prev_maxtj = atm_curr_maxtj;
 	atm_curr_maxtj = tscpu_get_curr_temp();
-
-
-	atm_prev_maxtj_time = atm_curr_maxtj_time;
-	atm_curr_maxtj_time = ktime_to_us(now);
 
 #ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
 #if THERMAL_ENABLE_TINYSYS_SSPM && CPT_ADAPTIVE_AP_COOLER &&	\
@@ -3385,11 +2862,9 @@ static void atm_loop(unsigned long data)
 #endif
 #endif
 
-	temp = sprintf(buffer, "%s c %d p %d l %d ct %lld pt %lld ", __func__,
+	temp = sprintf(buffer, "%s c %d p %d l %d ", __func__,
 						atm_curr_maxtj, atm_prev_maxtj,
-						adaptive_cpu_power_limit,
-						atm_curr_maxtj_time,
-						atm_prev_maxtj_time);
+						adaptive_cpu_power_limit);
 
 	if (atm_curr_maxtj >= 100000
 	|| (atm_curr_maxtj - atm_prev_maxtj >= 15000))
@@ -3437,25 +2912,6 @@ exit:
 
 	polling_time = atm_get_timeout_time(atm_curr_maxtj);
 
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1) {/*flag not be cleared*/
-		total_apu_polling_time =
-			total_apu_polling_time + polling_time;
-	} else {
-		/*flag is cleared, clear timer*/
-		total_apu_polling_time = 0;
-	}
-
-	/*count till 10 sec(10000ms) timeout*/
-	if (total_apu_polling_time >= 10000) {
-		total_apu_polling_time = 0;
-		cl_set_apu_status(0);//clear apu flag
-
-		tscpu_printk("%s ainr: total_apu_polling_time = 0\n",
-			__func__);
-	}
-#endif
-
 #if KRTATM_TIMER == KRTATM_HR
 
 	/* avoid overflow */
@@ -3480,6 +2936,7 @@ exit:
 	atm_timer.expires = jiffies + msecs_to_jiffies(polling_time);
 	add_timer(&atm_timer);
 
+	return 0;
 #endif
 
 }
@@ -3513,7 +2970,7 @@ static void atm_timer_init(void)
 						atm_timer_polling_delay : 100;
 
 	init_timer_deferrable(&atm_timer);
-	atm_timer.function = &atm_loop;
+	atm_timer.function = (void *)&atm_loop;
 	atm_timer.data = (unsigned long)&atm_timer;
 	atm_timer.expires =
 		jiffies + msecs_to_jiffies(atm_timer_polling_delay);

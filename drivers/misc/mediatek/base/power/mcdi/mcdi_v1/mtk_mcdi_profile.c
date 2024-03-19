@@ -569,9 +569,7 @@ static ssize_t mcdi_profile_write(struct file *filp,
 		return -EINVAL;
 
 	if (!strncmp(cmd_str, "reg", sizeof("reg"))) {
-		if (!(param >= 0
-				&& param < MCDI_SYSRAM_SIZE
-				&& (param % 4) == 0))
+		if (!(param < MCDI_SYSRAM_SIZE && ((param % 4) == 0)))
 			return -EINVAL;
 
 		pr_info("mcdi_reg: 0x%lx=0x%x(%d)\n",

@@ -214,13 +214,9 @@ int Ripi_cpu_dvfs_thread(void *data)
 					log_box_parsed[j-1].time_stamp) *
 					(buf_freq/1000);
 				}
-				if (!num_log)
-					t_diff = 1;
-				else {
-					t_diff =
-					log_box_parsed[num_log - 1].time_stamp -
-					log_box_parsed[0].time_stamp;
-				}
+				t_diff =
+				log_box_parsed[num_log - 1].time_stamp -
+				log_box_parsed[0].time_stamp;
 #if defined(__LP64__) || defined(_LP64)
 				avg_f = tf_sum / t_diff;
 #else
@@ -243,12 +239,10 @@ int Ripi_cpu_dvfs_thread(void *data)
 
 				previous_limit = p->idx_opp_ppm_limit;
 				previous_base = p->idx_opp_ppm_base;
-				if (num_log) {
-					p->idx_opp_ppm_limit =
+				p->idx_opp_ppm_limit =
 	(int)(log_box_parsed[num_log - 1].cluster_opp_cfg[i].limit_idx);
-					p->idx_opp_ppm_base =
+				p->idx_opp_ppm_base =
 	(int)(log_box_parsed[num_log - 1].cluster_opp_cfg[i].base_idx);
-				}
 
 				if (j < p->idx_opp_ppm_limit)
 					j = p->idx_opp_ppm_limit;
@@ -704,7 +698,8 @@ int cpuhvfs_set_dvfs(int cluster_id, unsigned int freq)
 	p = id_to_cpu_dvfs(cluster_id);
 
 	/* [3:0] freq_idx */
-	freq_idx = _search_available_freq_idx(p, freq, 0);
+	if (p)
+		freq_idx = _search_available_freq_idx(p, freq, 0);
 	csram_write((OFFS_WFI_S + (cluster_id * 4)), freq_idx);
 
 	return 0;
@@ -867,7 +862,8 @@ int cpuhvfs_set_cluster_load_freq(enum mt_cpu_dvfs_id id, unsigned int freq)
 		counter = 1;
 
 	/* [3:0] freq_idx, [11:4] counter */
-	freq_idx = _search_available_freq_idx(p, freq, 0);
+	if (p)
+		freq_idx = _search_available_freq_idx(p, freq, 0);
 
 	buf = ((counter << 4) | freq_idx);
 
@@ -925,10 +921,10 @@ void cpuhvfs_update_cci_mode(unsigned int mode, unsigned int use_id)
 {
 	if (mode < NR_CCI_TBL) {
 		csram_write(OFFS_CCI_TBL_USER, use_id);
-	/* mode = 0(Normal as 50%) mode = 1(Perf as 70%) */
-	csram_write(OFFS_CCI_TBL_MODE, mode);
-	csram_write(OFFS_CCI_TOGGLE_BIT, 1);
-}
+		/* mode = 0(Normal as 50%) mode = 1(Perf as 70%) */
+		csram_write(OFFS_CCI_TBL_MODE, mode);
+		csram_write(OFFS_CCI_TOGGLE_BIT, 1);
+	}
 }
 
 unsigned int cpuhvfs_get_cci_mode(void)

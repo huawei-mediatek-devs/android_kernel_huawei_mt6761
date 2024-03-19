@@ -20,36 +20,12 @@
 #include <linux/swap.h>
 #include <mt-plat/mtk_blocktag.h>
 #include <helio-dvfsrc.h>
-#include <linux/jiffies.h>
-#ifdef CONFIG_MTK_QOS_FRAMEWORK
-#include <mtk_qos_sram.h>
-#else
-#include <helio-dvfsrc.h>
-#endif
-#include <mt-plat/perf_tracker.h>
-#include <linux/topology.h>
-
-#include <linux/module.h>
-#ifndef __CHECKER__
-#define CREATE_TRACE_POINTS
-#include "perf_tracker_trace.h"
-#endif
-
-#include "perf_tracker.h"
-
-#ifdef CONFIG_MTK_GAUGE_VERSION
-#include <mt-plat/mtk_battery.h>
-
-static void fuel_gauge_handler(struct work_struct *work);
-
-static int fuel_gauge_enable;
-static int fuel_gauge_delay; /* ms */
-static DECLARE_DELAYED_WORK(fuel_gauge, fuel_gauge_handler);
-#endif
 
 static int perf_tracker_on, perf_tracker_init;
+static u64 checked_timestamp;
+static u64 ms_interval = 2 * NSEC_PER_MSEC;
+static DEFINE_SPINLOCK(check_lock);
 static DEFINE_MUTEX(perf_ctl_mutex);
-static int cluster_nr = -1;
 
 #if !defined(CONFIG_MTK_BLOCK_TAG) || !defined(MTK_BTAG_FEATURE_MICTX_IOSTAT)
 struct mtk_btag_mictx_iostat_struct {
@@ -79,41 +55,6 @@ int __attribute__((weak)) mtk_btag_mictx_get_data(
 }
 #endif
 
-int perf_tracker_enable(int val)
-{
-	mutex_lock(&perf_ctl_mutex);
-
-	val = (val > 0) ? 1 : 0;
-
-	perf_tracker_on = val;
-#ifdef CONFIG_MTK_BLOCK_TAG
-	mtk_btag_mictx_enable(val);
-#endif
-
-	mutex_unlock(&perf_ctl_mutex);
-
-	return (perf_tracker_on == val) ? 0 : -1;
-}
-
-#ifdef CONFIG_MTK_GAUGE_VERSION
-static void fuel_gauge_handler(struct work_struct *work)
-{
-	int curr, volt;
-
-	if (!fuel_gauge_enable)
-		return;
-
-	/* read current(mA) and valtage(mV) from pmic */
-	curr = battery_get_bat_current();
-	volt = battery_get_bat_voltage();
-
-	trace_fuel_gauge(curr, volt);
-
-	queue_delayed_work(system_power_efficient_wq,
-			&fuel_gauge, msecs_to_jiffies(fuel_gauge_delay));
-}
-#endif
-
 u32 __attribute__((weak)) dvfsrc_sram_read(u32 offset)
 {
 	return 0;
@@ -124,15 +65,48 @@ unsigned int __attribute__((weak)) get_dram_data_rate(void)
 	return 0;
 }
 
-u32 __attribute__((weak)) qos_sram_read(u32 offset)
+int __attribute__((weak)) dvfsrc_get_emi_bw(int type)
 {
 	return 0;
 }
 
+static int check_cnt;
+static inline bool do_check(u64 wallclock)
+{
+	bool do_check = false;
+	unsigned long flags;
+
+	/* check interval */
+	spin_lock_irqsave(&check_lock, flags);
+	if ((s64)(wallclock - checked_timestamp)
+			>= (s64)ms_interval) {
+		checked_timestamp = wallclock;
+		check_cnt++;
+		do_check = true;
+	}
+	spin_unlock_irqrestore(&check_lock, flags);
+
+	return do_check;
+}
+static inline bool hit_long_check(void)
+{
+	bool do_check = false;
+	unsigned long flags;
+
+	spin_lock_irqsave(&check_lock, flags);
+	if (check_cnt >= 2) {
+		check_cnt = 0;
+		do_check = true;
+	}
+	spin_unlock_irqrestore(&check_lock, flags);
+
+	return do_check;
+}
+
 static inline u32 cpu_stall_ratio(int cpu)
 {
-#ifdef CM_STALL_RATIO_OFFSET
-	return qos_sram_read(CM_STALL_RATIO_OFFSET + cpu * 4);
+#ifdef QOS_CM_STALL_RATIO
+	return dvfsrc_sram_read(QOS_CM_STALL_RATIO(cpu));
 #else
 	return 0;
 #endif
@@ -141,48 +115,41 @@ static inline u32 cpu_stall_ratio(int cpu)
 #define K(x) ((x) << (PAGE_SHIFT - 10))
 #define max_cpus 8
 
-void __perf_tracker(u64 wallclock,
-		  long mm_available,
-		  long mm_free)
+void perf_tracker(u64 wallclock)
 {
 	int dram_rate = 0;
+	long mm_free_pages = 0;
 #ifdef CONFIG_MTK_BLOCK_TAG
 	struct mtk_btag_mictx_iostat_struct *iostat = &iostatptr;
 #endif
-	int bw_c = 0, bw_g = 0, bw_mm = 0, bw_total = 0;
+	int bw_c, bw_g, bw_mm, bw_total;
 	int i;
 	int stall[max_cpus] = {0};
-	unsigned int sched_freq[3] = {0};
-	int cid;
+	long mm_available;
 
 	if (!perf_tracker_on || !perf_tracker_init)
+		return;
+
+	if (!do_check(wallclock))
 		return;
 
 	/* dram freq */
 	dram_rate = get_dram_data_rate();
 
 	/* emi */
-	bw_c  = qos_sram_read(QOS_DEBUG_1);
-	bw_g  = qos_sram_read(QOS_DEBUG_2);
-	bw_mm = qos_sram_read(QOS_DEBUG_3);
-	bw_total = qos_sram_read(QOS_DEBUG_0);
-
-	/* sched: cpu freq */
-	for (cid = 0; cid < cluster_nr; cid++)
-		sched_freq[cid] =
-			mt_cpufreq_get_cur_freq(cid);
+	bw_c  = dvfsrc_get_emi_bw(QOS_EMI_BW_CPU);
+	bw_g  = dvfsrc_get_emi_bw(QOS_EMI_BW_GPU);
+	bw_mm = dvfsrc_get_emi_bw(QOS_EMI_BW_MM);
+	bw_total = dvfsrc_get_emi_bw(QOS_EMI_BW_TOTAL);
 
 	/* trace for short msg */
-	trace_perf_index_s(
-			sched_freq[0], sched_freq[1], sched_freq[2],
-			dram_rate, bw_c, bw_g, bw_mm, bw_total
-			);
+	trace_perf_index_s(dram_rate, bw_c, bw_g, bw_mm, bw_total);
 
 	if (!hit_long_check())
 		return;
 
 	/* free mem */
-	mm_free = global_page_state(NR_FREE_PAGES);
+	mm_free_pages = global_page_state(NR_FREE_PAGES);
 	mm_available = si_mem_available();
 
 #ifdef CONFIG_MTK_BLOCK_TAG
@@ -196,87 +163,18 @@ void __perf_tracker(u64 wallclock,
 		stall[i] = cpu_stall_ratio(i);
 
 	/* trace for long msg */
-
 	trace_perf_index_l(
-			K(mm_free),
+			K(mm_free_pages),
 			K(mm_available),
-#ifdef CONFIG_MTK_BLOCK_TAG
 			iostat->wl,
 			iostat->tp_req_r, iostat->tp_all_r,
 			iostat->reqsize_r, iostat->reqcnt_r,
 			iostat->tp_req_w, iostat->tp_all_w,
 			iostat->reqsize_w, iostat->reqcnt_w,
 			iostat->duration, iostat->q_depth,
-#else
-			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-#endif
 			stall
 			);
 }
-
-#ifdef CONFIG_MTK_GAUGE_VERSION
-static ssize_t show_fuel_gauge_enable(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	unsigned int len = 0, max_len = 4096;
-
-	len += snprintf(buf, max_len, "fuel_gauge_enable = %u\n",
-			fuel_gauge_enable);
-	return len;
-}
-
-static ssize_t store_fuel_gauge_enable(struct kobject *kobj,
-		struct kobj_attribute *attr, const char *buf, size_t count)
-{
-	int tmp;
-
-	mutex_lock(&perf_ctl_mutex);
-
-	if (kstrtouint(buf, 10, &tmp) == 0)
-		fuel_gauge_enable = (tmp > 0) ? 1 : 0;
-
-	if (fuel_gauge_enable) {
-		/* default delay 8ms */
-		fuel_gauge_delay = (fuel_gauge_delay > 0) ?
-				fuel_gauge_delay : 8;
-
-		/* start fuel gauge tracking */
-		queue_delayed_work(system_power_efficient_wq,
-				&fuel_gauge,
-				msecs_to_jiffies(fuel_gauge_delay));
-	}
-
-	mutex_unlock(&perf_ctl_mutex);
-
-	return count;
-}
-
-static ssize_t show_fuel_gauge_period(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	unsigned int len = 0, max_len = 4096;
-
-	len += snprintf(buf, max_len, "fuel_gauge_period = %u(ms)\n",
-				fuel_gauge_delay);
-	return len;
-}
-
-static ssize_t store_fuel_gauge_period(struct kobject *kobj,
-		struct kobj_attribute *attr, const char *buf, size_t count)
-{
-	int tmp;
-
-	mutex_lock(&perf_ctl_mutex);
-
-	if (kstrtouint(buf, 10, &tmp) == 0)
-		if (tmp > 0) /* ms */
-			fuel_gauge_delay = tmp;
-
-	mutex_unlock(&perf_ctl_mutex);
-
-	return count;
-}
-#endif
 
 /*
  * make perf tracker on
@@ -300,8 +198,18 @@ static ssize_t store_perf_enable(struct kobject *kobj,
 {
 	int val = 0;
 
-	if (sscanf(buf, "%iu", &val) != 0)
-		perf_tracker_enable(val);
+	mutex_lock(&perf_ctl_mutex);
+
+	if (sscanf(buf, "%iu", &val) != 0) {
+		val = (val > 0) ? 1 : 0;
+
+		perf_tracker_on = val;
+#ifdef CONFIG_MTK_BLOCK_TAG
+		mtk_btag_mictx_enable(val);
+#endif
+	}
+
+	mutex_unlock(&perf_ctl_mutex);
 
 	return count;
 }
@@ -309,21 +217,8 @@ static ssize_t store_perf_enable(struct kobject *kobj,
 static struct kobj_attribute perf_enable_attr =
 __ATTR(enable, 0600, show_perf_enable, store_perf_enable);
 
-#ifdef CONFIG_MTK_GAUGE_VERSION
-static struct kobj_attribute perf_fuel_gauge_enable_attr =
-__ATTR(fuel_gauge_enable, 0600,
-	show_fuel_gauge_enable, store_fuel_gauge_enable);
-static struct kobj_attribute perf_fuel_gauge_period_attr =
-__ATTR(fuel_gauge_period, 0600,
-	show_fuel_gauge_period, store_fuel_gauge_period);
-#endif
-
 static struct attribute *perf_attrs[] = {
 	&perf_enable_attr.attr,
-#ifdef CONFIG_MTK_GAUGE_VERSION
-	&perf_fuel_gauge_enable_attr.attr,
-	&perf_fuel_gauge_period_attr.attr,
-#endif
 	NULL,
 };
 
@@ -337,9 +232,6 @@ static int init_perf_tracker(void)
 	struct kobject *kobj = NULL;
 
 	perf_tracker_init = 1;
-	cluster_nr = arch_get_nr_clusters();
-	if (unlikely(cluster_nr <= 0 || cluster_nr > 3))
-		cluster_nr = 3;
 
 	kobj = kobject_create_and_add("perf", &cpu_subsys.dev_root->kobj);
 
@@ -353,4 +245,4 @@ static int init_perf_tracker(void)
 
 	return 0;
 }
-late_initcall_sync(init_perf_tracker);
+late_initcall_sync(init_perf_tracker)

@@ -502,7 +502,7 @@ static signed int pwrap_wacs2_hal(unsigned int write, unsigned int adr,
 FAIL:
 	spin_unlock_irqrestore(&wrp_lock, flags);
 	if (return_value != 0) {
-		pr_notice("pwrap_wacs2_hal fail, ret=%d\n", return_value);
+		pr_notice("%s fail, ret=%d\n",  __func__, return_value);
 		pr_notice("BUG_ON\n");
 	}
 
@@ -856,7 +856,7 @@ static void _pwrap_enable(void)
 	WRAP_WR32(PMIC_WRAP_INT1_EN, 0xffffd800);
 #elif defined(CONFIG_MACH_MT6765)
 	WRAP_WR32(PMIC_WRAP_INT0_EN, 0xffffffff);
-	WRAP_WR32(PMIC_WRAP_INT1_EN, 0xffffdfff); /* Disable HW Monitor INT */
+	WRAP_WR32(PMIC_WRAP_INT1_EN, 0xffffffff);
 #endif
 }
 
@@ -868,7 +868,7 @@ static void _pwrap_enable(void)
  ************************************************/
 static signed int _pwrap_init_sistrobe(int dual_si_sample_settings)
 {
-	unsigned int rdata = 0;
+	unsigned int rdata;
 	int si_en_sel, si_ck_sel, si_dly, si_sample_ctrl, clk_edge_no, i;
 	int found, result_faulty = 0;
 	int test_data[30] = {0x6996, 0x9669, 0x6996, 0x9669, 0x6996, 0x9669,
@@ -975,11 +975,11 @@ static signed int _pwrap_init_sistrobe(int dual_si_sample_settings)
 	/* Read Test */
 	pwrap_read_nochk(PMIC_DEW_READ_TEST_ADDR, &rdata);
 	if (rdata != DEFAULT_VALUE_READ_TEST) {
-		pr_notice("_pwrap_init_sistrobe Read Test Failed\n");
+		pr_notice("%s Read Test Failed\n",  __func__);
 		pr_notice("rdata = %x, exp = 0x5aa5\n", rdata);
 		return 0x10;
 	}
-	pr_info("_pwrap_init_sistrobe Read Test ok\n");
+	pr_info("%s Read Test ok\n",  __func__);
 
 	return 0;
 }
@@ -1102,33 +1102,6 @@ static signed int _pwrap_init_reg_clock(unsigned int regck_sel)
 	return 0;
 }
 
-static int _pwrap_wacs2_write_test(int pmic_no)
-{
-	unsigned int rdata = 0;
-
-	if (pmic_no == 0) {
-		pwrap_write_nochk(PMIC_DEW_WRITE_TEST_ADDR, 0xa55a);
-		pwrap_read_nochk(PMIC_DEW_WRITE_TEST_ADDR, &rdata);
-		if (rdata != 0xa55a) {
-			pr_notice("Error: w_rdata = %x, exp = 0xa55a\n", rdata);
-			return E_PWR_WRITE_TEST_FAIL;
-		}
-	}
-
-#ifdef DUAL_PMICS
-	if (pmic_no == 1) {
-		pwrap_write_nochk(EXT_DEW_WRITE_TEST, 0xa55a);
-		pwrap_read_nochk(EXT_DEW_WRITE_TEST, &rdata);
-		if (rdata != 0xa55a) {
-			pr_notice("Error: ext_w_rdata=%x, exp=0xa55a\n", rdata);
-			return E_PWR_WRITE_TEST_FAIL;
-		}
-	}
-#endif
-
-	return 0;
-}
-
 static unsigned int pwrap_read_test(void)
 {
 	unsigned int rdata = 0;
@@ -1151,19 +1124,19 @@ static unsigned int pwrap_write_test(void)
 	unsigned int sub_return1 = 0;
 
 	/* Write test using WACS2 */
-	pr_info("start pwrap_write\n");
+	pr_info("start %s\n",  __func__);
 	sub_return = pwrap_wacs2_write(PMIC_DEW_WRITE_TEST_ADDR,
-				       DEFAULT_VALUE_READ_TEST);
-	pr_info("after pwrap_write\n");
+				       DEFAULT_VALUE_WRITE_TEST);
+	pr_info("after %s\n", __func__);
 	sub_return1 = pwrap_wacs2_read(PMIC_DEW_WRITE_TEST_ADDR, &rdata);
-	if ((rdata != DEFAULT_VALUE_READ_TEST) ||
+	if ((rdata != DEFAULT_VALUE_WRITE_TEST) ||
 	    (sub_return != 0) || (sub_return1 != 0)) {
 		pr_notice("Error: w_rdata = 0x%x, exp = 0xa55a\n", rdata);
 		pr_notice("Error: sub_return = 0x%x\n", sub_return);
 		pr_notice("Error: sub_return1 = 0x%x\n", sub_return1);
 		return E_PWR_INIT_WRITE_TEST;
 	}
-	pr_info("write Test pass\n");
+	pr_info("Write Test pass\n");
 
 	return 0;
 }
@@ -1210,7 +1183,7 @@ signed int pwrap_init(void)
 		return sub_return;
 #endif
 
-	pr_info("pwrap_init start!!!!!!!!!!!!!\n");
+	pr_info("%s start!!!!!!!!!!!!!\n", __func__);
 
 	/* Set SoC SPI IO Driving Strength to 4 mA */
 #if defined(CONFIG_MACH_MT6761)
@@ -1297,21 +1270,12 @@ signed int pwrap_init(void)
 #endif
 
 	/*  Write test using WACS2. check Write test default value */
-	sub_return = _pwrap_wacs2_write_test(0);
+	sub_return = pwrap_write_test();
 	if (sub_return != 0) {
-		pr_notice("write test 0 fail\n");
+		pr_notice("write test fail\n");
 		return E_PWR_INIT_WRITE_TEST;
 	}
-	pr_info("_pwrap_wacs2_write_test ok\n");
-
-#ifdef DUAL_PMICS
-	sub_return = _pwrap_wacs2_write_test(1);
-	if (sub_return != 0) {
-		pr_notice("write test 1 fail\n");
-		return E_PWR_INIT_WRITE_TEST;
-	}
-	pr_info("_pwrap_wacs2_write_test dual ok\n");
-#endif
+	pr_info("pwrap_write_test ok\n");
 
 	/* Status update function initialization
 	 * 1. Signature Checking using CRC (CRC 0 only)
@@ -1338,7 +1302,7 @@ signed int pwrap_init(void)
 	pwrap_ut(1);
 	pwrap_ut(2);
 
-	pr_info("pwrap_init Done!!!!!!!!!\n");
+	pr_info("%s Done!!!!!!!!!\n", __func__);
 
 #ifdef CONFIG_OF
 	pwrap_of_iounmap();
@@ -1500,30 +1464,30 @@ static void pwrap_reenable_pmic_logging(void)
 	unsigned int rdata = 0, sub_return = 0;
 
 	/* Read Last three command */
-	pwrap_wacs2_read(PMIC_RECORD_CMD0_ADDR, &rdata);
+	pwrap_read_nochk(PMIC_RECORD_CMD0_ADDR, &rdata);
 	pr_info("RECORD_CMD0:  0x%x (Last 1st cmd addr)\n", (rdata & 0x3fff));
-	pwrap_wacs2_read(PMIC_RECORD_WDATA0_ADDR, &rdata);
+	pwrap_read_nochk(PMIC_RECORD_WDATA0_ADDR, &rdata);
 	pr_info("RECORD_WDATA0:0x%x (Last 1st cmd wdata)\n", rdata);
-	pwrap_wacs2_read(PMIC_RECORD_CMD1_ADDR, &rdata);
+	pwrap_read_nochk(PMIC_RECORD_CMD1_ADDR, &rdata);
 	pr_info("RECORD_CMD1:  0x%x (Last 2nd cmd addr)\n", (rdata & 0x3fff));
-	pwrap_wacs2_read(PMIC_RECORD_WDATA1_ADDR, &rdata);
+	pwrap_read_nochk(PMIC_RECORD_WDATA1_ADDR, &rdata);
 	pr_info("RECORD_WDATA1:0x%x (Last 2nd cmd wdata)\n", rdata);
-	pwrap_wacs2_read(PMIC_RECORD_CMD2_ADDR, &rdata);
+	pwrap_read_nochk(PMIC_RECORD_CMD2_ADDR, &rdata);
 	pr_info("RECORD_CMD2:  0x%x (Last 3rd cmd addr)\n", (rdata & 0x3fff));
-	pwrap_wacs2_read(PMIC_RECORD_WDATA2_ADDR, &rdata);
+	pwrap_read_nochk(PMIC_RECORD_WDATA2_ADDR, &rdata);
 	pr_info("RECORD_WDATA2:0x%x (Last 3rd cmd wdata)\n", rdata);
 
 	/* Enable Command Recording */
-	sub_return = pwrap_wacs2_write(PMIC_RG_SPI_RSV_ADDR, 0x3);
+	sub_return = pwrap_write_nochk(PMIC_RG_SPI_RSV_ADDR, 0x3);
 	if (sub_return != 0)
 		pr_notice("enable spi debug fail, ret=%x\n", sub_return);
 	pr_info("enable spi debug ok\n");
 
 	/* Clear Last three record command */
-	sub_return = pwrap_wacs2_write(PMIC_RG_SPI_RECORD_CLR_ADDR, 0x1);
+	sub_return = pwrap_write_nochk(PMIC_RG_SPI_RECORD_CLR_ADDR, 0x1);
 	if (sub_return != 0)
 		pr_notice("clear record command fail, ret=%x\n", sub_return);
-	sub_return = pwrap_wacs2_write(PMIC_RG_SPI_RECORD_CLR_ADDR, 0x0);
+	sub_return = pwrap_write_nochk(PMIC_RG_SPI_RECORD_CLR_ADDR, 0x0);
 	if (sub_return != 0)
 		pr_notice("clear record command fail, ret=%x\n", sub_return);
 	pr_info("clear record command ok\n\r");
@@ -1532,10 +1496,10 @@ static void pwrap_reenable_pmic_logging(void)
 
 void pwrap_dump_and_recovery(void)
 {
-	pr_info("pwrap_dump_and_recovery start!!!!!!!!!!!!!\n");
+	pr_info("%s start!!!!!!!!!!!!!\n", __func__);
 	pwrap_dump_ap_register();
 	pwrap_dump_pmic_register();
-	pr_info("pwrap_dump_and_recovery end!!!!!!!!!!!!!\n");
+	pr_info("%s end!!!!!!!!!!!!!\n", __func__);
 }
 
 void pwrap_dump_all_register(void)
@@ -1558,7 +1522,7 @@ static int is_pwrap_init_done(void)
 	int ret = 0;
 
 	ret = WRAP_RD32(PMIC_WRAP_INIT_DONE2);
-	pr_info("is_pwrap_init_done %d\n", ret);
+	pr_info("%s %d\n", __func__, ret);
 	if ((ret & 0x1) == 1)
 		return 0;
 
@@ -1663,7 +1627,7 @@ static int pwrap_ipi_register(void)
 		ret = sspm_ipi_recv_registration(IPI_ID_PMIC_WRAP, &pwrap_isr);
 	} while ((ret != 0) && (retry < 10));
 	if (retry >= 10)
-		pr_err("pwrap_ipi_register fail\n");
+		pr_notice("%s fail\n", __func__);
 	return 0;
 }
 #endif
@@ -1712,13 +1676,13 @@ static irqreturn_t mt_pmic_wrap_irq(int irqno, void *dev_id)
 		WRAP_WR32(PMIC_WRAP_INT0_EN, 0xffffffff);
 
 		/* Clear spislv CRC sta */
-		ret = pwrap_wacs2_write(PMIC_DEW_CRC_SWRST_ADDR, 0x1);
+		ret = pwrap_write_nochk(PMIC_DEW_CRC_SWRST_ADDR, 0x1);
 		if (ret != 0)
 			pr_notice("clear crc fail, ret=%x\n", ret);
-		ret = pwrap_wacs2_write(PMIC_DEW_CRC_SWRST_ADDR, 0x0);
+		ret = pwrap_write_nochk(PMIC_DEW_CRC_SWRST_ADDR, 0x0);
 		if (ret != 0)
 			pr_notice("clear crc fail, ret=%x\n", ret);
-		ret = pwrap_wacs2_write(PMIC_DEW_CRC_EN_ADDR, 0x0);
+		ret = pwrap_write_nochk(PMIC_DEW_CRC_EN_ADDR, 0x0);
 		if (ret != 0)
 			pr_notice("enable crc fail, ret=%x\n", ret);
 		WRAP_WR32(PMIC_WRAP_CRC_EN, 0x0);
@@ -1738,12 +1702,16 @@ static void pwrap_int_test(void)
 {
 	unsigned int rdata1 = 0;
 	unsigned int rdata2 = 0;
+	unsigned int i = 0;
 
-	rdata1 = WRAP_RD32(PMIC_WRAP_EINT_STA);
-	pwrap_read(PMIC_CPU_INT_STA_ADDR, &rdata2);
-	pr_info("Pwrap INT status check\n");
-	pr_info("PMIC_WRAP_EINT_STA=0x%x\n", rdata1);
-	pr_info("INT_STA[0x01B4]=0x%x\n", rdata2);
+	for (i = 0; i <= 1000; i++) {
+		rdata1 = WRAP_RD32(PMIC_WRAP_EINT_STA);
+		pwrap_read(PMIC_CPU_INT_STA_ADDR, &rdata2);
+		pr_info("Pwrap INT status check\n");
+		pr_info("PMIC_WRAP_EINT_STA=0x%x\n", rdata1);
+		pr_info("INT_STA[0x042C]=0x%x\n", rdata2);
+		msleep(500);
+	}
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1873,8 +1841,8 @@ void mt_pmic_wrap_eint_clr(int offset)
 {
 	if ((offset < 0) || (offset > 3))
 		pr_err("clear EINT flag error, only 0-3 bit\n");
-	else
-		WRAP_WR32(PMIC_WRAP_EINT_CLR, (1 << offset));
+	else if ((offset >= 0) && (offset <= 3))
+		WRAP_WR32(PMIC_WRAP_EINT_CLR, (1 << ((unsigned int)offset)));
 }
 
 postcore_initcall(pwrap_hal_init);

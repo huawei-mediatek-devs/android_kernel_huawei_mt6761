@@ -49,7 +49,7 @@ struct maghub_ipi_data {
 	struct data_unit_t m_data_t;
 	bool factory_enable;
 	bool android_enable;
-	struct sensorInfo_t mag_info;
+	struct mag_dev_info_t mag_dev_info;
 	struct completion selftest_done;
 };
 static int maghub_m_setPowerMode(bool enable)
@@ -111,20 +111,20 @@ static int maghub_ReadChipInfo(char *buf, int bufsize)
 
 static ssize_t show_chipinfo_value(struct device_driver *ddri, char *buf)
 {
-	char strbuf[MAGHUB_BUFSIZE] = {0};
+	char strbuf[MAGHUB_BUFSIZE];
 
 	maghub_ReadChipInfo(strbuf, MAGHUB_BUFSIZE);
-	return snprintf(buf, PAGE_SIZE, "%s\n", strbuf);
+	return sprintf(buf, "%s\n", strbuf);
 }
 static ssize_t show_sensordata_value(struct device_driver *ddri,
 	char *buf)
 {
-	char strbuf[MAGHUB_BUFSIZE] = {0};
+	char strbuf[MAGHUB_BUFSIZE];
 
 	maghub_m_setPowerMode(true);
 	msleep(20);
 	maghub_GetMData(strbuf, MAGHUB_BUFSIZE);
-	return snprintf(buf, PAGE_SIZE, "%s\n", strbuf);
+	return sprintf(buf, "%s\n", strbuf);
 }
 static ssize_t show_trace_value(struct device_driver *ddri, char *buf)
 {
@@ -273,18 +273,18 @@ static void scp_init_work_done(struct work_struct *work)
 		return;
 	}
 	if (atomic_xchg(&obj->first_ready_after_boot, 1) == 0) {
+
 		err = sensor_set_cmd_to_hub(ID_MAGNETIC,
-			CUST_ACTION_GET_SENSOR_INFO, &obj->mag_info);
+			CUST_ACTION_GET_SENSOR_INFO, &obj->mag_dev_info);
 		if (err < 0) {
 			pr_err("set_cmd_to_hub fail, (ID: %d),(action: %d)\n",
 				ID_MAGNETIC, CUST_ACTION_GET_SENSOR_INFO);
-			return;
 		}
 		strlcpy(mag_libinfo.libname,
-			obj->mag_info.mag_dev_info.libname,
+			obj->mag_dev_info.libname,
 			sizeof(mag_libinfo.libname));
-		mag_libinfo.layout = obj->mag_info.mag_dev_info.layout;
-		mag_libinfo.deviceid = obj->mag_info.mag_dev_info.deviceid;
+		mag_libinfo.layout = obj->mag_dev_info.layout;
+		mag_libinfo.deviceid = obj->mag_dev_info.deviceid;
 
 		err = mag_info_record(&mag_libinfo);
 		return;
@@ -430,7 +430,7 @@ static int maghub_open_report_data(int open)
 
 static int maghub_get_data(int *x, int *y, int *z, int *status)
 {
-	char buff[MAGHUB_BUFSIZE] = {0};
+	char buff[MAGHUB_BUFSIZE];
 
 	maghub_GetMData(buff, MAGHUB_BUFSIZE);
 
@@ -524,12 +524,23 @@ static int maghub_factory_do_self_test(void)
 	if (ret < 0)
 		return -1;
 
+	init_completion(&obj->selftest_done);
 	ret = wait_for_completion_timeout(&obj->selftest_done,
 					  msecs_to_jiffies(3000));
 	if (!ret)
 		return -1;
+	pr_err("maghub_factory_do_self_test, ret = %d, result = %d\n", ret, atomic_read(&obj->selftest_status));	
 	return atomic_read(&obj->selftest_status);
 }
+
+static int maghub_factory_get_self_test(void)
+{
+	//int ret = 0;
+	struct maghub_ipi_data *obj = mag_ipi_data;
+	pr_err("maghub_factory_get_self_test, result = %d\n", atomic_read(&obj->selftest_status));
+	return atomic_read(&obj->selftest_status);
+}
+
 
 static struct mag_factory_fops maghub_factory_fops = {
 	.enable_sensor = maghub_factory_enable_sensor,
@@ -595,6 +606,8 @@ static int maghub_probe(struct platform_device *pdev)
 	ctl.flush = maghub_flush;
 	ctl.set_cali = maghub_set_cali;
 	ctl.open_report_data = maghub_open_report_data;
+	ctl.do_self_test = maghub_factory_do_self_test;
+	ctl.get_self_test = maghub_factory_get_self_test;
 #if defined CONFIG_MTK_SCP_SENSORHUB_V1
 	ctl.is_report_input_direct = true;
 	ctl.is_support_batch = false;
@@ -622,7 +635,7 @@ static int maghub_probe(struct platform_device *pdev)
 	maghub_init_flag = 1;
 	/*Mointor scp ready notify,
 	 *need monitor at the end of probe for two function:
-	 * 1.read mag_info from sensorhub,
+	 * 1.read mag_dev_info from sensorhub,
 	 * write to mag context
 	 * 2.set cali to sensorhub
 	 */

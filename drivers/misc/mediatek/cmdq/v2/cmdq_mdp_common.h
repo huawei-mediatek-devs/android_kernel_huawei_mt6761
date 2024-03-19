@@ -16,7 +16,6 @@
 
 #include "cmdq_core.h"
 #include "cmdq_def.h"
-#include "cmdq_virtual.h"
 
 #include <linux/types.h>
 
@@ -24,6 +23,8 @@
 #include <linux/clk.h>
 #endif
 
+/* dump mmsys config */
+typedef void (*CmdqDumpMMSYSConfig)(void);
 
 /* VENC callback function */
 typedef int32_t (*CmdqVEncDumpInfo)(uint64_t engineFlag, int level);
@@ -183,9 +184,6 @@ uint32_t cmdq_mdp_wrot_get_reg_offset_dst_addr(void);
 uint32_t cmdq_mdp_wdma_get_reg_offset_dst_addr(void);
 
 void testcase_clkmgr_mdp(void);
-
-u32 cmdq_mdp_get_hw_reg(enum MDP_ENG_BASE base, u16 offset);
-u32 cmdq_mdp_get_hw_port(enum MDP_ENG_BASE base);
 
 /* Platform virtual function setting */
 void cmdq_mdp_platform_function_setting(void);

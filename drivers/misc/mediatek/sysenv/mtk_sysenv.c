@@ -82,7 +82,7 @@ static ssize_t env_proc_read(struct file *file,
 		return len;
 	}
 	env_valid_length = get_env_valid_length();
-	if (*ppos >= env_valid_length)
+	if (*ppos >= env_valid_length || size > env_valid_length)
 		return 0;
 	if ((size + *ppos) > env_valid_length)
 		size = env_valid_length - *ppos;
@@ -505,10 +505,6 @@ static int send_sysenv_msg(int pid, int seq, void *payload, int payload_len)
 		return -1;
 	}
 	nlh = nlmsg_put(skb, pid, seq, 0, size, 0);
-	if (!nlh) {
-		kfree_skb(skb);
-		return -EMSGSIZE;
-	}
 	data = nlmsg_data(nlh);
 	memcpy(data, payload, size);
 	NETLINK_CB(skb).portid = 0; /* from kernel */

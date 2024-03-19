@@ -39,7 +39,7 @@ static long acc_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 	void __user *ptr = (void __user *)arg;
 	int err = 0, status = 0;
 	uint32_t flag = 0;
-	char strbuf[64];
+	char strbuf[64] = {0};
 	int32_t data_buf[3] = {0};
 	struct SENSOR_DATA sensor_data = {0};
 

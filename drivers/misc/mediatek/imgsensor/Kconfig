@@ -4,10 +4,4 @@ config MTK_IMGSENSOR
 	help
 	  CONFIG_MTK_IMGSENSOR
 
-config MTK_CAMERA_VCAMIO_ON
-	bool "MTK camera vcamio on"
-	default n
-	help
-	  Set Y to enable vcamio on
-
 source "drivers/misc/mediatek/imgsensor/src/Kconfig"

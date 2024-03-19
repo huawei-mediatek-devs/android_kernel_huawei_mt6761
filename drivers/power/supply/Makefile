@@ -78,3 +78,6 @@ ifeq ($(CONFIG_MACH_MT8173),y)
 else
 	obj-y += mediatek/
 endif
+
+obj-$(CONFIG_HUAWEI_CHARGER) += huawei/
+

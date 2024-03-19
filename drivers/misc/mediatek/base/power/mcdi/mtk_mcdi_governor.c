@@ -259,6 +259,7 @@ static void mcdi_set_timer(int cpu)
 static void mcdi_cancel_timer(int cpu)
 {
 	unsigned long flags;
+	int ret = -1;
 
 	if (!mcdi_cluster.tmr_en)
 		return;
@@ -271,9 +272,10 @@ static void mcdi_cancel_timer(int cpu)
 	if (mcdi_cluster.tmr_running) {
 		mcdi_cluster.tmr_running = false;
 		mcdi_cluster.owner = -1;
-		RCU_NONIDLE(hrtimer_try_to_cancel(&mcdi_cluster.timer));
+		RCU_NONIDLE(ret = hrtimer_try_to_cancel(&mcdi_cluster.timer));
+		if (ret < 0)
+			pr_info("[mcdi] timer cancel fail\n");
 	}
-
 	spin_unlock_irqrestore(&mcdi_cluster_spin_lock, flags);
 }
 
@@ -744,9 +746,6 @@ void set_mcdi_s_state(int state)
 	unsigned long flags;
 	bool cluster_off = false;
 	bool any_core = false;
-
-	if (!(state >= MCDI_STATE_CPU_OFF && state <= MCDI_STATE_SODI3))
-		return;
 
 	switch (state) {
 	case MCDI_STATE_CPU_OFF:

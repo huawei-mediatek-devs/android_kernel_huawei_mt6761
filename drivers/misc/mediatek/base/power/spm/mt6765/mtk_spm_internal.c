@@ -18,6 +18,11 @@
 #include <mtk_spm_internal.h>
 #include <mtk_power_gs_api.h>
 
+
+#ifdef CONFIG_HUAWEI_DUBAI
+#include <chipset_common/dubai/dubai.h>
+#endif
+
 #define WORLD_CLK_CNTCV_L        (0x10017008)
 #define WORLD_CLK_CNTCV_H        (0x1001700C)
 static u32 pcm_timer_ramp_max_sec_loop = 1;
@@ -233,6 +238,9 @@ unsigned int __spm_output_wake_reason(
 		  " req_sta =  0x%x, event_reg = 0x%x, isr = 0x%x, ",
 		  wakesta->req_sta, wakesta->event_reg, wakesta->isr);
 
+#ifdef CONFIG_HUAWEI_DUBAI
+	dubai_update_wakeup_info(buf,0);
+#endif
 	if (!strcmp(scenario, "suspend")) {
 		/* calculate 26M off percentage in suspend period */
 		if (wakesta->timer_out != 0) {
@@ -294,6 +302,7 @@ int __attribute__ ((weak)) get_dynamic_period(
 	return 5401;
 }
 
+extern bool mtk_disable_rtc;
 u32 __spm_get_wake_period(int pwake_time, unsigned int last_wr)
 {
 	int period = SPM_WAKE_PERIOD;
@@ -314,6 +323,10 @@ u32 __spm_get_wake_period(int pwake_time, unsigned int last_wr)
 
 	if (period > 36 * 3600)	/* max period is 36.4 hours */
 		period = 36 * 3600;
+
+
+    if(mtk_disable_rtc)
+        period= 24 * 3600;
 
 	return period;
 }

@@ -100,9 +100,6 @@
 		if (eem_diff_us > TIME_TH_US) {				\
 			eem_debug(EEM_TAG "caller_addr %p: %llu us\n", \
 				__builtin_return_address(0), eem_diff_us); \
-		} else if (eem_diff_us < 0) {	\
-			eem_debug(EEM_TAG "E: misuse caller_addr %p\n", \
-				__builtin_return_address(0)); \
 		}	\
 	} while (0)
 

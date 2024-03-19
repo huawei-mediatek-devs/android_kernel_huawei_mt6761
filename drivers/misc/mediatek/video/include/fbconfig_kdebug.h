@@ -107,7 +107,7 @@ struct ESD_PARA {
 	int addr;
 	int type;
 	int para_num;
-	char *esd_ret_buffer;
+	char __user *esd_ret_buffer;
 };
 #if 0
 struct LAYER_H_SIZE {

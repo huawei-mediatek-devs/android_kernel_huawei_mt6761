@@ -134,6 +134,24 @@ static int rtfled_resume(struct flashlight_device *flashlight_dev)
 	return 0;
 }
 
+static int rtfled_enable(struct flashlight_device *flashlight_dev, bool en)
+{
+	struct rt_fled_dev *fled_dev = flashlight_get_data(flashlight_dev);
+
+	if (fled_dev->hal->rt_hal_fled_enable)
+		fled_dev->hal->rt_hal_fled_enable(fled_dev, en);
+	return 0;
+}
+
+static int rtfled_is_enabled(struct flashlight_device *flashlight_dev)
+{
+	struct rt_fled_dev *fled_dev = flashlight_get_data(flashlight_dev);
+
+	if (fled_dev->hal->rt_hal_fled_is_enabled)
+		return fled_dev->hal->rt_hal_fled_is_enabled(fled_dev);
+	return 0;
+}
+
 static struct flashlight_ops rtfled_impl_ops = {
 	.set_torch_brightness = rtfled_set_torch_brightness,
 	.set_strobe_brightness = rtfled_set_strobe_brightness,
@@ -146,6 +164,8 @@ static struct flashlight_ops rtfled_impl_ops = {
 	.list_color_temperature = rtfled_list_color_temperature,
 	.suspend = rtfled_suspend,
 	.resume = rtfled_resume,
+	.set_fled_en = rtfled_enable,
+	.check_fled_en = rtfled_is_enabled,
 };
 
 static void rfled_shutdown(struct platform_device *pdev)
@@ -369,6 +389,8 @@ static int rtfled_check_hal_implement(struct rt_fled_hal *hal)
 	rc |= check_hal_implemented(hal->rt_hal_fled_get_timeout_level_sel);
 	rc |= check_hal_implemented(hal->rt_hal_fled_get_lv_protection_sel);
 	rc |= check_hal_implemented(hal->rt_hal_fled_get_strobe_timeout_sel);
+	rc |= check_hal_implemented(hal->rt_hal_fled_enable);
+	rc |= check_hal_implemented(hal->rt_hal_fled_is_enabled);
 
 	if (rc != 0)
 		RTFLED_WARN("check_hal_implemented have NULL item.\n");
@@ -383,11 +405,7 @@ static int rtfled_probe(struct platform_device *pdev)
 	int rc;
 
 	WARN_ON(fled_dev == NULL);
-	if (!fled_dev)
-		return -ENODEV;
 	WARN_ON(fled_dev->hal == NULL);
-	if (!fled_dev->hal)
-		return -EPERM;
 
 	RTFLED_INFO("Richtek FlashLED Driver is probing\n");
 	rc = rtfled_check_hal_implement(fled_dev->hal);

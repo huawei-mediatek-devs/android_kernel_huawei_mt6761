@@ -18,6 +18,10 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/atomic.h>
+
+#ifdef CONFIG_HW_ZEROHUNG
+#include "chipset_common/hwzrhung/hung_wp_screen.h"
+#endif
 /* #include <mach/mt_reg_base.h> */
 #ifdef CONFIG_MTK_CLKMGR
 #include <mach/mt_clkmgr.h>
@@ -85,7 +89,11 @@ static atomic_t g_pwm_backlight[PWM_TOTAL_MODULE_NUM] = {
 static atomic_t g_pwm_en[PWM_TOTAL_MODULE_NUM] = {
 	ATOMIC_INIT(-1), ATOMIC_INIT(-1) };
 static atomic_t g_pwm_max_backlight[PWM_TOTAL_MODULE_NUM] = {
+#ifdef CONFIG_LCD_KIT_DRIVER
+	ATOMIC_INIT(2047), ATOMIC_INIT(2047) };
+#else
 	ATOMIC_INIT(1023), ATOMIC_INIT(1023) };
+#endif
 static atomic_t g_pwm_is_power_on[PWM_TOTAL_MODULE_NUM] = {
 	ATOMIC_INIT(0), ATOMIC_INIT(0) };
 static atomic_t g_pwm_value_before_power_off[PWM_TOTAL_MODULE_NUM] = {
@@ -104,7 +112,11 @@ static atomic_t g_pwm_is_change_state[PWM_TOTAL_MODULE_NUM] = {
 static atomic_t g_pwm_backlight[PWM_TOTAL_MODULE_NUM] = { ATOMIC_INIT(-1) };
 static atomic_t g_pwm_en[PWM_TOTAL_MODULE_NUM] = { ATOMIC_INIT(-1) };
 static atomic_t g_pwm_max_backlight[PWM_TOTAL_MODULE_NUM] = {
+#ifdef CONFIG_LCD_KIT_DRIVER
+	ATOMIC_INIT(2047) };
+#else
 	ATOMIC_INIT(1023) };
+#endif
 static atomic_t g_pwm_is_power_on[PWM_TOTAL_MODULE_NUM] = { ATOMIC_INIT(0) };
 static atomic_t g_pwm_value_before_power_off[PWM_TOTAL_MODULE_NUM] = {
 	ATOMIC_INIT(0) };
@@ -314,7 +326,11 @@ static int disp_pwm_config_init(enum DISP_MODULE_ENUM module,
 	(0x3ff << 16));
 
 	/* 1024 levels */
+#ifdef CONFIG_LCD_KIT_DRIVER
+	DISP_REG_MASK(cmdq, reg_base + DISP_PWM_CON_1_OFF, 2047, 0x7ff);
+#else
 	DISP_REG_MASK(cmdq, reg_base + DISP_PWM_CON_1_OFF, 1023, 0x3ff);
+#endif
 	/* We don't init the backlight here until AAL/Android give */
 #endif
 	return 0;
@@ -579,6 +595,9 @@ int disp_pwm_set_backlight_cmdq(enum disp_pwm_id_t id,
 	old_pwm = atomic_xchg(&g_pwm_backlight[index], level_1024);
 	if (old_pwm != level_1024 ||
 		atomic_cmpxchg(&g_pwm_is_change_state[index], 1, 0) == 1) {
+#ifdef CONFIG_HW_ZEROHUNG
+    hung_wp_screen_setbl(level_1024);
+#endif
 		abs_diff = level_1024 - old_pwm;
 		if (abs_diff < 0)
 			abs_diff = -abs_diff;
@@ -605,8 +624,7 @@ int disp_pwm_set_backlight_cmdq(enum disp_pwm_id_t id,
 
 		if (level_1024 > 0) {
 			DISP_REG_MASK(cmdq, reg_base + DISP_PWM_CON_1_OFF,
-				level_1024 << 16, 0x1fff << 16);
-
+				(unsigned int)level_1024 << 16, 0x1fff << 16);
 			disp_pwm_set_enabled(cmdq, id, 1);
 		} else {
 			/* Avoid to set 0 */
@@ -908,8 +926,6 @@ static int pwm_simple_strtoul(char *ptr, unsigned long *res)
 		strncpy(buffer, ptr, end);
 		buffer[end] = '\0';
 		ret = kstrtoul(buffer, 0, res);
-		if (!ret)
-			PWM_ERR("kstrtoul err=%d\n", ret);
 
 	}
 	return end;

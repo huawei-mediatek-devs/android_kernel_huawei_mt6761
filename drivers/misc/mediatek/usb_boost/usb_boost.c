@@ -25,7 +25,7 @@
 #include "usb_boost.h"
 #define USB_BOOST_CLASS_NAME "usb_boost"
 enum{
-	ATTR_ENABLE,
+	ATTR_ENABLE = 0,
 	ATTR_TIMEOUT,
 	ATTR_POLLING_INTVAL,
 	ATTR_RAW,

@@ -6,6 +6,8 @@ ifdef CONFIG_COMPAT
 obj-$(CONFIG_ION) += compat_ion.o
 endif
 
+obj-$(CONFIG_HUAWEI_SPECIAL_SCENE_POOL) += hisi_ion_scene_pool.o
+
 obj-$(CONFIG_ION_DUMMY) += ion_dummy_driver.o
 obj-$(CONFIG_ION_TEGRA) += tegra/
 obj-$(CONFIG_ION_HISI) += hisilicon/

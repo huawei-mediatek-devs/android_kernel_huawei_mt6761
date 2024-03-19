@@ -465,17 +465,19 @@ static const struct file_operations fcamera_proc_fops_set_pdaf_type = {
 enum IMGSENSOR_RETURN imgsensor_proc_init(void)
 {
 	memset(mtk_ccm_name, 0, camera_info_size);
-
+#if defined (HUAWEI_CONFIG_CAMSENSOR_DEBUG)
 	proc_create("driver/camsensor", 0664, NULL, &fcamera_proc_fops);
 	proc_create("driver/camsensor2", 0664, NULL, &fcamera_proc_fops2);
 	proc_create("driver/camsensor3", 0664, NULL, &fcamera_proc_fops3);
 	proc_create("driver/camsensor4", 0664, NULL, &fcamera_proc_fops4);
+#endif
 	proc_create(
 	    "driver/pdaf_type", 0664, NULL, &fcamera_proc_fops_set_pdaf_type);
+#if defined (HUAWEI_CONFIG_CAMSENSOR_DEBUG)
 	proc_create(PROC_SENSOR_STAT, 0664, NULL, &fcamera_proc_fops_status);
-
+#endif
 	/* Camera information */
-	proc_create(PROC_CAMERA_INFO, 0664, NULL, &fcamera_proc_fops1);
+	proc_create(PROC_CAMERA_INFO, 0444, NULL, &fcamera_proc_fops1);
 
 	return IMGSENSOR_RETURN_SUCCESS;
 }

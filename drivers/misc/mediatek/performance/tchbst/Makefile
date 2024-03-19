@@ -14,11 +14,6 @@
 obj-y += tchbst_main.o
 
 obj-$(CONFIG_MTK_FPSGO) += user/
-obj-$(CONFIG_MTK_FPSGO_V3) += user/
-
-ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6757"))
-	obj-y += legacy/
-endif
 
 #ifeq ($(CONFIG_MTK_PERFMGR_TOUCH_BOOST),y)
 obj-y += kernel/

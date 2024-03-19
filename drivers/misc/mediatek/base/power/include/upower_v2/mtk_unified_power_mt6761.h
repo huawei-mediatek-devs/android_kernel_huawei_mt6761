@@ -50,7 +50,6 @@ extern "C" {
 /* #define UPOWER_PROFILE_API_TIME */
 #define UPOWER_RCU_LOCK
 #define UPOWER_LOG (0)
-#define DISABLE_TP
 
 /* for unified power driver internal use */
 #define UPOWER_OPP_NUM 16
@@ -66,7 +65,7 @@ extern "C" {
 #define NR_UPOWER_CSTATES 2 /* only use c0, c1 */
 #define UPOWER_C1_VOLT 60000 /* 0.6v */
 #define UPOWER_C1_IDX 1 /* idx of c1 in idle_states[][idx] */
-#define NR_UPOWER_TBL_LIST 4 /* num of all tables */
+#define NR_UPOWER_TBL_LIST 2 /* num of all tables */
 /* upower banks */
 enum upower_bank {
 /*	UPOWER_BANK_L,*/

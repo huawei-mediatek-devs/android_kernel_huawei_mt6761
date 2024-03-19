@@ -14,6 +14,7 @@
 #define pr_fmt(fmt) "<STEP_COUNTER> " fmt
 
 #include "step_counter.h"
+#include "stepsignhub/stepsignhub.h"
 
 static struct step_c_context *step_c_context_obj;
 static struct step_c_init_info *
@@ -253,7 +254,11 @@ static int step_c_real_enable(int enable)
 	if (enable == 1) {
 		if (true == cxt->is_active_data ||
 			true == cxt->is_active_nodata) {
-
+			std_step_c_enable_status = true;
+			if(ext_step_c_enable_status == true){
+				pr_err("%s, ext step counter is already opend, just return\n", __func__);
+				return 0;
+			}
 			for (i = 0; i < 3; i++) {
 				err = cxt->step_c_ctl.enable_nodata(1);
 				if (err == 0)
@@ -263,20 +268,25 @@ static int step_c_real_enable(int enable)
 						enable, err);
 				}
 			}
-
+			pr_err("%s: enable = %d\n", __func__, enable);
 			pr_debug("step_c real enable\n");
 		}
 	}
 	if (enable == 0) {
 		if (false == cxt->is_active_data &&
 			false == cxt->is_active_nodata) {
+			std_step_c_enable_status = false;
+			if(ext_step_c_enable_status == true){
+				pr_err("%s, ext step counter is still opend, just return\n", __func__);
+				return 0;
+			}
 			err = cxt->step_c_ctl.enable_nodata(0);
 			if (err)
 				pr_err("step_c enable(%d) err = %d\n",
 					enable, err);
+			pr_err("%s: enable = %d\n", __func__, enable);
 			pr_debug("step_c real disable\n");
 		}
-
 	}
 
 	return err;
@@ -408,7 +418,7 @@ int step_c_enable_nodata(int enable)
 		pr_err("step_c_enable_nodata:step_c ctl path is NULL\n");
 		return -1;
 	}
-
+	pr_info("%s:enable = %d\n", __func__, enable);
 	if (enable == 1)
 		cxt->is_active_nodata = true;
 
@@ -442,6 +452,7 @@ static ssize_t step_c_store_enable_nodata(struct device *dev,
 		mutex_unlock(&step_c_context_obj->step_c_op_mutex);
 		return count;
 	}
+
 	if (!strncmp(buf, "1", 1))
 		err = step_c_enable_nodata(1);
 	else if (!strncmp(buf, "0", 1))
@@ -947,12 +958,11 @@ int step_c_data_report(uint32_t new_counter, int status)
 		event.flush_action = DATA_ACTION;
 		event.handle = ID_STEP_COUNTER;
 		event.word[0] = new_counter;
+		last_step_counter = new_counter;
 		err = sensor_input_event(step_c_context_obj->mdev.minor,
 			&event);
-		if (err >= 0)
-			last_step_counter = new_counter;
 	}
-	return err;
+	return 0;
 }
 
 int floor_c_data_report(uint32_t new_counter, int status)
@@ -967,12 +977,11 @@ int floor_c_data_report(uint32_t new_counter, int status)
 		event.flush_action = DATA_ACTION;
 		event.handle = ID_FLOOR_COUNTER;
 		event.word[0] = new_counter;
+		last_floor_counter = new_counter;
 		err = sensor_input_event(step_c_context_obj->mdev.minor,
 			&event);
-		if (err >= 0)
-			last_floor_counter = new_counter;
 	}
-	return err;
+	return 0;
 }
 
 int step_c_flush_report(void)

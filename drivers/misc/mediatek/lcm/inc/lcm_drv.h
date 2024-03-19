@@ -637,33 +637,9 @@ struct LCM_DSI_PARAMS {
 	unsigned int PHY_SEL1;
 	unsigned int PHY_SEL2;
 	unsigned int PHY_SEL3;
-
-	unsigned int dynamic_switch_mipi;
-	unsigned int vertical_sync_active_dyn;
-	unsigned int vertical_backporch_dyn;
-	unsigned int vertical_frontporch_dyn;
-	unsigned int vertical_active_line_dyn;
-
-	unsigned int horizontal_sync_active_dyn;
-	unsigned int horizontal_backporch_dyn;
-	unsigned int horizontal_frontporch_dyn;
-	unsigned int horizontal_active_pixel_dyn;
-
-	unsigned int PLL_CLOCK_dyn;	/* PLL_CLOCK = (int) PLL_CLOCK */
-	unsigned int data_rate_dyn;	/* data_rate = PLL_CLOCK x 2 */
 };
 
 /* ------------------------------------------------------------------------- */
-struct LCM_ROUND_CORNER {
-	unsigned int w;
-	unsigned int h;
-	unsigned int tp_size;
-	unsigned int bt_size;
-	void *lt_addr;
-	void *rt_addr;
-	void *lb_addr;
-	void *rb_addr;
-};
 
 struct LCM_PARAMS {
 	enum LCM_TYPE type;
@@ -695,22 +671,13 @@ struct LCM_PARAMS {
 	unsigned int max_refresh_rate;
 	unsigned int min_refresh_rate;
 
+#ifdef CONFIG_MTK_ROUND_CORNER_SUPPORT
 	unsigned int round_corner_en;
 	unsigned int full_content;
 	unsigned int corner_pattern_width;
 	unsigned int corner_pattern_height;
 	unsigned int corner_pattern_height_bot;
-	struct LCM_ROUND_CORNER round_corner_params;
-	unsigned int corner_pattern_tp_size;
-	void *corner_pattern_lt_addr;
-
-	int lcm_color_mode;
-	unsigned int min_luminance;
-	unsigned int average_luminance;
-	unsigned int max_luminance;
-
-	unsigned int hbm_en_time;
-	unsigned int hbm_dis_time;
+#endif
 };
 
 
@@ -825,7 +792,6 @@ struct dsi_cmd_desc {
 	unsigned int vc;
 	unsigned int dlen;
 	unsigned int link_state;
-	unsigned int cmd;
 	char *payload;
 };
 
@@ -842,9 +808,6 @@ struct LCM_UTIL_FUNCS {
 	void (*send_cmd)(unsigned int cmd);
 	void (*send_data)(unsigned int data);
 	unsigned int (*read_data)(void);
-
-	void (*dsi_set_cmdq_V4)(struct LCM_setting_table_V3 *para_list,
-			unsigned int size,	bool hs);
 
 	void (*dsi_set_cmdq_V3)(struct LCM_setting_table_V3 *para_list,
 			unsigned int size, unsigned char force_update);
@@ -887,6 +850,9 @@ enum LCM_DRV_IOCTL_CMD {
 };
 
 struct LCM_DRIVER {
+#if defined(CONFIG_LCD_KIT_DRIVER)
+    void *panel_info;
+#endif
 	const char *name;
 	void (*set_util_funcs)(const struct LCM_UTIL_FUNCS *util);
 	void (*get_params)(struct LCM_PARAMS *params);
@@ -909,10 +875,6 @@ struct LCM_DRIVER {
 	/* /////////////////////////CABC backlight related function */
 	void (*set_backlight)(unsigned int level);
 	void (*set_backlight_cmdq)(void *handle, unsigned int level);
-	bool (*get_hbm_state)(void);
-	bool (*get_hbm_wait)(void);
-	bool (*set_hbm_wait)(bool wait);
-	bool (*set_hbm_cmdq)(bool en, void *qhandle);
 	void (*set_pwm)(unsigned int divider);
 	unsigned int (*get_pwm)(unsigned int divider);
 	void (*set_backlight_mode)(unsigned int mode);
@@ -945,13 +907,19 @@ struct LCM_DRIVER {
 	void (*set_pwm_for_mix)(int enable);
 
 	void (*aod)(int enter);
-	void (*set_aod_area_cmdq)(void *handle, unsigned char *area);
-	int (*get_doze_delay)(void);
 };
+
+#if defined (CONFIG_HUAWEI_DSM) && defined (CONFIG_LCD_KIT_DRIVER)
+struct dsm_lcd_record {
+	u32 esd_read_value[3];
+};
+#endif
 
 /* LCM Driver Functions */
 /* ------------------------------------------------------------------------- */
-
+#if defined(CONFIG_LCD_KIT_DRIVER)
+extern struct LCM_DRIVER lcdkit_mtk_common_panel;
+#endif
 const struct LCM_DRIVER *LCM_GetDriver(void);
 unsigned char which_lcd_module_triple(void);
 int lcm_vgp_supply_enable(void);

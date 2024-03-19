@@ -302,15 +302,7 @@ obj-$(CONFIG_THERMAL) += mtk_ts_pa.o
 obj-$(CONFIG_THERMAL) += mtk_ts_pa_thput.o
 obj-$(CONFIG_THERMAL) += mtk_ts_pmic.o
 #obj-$(CONFIG_THERMAL) += mtk_ts_pmic1.o
-ifneq (,$(findstring tb8768, $(CONFIG_ARCH_MTK_PROJECT)))
-ifneq ($(CONFIG_CHARGER_BQ25601),)
-obj-$(CONFIG_THERMAL) += mtk_ts_btscharger.o
-else
 obj-$(CONFIG_THERMAL) += mtk_ts_charger.o
-endif
-else
-obj-$(CONFIG_THERMAL) += mtk_ts_charger.o
-endif
 obj-$(CONFIG_THERMAL) += mtk_ts_charger2.o
 
 
@@ -321,6 +313,8 @@ endif
 obj-$(CONFIG_THERMAL) += mtk_tsAll.o
 #obj-$(CONFIG_THERMAL) += mtk_ts_Abts.o
 obj-$(CONFIG_THERMAL) += mtk_ts_imgsensor.o
+obj-$(CONFIG_THERMAL) += mtk_ts_usb_ntc.o
+obj-$(CONFIG_THERMAL) += mtk_ts_charger_ntc.o
 
 ifneq ($(CONFIG_MTK_BIF_SUPPORT),)
 #obj-$(CONFIG_THERMAL) += mtk_ts_bif.o
@@ -340,15 +334,7 @@ obj-$(CONFIG_THERMAL) += mtk_ts_cpu_noBank.o
 obj-$(CONFIG_THERMAL) += mtk_ts_pa.o
 obj-$(CONFIG_THERMAL) += mtk_ts_pa_thput.o
 obj-$(CONFIG_THERMAL) += mtk_ts_pmic.o
-ifneq (,$(findstring tb8766, $(CONFIG_ARCH_MTK_PROJECT)))
-ifneq ($(CONFIG_CHARGER_BQ25601),)
-obj-$(CONFIG_THERMAL) += mtk_ts_btscharger.o
-else
 obj-$(CONFIG_THERMAL) += mtk_ts_charger.o
-endif
-else
-obj-$(CONFIG_THERMAL) += mtk_ts_charger.o
-endif
 obj-$(CONFIG_THERMAL) += mtk_ts_charger2.o
 
 
@@ -359,6 +345,8 @@ endif
 obj-$(CONFIG_THERMAL) += mtk_tsAll.o
 obj-$(CONFIG_THERMAL) += mtk_ts_imgsensor.o
 obj-$(CONFIG_THERMAL) += mtk_ts_dctm.o
+obj-$(CONFIG_THERMAL) += mtk_ts_usb_ntc.o
+obj-$(CONFIG_THERMAL) += mtk_ts_charger_ntc.o
 endif
 
 ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt3967"))
@@ -386,28 +374,4 @@ obj-$(CONFIG_THERMAL) += mtk_ts_imgsensor.o
 ifneq ($(CONFIG_MTK_BIF_SUPPORT),)
 obj-$(CONFIG_THERMAL) += mtk_ts_bif.o
 endif
-endif
-
-ifneq (,$(filter $(CONFIG_MTK_PLATFORM), "mt6779"))
-
-obj-$(CONFIG_THERMAL) += mtk_ts_battery.o
-
-obj-$(CONFIG_THERMAL) += mtk_ts_bts.o
-obj-$(CONFIG_THERMAL) += mtk_ts_btsmdpa.o
-
-obj-$(CONFIG_THERMAL) += mtk_ts_cpu_noBank.o
-obj-$(CONFIG_THERMAL) += mtk_ts_pa.o
-obj-$(CONFIG_THERMAL) += mtk_ts_pa_thput.o
-obj-$(CONFIG_THERMAL) += mtk_ts_pmic.o
-obj-$(CONFIG_THERMAL) += mtk_ts_charger.o
-#obj-$(CONFIG_THERMAL) += mtk_ts_charger2.o
-
-
-ifneq ($(CONFIG_MTK_COMBO_WIFI),)
-    obj-$(CONFIG_THERMAL) += mtk_ts_wmt.o
-endif
-
-obj-$(CONFIG_THERMAL) += mtk_tsAll.o
-obj-$(CONFIG_THERMAL) += mtk_ts_imgsensor.o
-obj-$(CONFIG_THERMAL) += mtk_ts_dctm.o
 endif

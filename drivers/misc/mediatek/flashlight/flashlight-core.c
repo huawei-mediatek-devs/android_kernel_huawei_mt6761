@@ -31,7 +31,7 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/string.h>
-
+#include <linux/leds.h>
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
 #endif
@@ -48,6 +48,7 @@
  * Definition
  *****************************************************************************/
 static DEFINE_MUTEX(fl_mutex);
+static DEFINE_MUTEX(factory_mutex);
 LIST_HEAD(flashlight_list);
 
 /* duty current */
@@ -68,7 +69,23 @@ static int pt_strict; /* always be zero in C standard */
 static int pt_is_low(int pt_low_vol, int pt_low_bat, int pt_over_cur);
 #endif
 
+#define MAIN_REARFLASH (1)
+#define SUB_REARFLASH (2)
+#define FRONTFLASH (4)
+#define MAIN_FLASH_CT (1)
+#define SUB_FLASH_CT (2)
+#define MTK_REARFLASH (1)
+#define MTK_FRONTFLASH (2)
+#define MAX_FLASH_NUM (2)
+#define STANDBY_MODE (0)
+#define TORCH_MODE (1)
 
+enum flash_lock_status{
+    FLASH_STATUS_UNLOCK,
+    FLASH_STATUS_LOCKED,
+};
+static enum flash_lock_status g_flash_thermal_protect_status = FLASH_STATUS_UNLOCK;
+static int factory_flash_state[MAX_FLASH_NUM] = {0,0};
 /******************************************************************************
  * Flashlight operations
  *****************************************************************************/
@@ -80,7 +97,6 @@ static int fl_set_level(struct flashlight_dev *fdev, int level)
 		pr_info("Failed with no flashlight ops\n");
 		return -EINVAL;
 	}
-
 	/* if pt is low */
 #ifdef CONFIG_MTK_FLASHLIGHT_PT
 	if (pt_is_low(pt_low_vol, pt_low_bat, pt_over_cur))
@@ -101,6 +117,7 @@ static int fl_set_level(struct flashlight_dev *fdev, int level)
 		return -EFAULT;
 	}
 
+	pr_info("set flash level to %d\n",level);
 	/* update device status */
 	fdev->level = level;
 
@@ -134,7 +151,10 @@ static int fl_enable(struct flashlight_dev *fdev, int enable)
 		pr_info("Sw disable on\n");
 		return 0;
 	}
-
+	if (g_flash_thermal_protect_status == FLASH_STATUS_LOCKED) {
+		pr_err("thermal_protect disable on\n");
+		return 0;
+	}
 	/* ioctl */
 	fl_dev_arg.channel = fdev->dev_id.channel;
 	fl_dev_arg.arg = enable;
@@ -143,7 +163,7 @@ static int fl_enable(struct flashlight_dev *fdev, int enable)
 		pr_err("Failed to set on/off\n");
 		return -EFAULT;
 	}
-
+	pr_info("set flash status to %d\n",enable);
 	/* update device status */
 	fdev->enable = enable;
 
@@ -373,8 +393,7 @@ int flashlight_dev_register(
 			fdev->charger_status = FLASHLIGHT_CHARGER_READY;
 			list_add_tail(&fdev->node, &flashlight_list);
 			mutex_unlock(&fl_mutex);
-		} else
-			pr_info("device name no sync with flashlight_id\n");
+		}
 	}
 
 	return 0;
@@ -574,33 +593,26 @@ static int pt_is_low(int pt_low_vol, int pt_low_bat, int pt_over_cur)
 static int pt_trigger(void)
 {
 	struct flashlight_dev *fdev;
-	int is_flash_enable = 0;
 
 	mutex_lock(&fl_mutex);
 	list_for_each_entry(fdev, &flashlight_list, node) {
-		if (fdev->enable)
-			is_flash_enable = 1;
-	}
-	if (is_flash_enable) {
-		list_for_each_entry(fdev, &flashlight_list, node) {
-			if (!fdev->ops)
-				continue;
+		if (!fdev->ops)
+			continue;
 
-			fdev->ops->flashlight_open();
-			fdev->ops->flashlight_set_driver(1);
-			if (pt_strict) {
-				pr_info("PT trigger(%d,%d,%d) disable flashlight\n",
+		fdev->ops->flashlight_open();
+		fdev->ops->flashlight_set_driver(1);
+		if (pt_strict) {
+			pr_info("PT trigger(%d,%d,%d) disable flashlight\n",
 					pt_low_vol, pt_low_bat, pt_over_cur);
-				fl_enable(fdev, 0);
-			} else {
-				pr_info("PT trigger(%d,%d,%d) decrease duty: %d\n",
+			fl_enable(fdev, 0);
+		} else {
+			pr_info("PT trigger(%d,%d,%d) decrease duty: %d\n",
 					pt_low_vol, pt_low_bat,
 					pt_over_cur, fdev->low_pt_level);
-				fl_set_level(fdev, fdev->low_pt_level);
-			}
-			fdev->ops->flashlight_set_driver(0);
-			fdev->ops->flashlight_release();
+			fl_set_level(fdev, fdev->low_pt_level);
 		}
+		fdev->ops->flashlight_set_driver(0);
+		fdev->ops->flashlight_release();
 	}
 	mutex_unlock(&fl_mutex);
 
@@ -674,7 +686,7 @@ static long _flashlight_ioctl(
 			flashlight_get_ct_index(fl_arg.ct_id));
 	mutex_unlock(&fl_mutex);
 	if (!fdev) {
-		pr_info_ratelimited("Find no flashlight device\n");
+		pr_info("Find no flashlight device\n");
 		return -EINVAL;
 	}
 
@@ -817,8 +829,6 @@ static long _flashlight_ioctl(
 		mutex_unlock(&fl_mutex);
 		break;
 
-	case FLASH_IOC_GET_DUTY_NUMBER:
-	case FLASH_IOC_GET_DUTY_CURRENT:
 	case FLASH_IOC_GET_HW_FAULT:
 	case FLASH_IOC_GET_HW_FAULT2:
 		if (fdev->ops) {
@@ -827,8 +837,7 @@ static long _flashlight_ioctl(
 			fl_arg.arg = fl_dev_arg.arg;
 			if (copy_to_user((void __user *)arg, (void *)&fl_arg,
 					sizeof(struct flashlight_user_arg))) {
-				pr_info("Failed to copy arg to user cmd:%d\n",
-					_IOC_NR(cmd));
+				pr_info("Failed to copy hw fault to user\n");
 				return -EFAULT;
 			}
 		} else {
@@ -894,7 +903,6 @@ static int flashlight_release(struct inode *inode, struct file *file)
 
 		pr_debug("Release(%d,%d,%d)\n", fdev->dev_id.type,
 				fdev->dev_id.ct, fdev->dev_id.part);
-		fl_enable(fdev, 0);
 		fdev->ops->flashlight_release();
 	}
 	mutex_unlock(&fl_mutex);
@@ -993,11 +1001,6 @@ static ssize_t flashlight_strobe_store(struct device *dev,
 	}
 
 	fl_arg.channel = fdev->dev_id.channel;
-	fl_arg.decouple = fdev->dev_id.decouple;
-
-	pr_info("channel:%d decouple:%d\n",
-			fl_arg.channel, fl_arg.decouple);
-
 	if (fdev->ops) {
 		fdev->ops->flashlight_strobe_store(fl_arg);
 		ret = size;
@@ -1537,6 +1540,168 @@ unlock:
 }
 static DEVICE_ATTR_RW(flashlight_sw_disable);
 
+static ssize_t factory_lightness_show(struct device *dev,
+    struct device_attribute *attr,char *buf)
+{
+    return 0;
+}
+
+static ssize_t factory_lightness_store(struct device *dev,
+    struct device_attribute *attr, const char *buf, size_t count)
+{
+    int rc = 0;
+    int flash_id = 0;
+    int mode = 0;
+    int length = 0;
+    int ct_id = MAIN_FLASH_CT;
+    int mtk_flash_id = MTK_REARFLASH;
+    struct flashlight_dev *fdev;
+    pr_info("%s enter,buf=%s.", __func__,buf);
+    length = sscanf(buf, "%d %d",  &flash_id, &mode);
+    if (length != 2) {
+        pr_err("%s failed to check param.", __func__);
+        return -1;
+    }
+    if (MAIN_REARFLASH != flash_id && FRONTFLASH != flash_id && SUB_REARFLASH != flash_id) {
+        pr_err("%s scharger wrong flash_id=%d.", __func__,flash_id);
+        return -1;
+    }
+    mutex_lock(&factory_mutex);
+    //map flash_id and ct to mtk defined flash_id
+    if (flash_id == FRONTFLASH) {
+        mtk_flash_id = MTK_FRONTFLASH;
+    } else {
+        mtk_flash_id = MTK_REARFLASH;
+    }
+    if (flash_id == SUB_REARFLASH) {
+        ct_id = SUB_FLASH_CT;
+    }
+    pr_info("%s mtk_flash_id=%d,ct_id=%d\n", __func__, mtk_flash_id,ct_id);
+    //find dev by flash_id and ct
+    fdev = flashlight_find_dev_by_index(
+            flashlight_get_type_index(mtk_flash_id),
+            flashlight_get_ct_index(ct_id));
+    if (!fdev || !fdev->ops) {
+        pr_info("Failed with no flashlight ops\n");
+        mutex_unlock(&factory_mutex);
+        return -EFAULT;
+    }
+    pr_info("%s mode=%d\n", __func__, mode);
+    if (mode == STANDBY_MODE) {
+        if (factory_flash_state[mtk_flash_id-1] == STANDBY_MODE) {
+            pr_err("%s mtk_flash_id already STANDBY_MODE ", __func__);
+            mutex_unlock(&factory_mutex);
+            return count;
+        }
+        mutex_lock(&fl_mutex);
+        rc = fl_enable(fdev, 0);
+        mutex_unlock(&fl_mutex);
+        rc |= fdev->ops->flashlight_set_driver(0);//0 - uninstall
+        if (rc < 0) {
+            pr_err("%s  flash off error.", __func__);
+            mutex_unlock(&factory_mutex);
+            return rc;
+        }
+        factory_flash_state[mtk_flash_id-1] = STANDBY_MODE;
+    } else if(mode >= TORCH_MODE) {
+        struct flashlight_dev_arg fl_dev_arg;
+        if (factory_flash_state[mtk_flash_id-1] == TORCH_MODE) {
+            pr_err("%s mtk_flash_id already TORCH_MODE ", __func__);
+            mutex_unlock(&factory_mutex);
+            return count;
+        }
+        fl_dev_arg.channel = fdev->dev_id.channel;
+        rc = fdev->ops->flashlight_set_driver(1);//1 - install
+        if (fdev->dev_id.decouple) {
+            fl_dev_arg.arg = FLASHLIGHT_SCENARIO_DECOUPLE;
+            rc |= fdev->ops->flashlight_ioctl(FLASH_IOC_SET_SCENARIO,(unsigned long)&fl_dev_arg);
+        }
+        fl_dev_arg.arg = 0;
+        rc |= fl_set_level(fdev,3);//100ma
+        rc |= fdev->ops->flashlight_ioctl(FLASH_IOC_SET_TIME_OUT_TIME_MS,(unsigned long)&fl_dev_arg);
+        mutex_lock(&fl_mutex);
+        rc |= fl_enable(fdev, 1);
+        mutex_unlock(&fl_mutex);
+        if (rc < 0) {
+            pr_err("%s  flash on TORCH_MODE error.", __func__);
+            fdev->ops->flashlight_set_driver(0);
+            mutex_unlock(&factory_mutex);
+            return rc;
+        }
+        factory_flash_state[mtk_flash_id-1] = TORCH_MODE;
+    } else {
+        pr_err("%s  wrong mode=%d.", __func__,mode);
+        mutex_unlock(&factory_mutex);
+        return -1;
+    }
+    mutex_unlock(&factory_mutex);
+    return count;
+}
+static struct device_attribute factory_lightness =
+    __ATTR(flash_lightness, 0664, factory_lightness_show, factory_lightness_store);
+
+static ssize_t hw_flash_thermal_protect_show(struct device *dev,
+    struct device_attribute *attr,char *buf)
+{
+    int rc=0;
+    if (dev == NULL || attr == NULL || buf == NULL) {
+        pr_err("%s  NULL input para", __func__);
+        return -1;
+    }
+    rc = scnprintf(buf, PAGE_SIZE, "%d\n", g_flash_thermal_protect_status);
+    return rc;
+}
+
+static ssize_t hw_flash_thermal_protect_store(struct device *dev,
+    struct device_attribute *attr, const char *buf, size_t count)
+{
+    struct flashlight_dev *fdev = NULL;
+    int rc=0;
+    int op_code = 0;
+    int length = 0;
+    if (dev == NULL || attr == NULL || buf == NULL) {
+        pr_err("%s  NULL input para", __func__);
+        return -1;
+    }
+    length = sscanf(buf, "%d",  &op_code);
+    if (length != 1) {
+        pr_err("%s failed to check param.", __func__);
+        return -1;
+    }
+    mutex_lock(&fl_mutex);
+    if (FLASH_STATUS_UNLOCK == op_code) {
+        pr_info("%s disable thermal protect.", __func__);
+        g_flash_thermal_protect_status = FLASH_STATUS_UNLOCK;
+    } else {
+        pr_info("%s enable thermal protect.", __func__);
+        list_for_each_entry(fdev, &flashlight_list, node) {
+            if (!fdev->ops) {
+                continue;
+            }
+            rc = fdev->ops->flashlight_set_driver(1);
+            rc |= fl_enable(fdev, 0);
+            if (rc < 0) {
+                pr_err("%s close flash(%d) error", __func__,fdev->dev_id.type);
+                fdev->ops->flashlight_set_driver(0);
+                mutex_unlock(&fl_mutex);
+                return rc;
+            }
+            fdev->ops->flashlight_set_driver(0);
+        }
+        g_flash_thermal_protect_status = FLASH_STATUS_LOCKED;
+    }
+    mutex_unlock(&fl_mutex);
+    return count;
+}
+
+static struct led_classdev i2c_torch_led = {
+    .name = "torch",
+    .brightness_set = NULL,
+    .brightness = 0,
+};
+
+static struct device_attribute hw_flash_thermal_protect =
+    __ATTR(flash_thermal_protect, 0660, hw_flash_thermal_protect_show, hw_flash_thermal_protect_store);
 /******************************************************************************
  * Platform device and driver
  *****************************************************************************/
@@ -1654,14 +1819,30 @@ static int flashlight_probe(struct platform_device *dev)
 		pr_info("Failed to create device file(sw_disable)\n");
 		goto err_create_sw_disable_device_file;
 	}
-
+	if (device_create_file(flashlight_device, &factory_lightness)) {
+		pr_info("Failed to create device file(factory_lightness)\n");
+		goto err_create_factory_device_file;
+	}
+	if(led_classdev_register(&dev->dev, &i2c_torch_led)) {
+		pr_err("register torch_led fail\n");
+		goto err_create_leds_device;
+	}
+	if (device_create_file(i2c_torch_led.dev, &hw_flash_thermal_protect)) {
+		pr_info("Failed to create device file(hw_flash_thermal_protect)\n");
+		goto err_create_leds_flash_thermal_protect_file;
+	}
 	/* init flashlight */
 	fl_init();
 
 	pr_debug("Probe done\n");
 
 	return 0;
-
+err_create_leds_flash_thermal_protect_file:
+	device_remove_file(i2c_torch_led.dev, &hw_flash_thermal_protect);
+err_create_leds_device:
+	led_classdev_unregister(&i2c_torch_led);
+err_create_factory_device_file:
+    device_remove_file(flashlight_device, &factory_lightness);
 err_create_sw_disable_device_file:
 	device_remove_file(flashlight_device, &dev_attr_flashlight_sw_disable);
 err_create_fault_device_file:
@@ -1692,6 +1873,9 @@ static int flashlight_remove(struct platform_device *dev)
 	fl_uninit();
 
 	/* remove device file */
+	device_remove_file(i2c_torch_led.dev, &hw_flash_thermal_protect);
+	led_classdev_unregister(&i2c_torch_led);
+	device_remove_file(flashlight_device, &factory_lightness);
 	device_remove_file(flashlight_device, &dev_attr_flashlight_sw_disable);
 	device_remove_file(flashlight_device, &dev_attr_flashlight_fault);
 	device_remove_file(flashlight_device, &dev_attr_flashlight_current);

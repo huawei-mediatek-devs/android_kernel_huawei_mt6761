@@ -67,32 +67,29 @@ enum DISP_ORIENTATION {
 enum DISP_FORMAT {
 	DISP_FORMAT_UNKNOWN = 0,
 
-	DISP_FORMAT_RGB565 =	MAKE_DISP_FORMAT_ID(1, 2),
-	DISP_FORMAT_RGB888 =	MAKE_DISP_FORMAT_ID(2, 3),
-	DISP_FORMAT_BGR888 =	MAKE_DISP_FORMAT_ID(3, 3),
-	DISP_FORMAT_ARGB8888 =	MAKE_DISP_FORMAT_ID(4, 4),
-	DISP_FORMAT_ABGR8888 =	MAKE_DISP_FORMAT_ID(5, 4),
-	DISP_FORMAT_RGBA8888 =	MAKE_DISP_FORMAT_ID(6, 4),
-	DISP_FORMAT_BGRA8888 =	MAKE_DISP_FORMAT_ID(7, 4),
-	DISP_FORMAT_YUV422 =	MAKE_DISP_FORMAT_ID(8, 2),
-	DISP_FORMAT_XRGB8888 =	MAKE_DISP_FORMAT_ID(9, 4),
-	DISP_FORMAT_XBGR8888 =	MAKE_DISP_FORMAT_ID(10, 4),
-	DISP_FORMAT_RGBX8888 =	MAKE_DISP_FORMAT_ID(11, 4),
-	DISP_FORMAT_BGRX8888 =	MAKE_DISP_FORMAT_ID(12, 4),
-	DISP_FORMAT_UYVY =	MAKE_DISP_FORMAT_ID(13, 2),
-	DISP_FORMAT_YUV420_P =	MAKE_DISP_FORMAT_ID(14, 2),
-	DISP_FORMAT_YV12 =	MAKE_DISP_FORMAT_ID(16, 1), /* BPP = 1.5 */
-	DISP_FORMAT_PARGB8888 =	MAKE_DISP_FORMAT_ID(17, 4),
-	DISP_FORMAT_PABGR8888 =	MAKE_DISP_FORMAT_ID(18, 4),
-	DISP_FORMAT_PRGBA8888 =	MAKE_DISP_FORMAT_ID(19, 4),
-	DISP_FORMAT_PBGRA8888 =	MAKE_DISP_FORMAT_ID(20, 4),
-	DISP_FORMAT_DIM =	MAKE_DISP_FORMAT_ID(21, 0),
-	DISP_FORMAT_RGBA1010102 =	MAKE_DISP_FORMAT_ID(22, 4),
-	DISP_FORMAT_PRGBA1010102 =	MAKE_DISP_FORMAT_ID(23, 4),
-	DISP_FORMAT_RGBA_FP16 =		MAKE_DISP_FORMAT_ID(24, 8),
-	DISP_FORMAT_PRGBA_FP16 =	MAKE_DISP_FORMAT_ID(25, 8),
-	DISP_FORMAT_NUM =	MAKE_DISP_FORMAT_ID(26, 0),
-	DISP_FORMAT_BPP_MASK =	0xFF,
+	DISP_FORMAT_RGB565 = MAKE_DISP_FORMAT_ID(1, 2),
+	DISP_FORMAT_RGB888 = MAKE_DISP_FORMAT_ID(2, 3),
+	DISP_FORMAT_BGR888 = MAKE_DISP_FORMAT_ID(3, 3),
+	DISP_FORMAT_ARGB8888 = MAKE_DISP_FORMAT_ID(4, 4),
+	DISP_FORMAT_ABGR8888 = MAKE_DISP_FORMAT_ID(5, 4),
+	DISP_FORMAT_RGBA8888 = MAKE_DISP_FORMAT_ID(6, 4),
+	DISP_FORMAT_BGRA8888 = MAKE_DISP_FORMAT_ID(7, 4),
+	DISP_FORMAT_YUV422 = MAKE_DISP_FORMAT_ID(8, 2),
+	DISP_FORMAT_XRGB8888 = MAKE_DISP_FORMAT_ID(9, 4),
+	DISP_FORMAT_XBGR8888 = MAKE_DISP_FORMAT_ID(10, 4),
+	DISP_FORMAT_RGBX8888 = MAKE_DISP_FORMAT_ID(11, 4),
+	DISP_FORMAT_BGRX8888 = MAKE_DISP_FORMAT_ID(12, 4),
+	DISP_FORMAT_UYVY = MAKE_DISP_FORMAT_ID(13, 2),
+	DISP_FORMAT_YUV420_P = MAKE_DISP_FORMAT_ID(14, 2),
+	DISP_FORMAT_YV12 = MAKE_DISP_FORMAT_ID(16, 1),	/* BPP = 1.5 */
+	DISP_FORMAT_PARGB8888 = MAKE_DISP_FORMAT_ID(17, 4),
+	DISP_FORMAT_PABGR8888 = MAKE_DISP_FORMAT_ID(18, 4),
+	DISP_FORMAT_PRGBA8888 = MAKE_DISP_FORMAT_ID(19, 4),
+	DISP_FORMAT_PBGRA8888 = MAKE_DISP_FORMAT_ID(20, 4),
+	DISP_FORMAT_DIM = MAKE_DISP_FORMAT_ID(21, 0),
+	DISP_FORMAT_RGBA1010102 = MAKE_DISP_FORMAT_ID(22, 4),
+	DISP_FORMAT_RGBA_FP16 = MAKE_DISP_FORMAT_ID(23, 4),
+	DISP_FORMAT_BPP_MASK = 0xFF,
 };
 
 enum DISP_LAYER_TYPE {
@@ -222,7 +219,6 @@ struct disp_input_config {
 	enum DISP_ALPHA_TYPE src_alpha;
 	enum DISP_ALPHA_TYPE dst_alpha;
 	enum DISP_YUV_RANGE_ENUM yuv_range;
-	int dataspace;
 
 	enum DISP_ORIENTATION layer_rotation;
 	enum DISP_LAYER_TYPE layer_type;
@@ -241,7 +237,6 @@ struct disp_input_config {
 	void *dirty_roi_addr;
 	__u16 dirty_roi_num;
 
-	__u16 src_v_pitch;
 	__u16 src_pitch;
 	__u16 src_offset_x, src_offset_y;
 	__u16 src_width, src_height;
@@ -260,8 +255,6 @@ struct disp_input_config {
 	__u8 identity;
 	__u8 connected_type;
 	__s8 ext_sel_layer;
-
-	__u8 compress;
 };
 
 struct disp_output_config {
@@ -338,13 +331,6 @@ struct disp_frame_cfg_t {
 
 	/* res_idx: SF/HWC selects which resolution to use */
 	int res_idx;
-	unsigned int hrt_weight;
-	unsigned int hrt_idx;
-
-	bool hbm_en;
-
-	/*DynFPS*/
-	int active_config;
 };
 
 struct disp_session_info {
@@ -427,9 +413,6 @@ enum DISP_FEATURE {
 	DISP_FEATURE_NO_PARGB = 0x00000020,
 	DISP_FEATURE_DISP_SELF_REFRESH = 0x00000040,
 	DISP_FEATURE_RPO = 0x00000080,
-	DISP_FEATURE_FBDC = 0x00000100,
-	DISP_FEATURE_FORCE_DISABLE_AOD = 0x00000200,
-	DISP_FEATURE_DYNFPS = 0x00000800
 };
 
 struct disp_caps_info {
@@ -441,8 +424,7 @@ struct disp_caps_info {
 	int is_output_rotated;
 	int lcm_degree;
 
-	/*
-	 * resizer input resolution list
+	/* resizer input resolution list
 	 * format:
 	 *   sequence from big resolution(LCM resolution) to small
 	 *   portrait {width, height, rsz layer cnt to use}
@@ -461,10 +443,6 @@ struct disp_caps_info {
 	 *  0: not support three session at same time
 	 */
 	int is_support_three_session;
-	int lcm_color_mode;
-	unsigned int max_luminance;
-	unsigned int average_luminance;
-	unsigned int min_luminance;
 };
 
 struct disp_session_buf_info {
@@ -477,22 +455,16 @@ enum LAYERING_CAPS {
 	MDP_RSZ_LAYER =		0x00000002,
 	DISP_RSZ_LAYER =	0x00000004,
 	MDP_ROT_LAYER =		0x00000008,
-	MDP_HDR_LAYER =		0x00000010,
-	NO_FBDC =		0x00000020,
 };
 
 struct layer_config {
 	unsigned int ovl_id;
 	enum DISP_FORMAT src_fmt;
-	int dataspace;
 	unsigned int dst_offset_x, dst_offset_y;
 	unsigned int dst_width, dst_height;
 	int ext_sel_layer;
-	unsigned int src_offset_x, src_offset_y;
 	unsigned int src_width, src_height;
 	unsigned int layer_caps;
-	unsigned int clip; /* drv internal use */
-	__u8 compress;
 };
 
 struct disp_layer_info {
@@ -504,11 +476,6 @@ struct disp_layer_info {
 	int hrt_num;
 	/* res_idx: SF/HWC selects which resolution to use */
 	int res_idx;
-	unsigned int hrt_weight;
-	unsigned int hrt_idx;
-
-	/*DynFPS*/
-	int active_config_id[2];
 };
 
 enum DISP_SCENARIO {
@@ -537,23 +504,6 @@ enum DISP_SELF_REFRESH_TYPE {
 	REFRESH_FOR_IDLE,
 	REFRESH_TYPE_NUM,
 };
-
-
-/*DynFPS start*/
-#define MULTI_CONFIG_NUM 2
-struct dyn_config_info {
-	unsigned int vsyncFPS;
-	unsigned int vact_timing_fps;/*active timing fps*/
-	unsigned int width;
-	unsigned int height;
-};
-
-/*only primary_display support*/
-struct multi_configs {
-	unsigned int config_num;
-	struct dyn_config_info dyn_cfgs[MULTI_CONFIG_NUM];
-};
-/*DynFPS end*/
 
 /* IOCTL commands. */
 #define DISP_IOW(num, dtype)     _IOW('O', num, dtype)
@@ -619,8 +569,6 @@ struct multi_configs {
 	DISP_IOW(226, unsigned int)
 #define DISP_IOCTL_WAIT_DISP_SELF_REFRESH	\
 	DISP_IOW(227, unsigned int)
-#define DISP_IOCTL_GET_MULTI_CONFIGS	\
-	DISP_IOR(231, struct multi_configs)
 #ifdef __KERNEL__
 
 int disp_mgr_get_session_info(struct disp_session_info *info);

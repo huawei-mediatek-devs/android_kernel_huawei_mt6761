@@ -52,6 +52,10 @@ void init_md_section_level(enum pbm_kicker kicker)
 #if defined(CONFIG_MTK_ECCCI_DRIVER)
 	share_mem =
 		(u32 *)get_smem_start_addr(MD_SYS1, SMEM_USER_RAW_DBM, NULL);
+	if (share_mem == NULL) {
+		pr_info_ratelimited("can't get dbm share memory\n");
+		return;
+	}
 #else
 	return;
 #endif
@@ -100,6 +104,10 @@ int get_md1_power(unsigned int power_category, bool need_update)
 	share_mem = fake_share_mem;
 #else
 	share_mem = (u32 *)get_smem_start_addr(MD_SYS1, 0, NULL);
+	if (share_mem == NULL) {
+		pr_info_ratelimited("can't get dbm share memory\n");
+		return MAX_MD1_POWER;
+	}
 #endif
 	dbm_power = get_md1_dBm_power(scenario, share_mem, power_category);
 	g_dbm_power[power_category] = dbm_power;

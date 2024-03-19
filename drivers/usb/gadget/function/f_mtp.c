@@ -258,8 +258,8 @@ static struct usb_interface_descriptor mtp_interface_desc = {
 	.bDescriptorType        = USB_DT_INTERFACE,
 	.bInterfaceNumber       = 0,
 	.bNumEndpoints          = 3,
-	.bInterfaceClass        = USB_CLASS_VENDOR_SPEC,
-	.bInterfaceSubClass     = USB_SUBCLASS_VENDOR_SPEC,
+	.bInterfaceClass        = 0xff,//USB_CLASS_VENDOR_SPEC,
+	.bInterfaceSubClass     = 0xff,//USB_SUBCLASS_VENDOR_SPEC,
 	.bInterfaceProtocol     = 0,
 };
 
@@ -268,7 +268,7 @@ static struct usb_interface_descriptor ptp_interface_desc = {
 	.bDescriptorType        = USB_DT_INTERFACE,
 	.bInterfaceNumber       = 0,
 	.bNumEndpoints          = 3,
-	.bInterfaceClass        = USB_CLASS_STILL_IMAGE,
+	.bInterfaceClass        = 0x06,//USB_CLASS_STILL_IMAGE,
 	.bInterfaceSubClass     = 1,
 	.bInterfaceProtocol     = 1,
 };

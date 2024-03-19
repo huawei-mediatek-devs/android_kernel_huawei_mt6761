@@ -20,20 +20,66 @@
 #include <SCP_sensorHub.h>
 #include <linux/notifier.h>
 #include "scp_helper.h"
-#include "scp_helper.h"
 #include "sar_factory.h"
+#include <linux/module.h>
+#include <linux/notifier.h>
+#include <linux/of.h>
+#include "sensor_para.h"
 
 static struct situation_init_info sarhub_init_info;
+
 static DEFINE_SPINLOCK(calibration_lock);
+
 struct sarhub_ipi_data {
 	bool factory_enable;
-
+	
 	int32_t cali_data[3];
 	int8_t cali_status;
 	struct completion calibration_done;
 };
 static struct sarhub_ipi_data *obj_ipi_data;
 
+extern struct sensor_para_t *sensor_para;
+void hw_sensorhub_get_chip_type(void)
+{
+	struct device_node* scpinfo_node = NULL;
+	unsigned int product_name = 0;
+	int ret = 0;
+
+	pr_err("Enter function :hw_sensorhub_get_chip_type\n");
+	if (NULL == sensor_para)
+	{
+		pr_err("sensor_para is NULL!\n");
+		return ;
+	}
+
+	scpinfo_node = of_find_compatible_node(NULL, NULL, "huawei,huawei_scp_info");
+
+	if (NULL == scpinfo_node)
+	{
+		pr_err("Cannot find huawei_scp_info from dts\n");
+		return;
+	}
+	else
+	{
+		ret = of_property_read_u32(scpinfo_node, "product_number", &product_name);
+ 
+		if (0 == ret)
+		{
+			sensor_para->sar_para.product_name = product_name;
+			pr_info("find product_name success %d\n", product_name);
+		}
+		else
+		{
+			pr_err("Cannot find product_name from dts\n");
+			sensor_para->sar_para.product_name = 0;
+			return;
+		}
+	}
+
+	pr_err("Exit function :hw_sensorhub_get_chip_type, product_name: %d\n", sensor_para->sar_para.product_name);
+	return;
+ }
 
 static int sar_factory_enable_sensor(bool enabledisable,
 					 int64_t sample_periods_ms)
@@ -92,7 +138,7 @@ static int sar_factory_get_cali(int32_t data[3])
 	err = wait_for_completion_timeout(&obj->calibration_done,
 					  msecs_to_jiffies(3000));
 	if (!err) {
-		pr_err("sar factory get cali fail!\n");
+		pr_err("sar_factory_get_cali fail!\n");
 		return -1;
 	}
 	spin_lock(&calibration_lock);
@@ -135,6 +181,7 @@ static int sar_get_data(int *probability, int *status)
 	}
 	time_stamp		= data.time_stamp;
 	*probability	= data.sar_event.data[0];
+	pr_info("sar_get_data = %d\n", data.sar_event.data[0]);
 	return 0;
 }
 static int sar_open_report_data(int open)
@@ -149,6 +196,7 @@ static int sar_open_report_data(int open)
 
 #endif
 	ret = sensor_enable_to_hub(ID_SAR, open);
+	pr_info("sar_open_report_data =%d, ret = %d\n", open, ret);
 	return ret;
 }
 static int sar_batch(int flag,
@@ -167,16 +215,18 @@ static int sar_recv_data(struct data_unit_t *event, void *reserved)
 {
 	struct sarhub_ipi_data *obj = obj_ipi_data;
 	int32_t value[3] = {0};
-	int err = 0;
+	pr_err("sar_recv_data action:%d data:%d\n",
+	event->flush_action, event->sar_event.data[0]);
 
 	if (event->flush_action == FLUSH_ACTION)
-		err = situation_flush_report(ID_SAR);
+		situation_flush_report(ID_SAR);
 	else if (event->flush_action == DATA_ACTION) {
 		value[0] = event->sar_event.data[0];
 		value[1] = event->sar_event.data[1];
-		value[2] = event->sar_event.data[2];
-		err = sar_data_report(value);
-	} else if (event->flush_action == CALI_ACTION) {
+	    	value[2] = event->sar_event.data[2];
+		sar_data_report(value);
+	}
+	else if (event->flush_action == CALI_ACTION) {
 		spin_lock(&calibration_lock);
 		obj->cali_data[0] =
 			event->sar_event.x_bias;
@@ -189,16 +239,15 @@ static int sar_recv_data(struct data_unit_t *event, void *reserved)
 		spin_unlock(&calibration_lock);
 		complete(&obj->calibration_done);
 	}
-	return err;
+	pr_info("sar_recv_data \n");
+	return 0;
 }
-
 
 static int sarhub_local_init(void)
 {
 	struct situation_control_path ctl = {0};
 	struct situation_data_path data = {0};
 	int err = 0;
-
 	struct sarhub_ipi_data *obj;
 
 	pr_debug("%s\n", __func__);
@@ -213,7 +262,6 @@ static int sarhub_local_init(void)
 	WRITE_ONCE(obj->factory_enable, false);
 
 	init_completion(&obj->calibration_done);
-
 	ctl.open_report_data = sar_open_report_data;
 	ctl.batch = sar_batch;
 	ctl.flush = sar_flush;
@@ -224,20 +272,18 @@ static int sarhub_local_init(void)
 		pr_err("register sar control path err\n");
 		goto exit;
 	}
-
+	pr_err("sarhub_local_init!!\n");
 	data.get_data = sar_get_data;
 	err = situation_register_data_path(&data, ID_SAR);
 	if (err) {
 		pr_err("register sar data path err\n");
 		goto exit;
 	}
-
 	err = sar_factory_device_register(&sarhub_factory_device);
 	if (err) {
 		pr_err("sar_factory_device register failed\n");
 		goto exit;
 	}
-
 	err = scp_sensorHub_data_registration(ID_SAR,
 		sar_recv_data);
 	if (err) {
@@ -261,6 +307,8 @@ static struct situation_init_info sarhub_init_info = {
 
 static int __init sarhub_init(void)
 {
+	pr_err("sarhub_init!!\n");
+	hw_sensorhub_get_chip_type();
 	situation_driver_add(&sarhub_init_info, ID_SAR);
 	return 0;
 }

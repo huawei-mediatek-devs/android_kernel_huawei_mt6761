@@ -19,7 +19,6 @@
 #include <linux/proc_fs.h>
 #include <linux/interrupt.h>
 #include <linux/mutex.h>
-#include <linux/rwsem.h>
 #include <linux/jiffies.h>
 #include <linux/kthread.h>
 #include <linux/slab.h>
@@ -39,6 +38,14 @@
 #ifdef CONFIG_OF
 #include <linux/of_irq.h>
 #endif
+
+#define TKCORE_LOG_KMSG
+
+#define LOG_AREA_PAGE_ORDER	(4)
+#define LOG_AREA_PAGE_COUNT \
+	(1 << LOG_AREA_PAGE_ORDER)
+#define LOG_AREA_SIZE \
+	(LOG_AREA_PAGE_COUNT << PAGE_SHIFT)
 
 #define PROC_DBG(fmt, ...) do {} while (0)
 
@@ -60,7 +67,18 @@ struct tkcore_trace {
 
 #define TEE_LOG_TIMEOUT_MS	(500)
 
+#define TEE_LOG_TIMEOUT_USER_MS	(1000)
+
+static struct mutex log_mutex;
 static struct mutex trace_mutex;
+
+int log_irq_num __read_mostly = -1;
+
+int log_wakeup;
+
+DECLARE_WAIT_QUEUE_HEAD(log_wqh);
+
+DECLARE_WAIT_QUEUE_HEAD(user_log_wqh);
 
 struct proc_dir_entry *tee_proc_dir;
 
@@ -89,243 +107,282 @@ union tee_log_ctrl {
 	unsigned char data[TEE_LOG_CTL_BUF_SIZE];
 };
 
-struct klog {
-	/* shm for log ctl */
-	union tee_log_ctrl *log_ctl;
+static bool tee_proc_enable_log = true;
 
-	/* tee ringbuffer for log */
-	char *tee_rb;
-	/* tee ring buffer length */
-	uint32_t tee_rb_len;
+static union tee_log_ctrl *tee_buf_vir_ctl;
+static unsigned long tee_buf_phy_ctl;
+static unsigned int tee_buf_len;
+static unsigned char *tee_log_vir_addr;
+static unsigned int tee_log_len;
 
-	/*
-	 * whether write_pos
-	 * has restarted from
-	 * one
-	 */
-	bool overwrite;
-	/*
-	 * served as notifier
-	 * when there's new
-	 * log
-	 */
-	wait_queue_head_t wq;
+char *tee_log_area;
+char *tee_log_buf;
 
-	struct task_struct *ts;
+/* klog_head points to the first place
+ * where TEE log can be stored into.
+ * klog_tail points to the first place where
+ * klog can be read from.
+ */
 
-	/*
-	 * irq for tee to notify
-	 * nsdrv to fetch log
-	 */
-	int notify_irq;
-};
+uint32_t klog_head;
+uint32_t klog_tail;
 
-struct ulog {
-	/*
-	 * local read sequence,
-	 * only updated by user
-	 * apps open this proc
-	 * entry
-	 */
-	uint32_t rseq;
+struct task_struct *log_ts;
 
-	/*
-	 * buffer containing
-	 * temporary str to
-	 * pass to CA
-	 */
-	const char *tmpbuf;
-
-	/*
-	 * ptr to global
-	 * klog
-	 */
-	struct klog *klog;
-
-};
-
-static struct klog klog;
-
-static inline bool rb_overrun(uint32_t rseq,
-							uint32_t wseq,
-							uint32_t rb_len)
+static void tee_log_lock(void)
 {
-	return wseq - rseq > rb_len;
+	mutex_lock(&log_mutex);
 }
 
-static size_t ulog_rb(struct klog *klog,
-					struct ulog *ulog,
-					char __user *buf,
-					size_t count)
+static void tee_log_unlock(void)
 {
-	size_t len = 0;
-	uint32_t wseq;
+	mutex_unlock(&log_mutex);
+}
 
-	union tee_log_ctrl *log_ctl = klog->log_ctl;
+static uint32_t log_seq2idx(uint32_t seq)
+{
+	return (seq % tee_log_len);
+}
 
-	static const char ulog_flag_intr[] =
-		"------ interrupted\n";
+static ssize_t __copy_log_to_user(char __user *buf, char *kbuf, size_t count,
+				  const char *func, int lineno)
+{
+	ssize_t r;
 
-	wseq = READ_ONCE(log_ctl->info.tee_write_seq);
+	r = copy_to_user(buf, kbuf, count);
+	if (unlikely(r)) {
+		pr_err("[%s:%d] returns %Zd\n",
+			func, lineno, r);
 
-	while ((len != count) && ((ulog->rseq != wseq) ||
-		(ulog->tmpbuf && ulog->tmpbuf[0] != '\0'))) {
-		size_t copy_len;
-		unsigned long n;
-
-		if (ulog->tmpbuf == NULL) {
-			if (rb_overrun(ulog->rseq, wseq,
-						klog->tee_rb_len)) {
-				ulog->tmpbuf = ulog_flag_intr;
-			}
-		} else if (ulog->tmpbuf[0] == '\0') {
-			if (klog->overwrite ||
-				wseq >= klog->tee_rb_len) {
-				ulog->rseq = wseq - klog->tee_rb_len;
-			} else {
-				ulog->rseq = 0;
-			}
-			ulog->tmpbuf = NULL;
+		if (unlikely(r < 0)) {
+			pr_err("[%s:%d] copy_to_user returns %Zd < 0\n",
+				func, lineno, r);
+			return r;
+		} else if (unlikely(r > count)) {
+			pr_err(
+				"[%s:%d] copy_to_user returns %Zd > count %Zd\n",
+				func, lineno, r, count);
+			return -1;
 		}
+	}
 
-		if (ulog->tmpbuf) {
-			size_t tmpbuf_len;
-			const char *tmpbuf;
+	return count - r;
+}
 
-			tmpbuf = ulog->tmpbuf;
-			tmpbuf_len = strlen(tmpbuf);
+#define copy_log_to_user(buf, kbuf, count) \
+	__copy_log_to_user((buf), (kbuf), (count), __func__, __LINE__)
 
-			copy_len = (uint32_t) min(tmpbuf_len, count - len);
-			n = copy_to_user(&buf[len], tmpbuf, copy_len);
+static ssize_t do_ulog(char *kbuf, uint32_t head, uint32_t tail, size_t count)
+{
+	ssize_t len;
 
-			if (copy_len == n) {
-				pr_warn("tkcoredrv: failed to copy flag to user");
-				return len;
-			}
+	len = (head + LOG_AREA_SIZE - tail) % LOG_AREA_SIZE;
 
-			ulog->tmpbuf = &tmpbuf[copy_len - n];
-			len += (copy_len - n);
-		} else {
-			copy_len = min((uint32_t) (count - len),
-					min(klog->tee_rb_len -
-						ulog->rseq % klog->tee_rb_len,
-						wseq - ulog->rseq));
-			n = copy_to_user(&buf[len],
-				&klog->tee_rb[ulog->rseq % klog->tee_rb_len],
-				copy_len);
-			if (copy_len == n) {
-				pr_warn("tkcoredrv: failed to copy klog to user\n");
-				return len;
-			}
+	/* copy at most 'count' byte */
+	len = len < count ? len : count;
 
-			ulog->rseq += (copy_len - n);
-			len += (copy_len - n);
-		}
-
-		wseq = READ_ONCE(log_ctl->info.tee_write_seq);
+	if (LOG_AREA_SIZE - tail > len)
+		memcpy(kbuf, &tee_log_area[tail], len);
+	else {
+		memcpy(kbuf, &tee_log_area[tail], LOG_AREA_SIZE - tail);
+		memcpy(kbuf + (LOG_AREA_SIZE - tail),
+			tee_log_area, len - (LOG_AREA_SIZE - tail));
 	}
 
 	return len;
 }
 
-static ssize_t tee_log_read(struct file *file, char __user *buf,
-				size_t count, loff_t *pos)
+static ssize_t tee_log_read(struct file *file, char __user *buf, size_t count,
+				loff_t *pos)
 {
 	ssize_t ret;
-	struct ulog *ulog;
-	struct klog *klog;
+	uint32_t head;
+	uint32_t tail, new_tail;
+	char *kbuf;
 
-	if (file == NULL || buf == NULL || pos == NULL)
-		return -EINVAL;
+	kbuf = kmalloc(count, GFP_KERNEL);
+	if (kbuf == NULL)
+		return -ENOMEM;
 
-	ulog = (struct ulog *) file->private_data;
-	if (ulog == NULL) {
-		pr_warn("tkcoredrv: file not open correctly\n");
-		return -EINVAL;
-	}
+	tee_log_lock();
 
-	klog = ulog->klog;
+	while (1) {
 
-	if (file->f_flags & O_NONBLOCK) {
-		/*
-		 * currently nonblock file is
-		 * not supported, since
-		 * we might need to enter
-		 * wait queue
-		 */
-		return -EAGAIN;
-	}
+		head = READ_ONCE(klog_head);
+		tail = READ_ONCE(klog_tail);
 
-	if (ulog->tmpbuf == NULL) {
-		long r;
+		{
+			DEFINE_WAIT(wait);
 
-		do {
-			if (signal_pending(current))
-				return -EINTR;
+			prepare_to_wait(&user_log_wqh,
+				&wait, TASK_INTERRUPTIBLE);
 
-			r = wait_event_interruptible_timeout(klog->wq,
-				ulog->rseq !=
-				READ_ONCE(klog->log_ctl->info.tee_write_seq),
-				msecs_to_jiffies(TEE_LOG_TIMEOUT_MS));
+			if (file->f_flags & O_NONBLOCK) {
+				ret = -EAGAIN;
+				finish_wait(&user_log_wqh, &wait);
 
-		} while (!r);
+				goto exit;
+			}
 
-		if (r < 0) {
-			/*
-			 * woke up due to signal, e.g.
-			 * calling program terminated
-			 * by CTRL-C
-			 */
-			return -EINTR;
+			if (signal_pending(current)) {
+				ret = -EINTR;
+				finish_wait(&user_log_wqh, &wait);
+
+				goto exit;
+			}
+
+			if (tee_proc_enable_log && head != tail) {
+				finish_wait(&user_log_wqh, &wait);
+				break;
+			}
+
+			tee_log_unlock();
+
+			/* allow user mode reader to be interrupted by signal */
+			schedule_timeout_interruptible(
+				msecs_to_jiffies(TEE_LOG_TIMEOUT_USER_MS));
+
+			tee_log_lock();
+
+			finish_wait(&user_log_wqh, &wait);
 		}
+
 	}
 
-	ret = ulog_rb(klog, ulog, buf, count);
-	*pos += ret;
+	/*
+	 * guarantee read from kernel log buffer
+	 * will always happen after the read
+	 * of klog_head/klog_tail
+	 *
+	 * This barrier will make a pair with
+	 * barrier instruction in tee_log_read()
+	 */
+	smp_mb();
+
+	ret = do_ulog(kbuf, head, tail, count);
+
+	if (ret > 0) {
+		uint32_t updated_tail;
+
+		new_tail = (tail + ret) % LOG_AREA_SIZE;
+
+		updated_tail = cmpxchg(&klog_tail, tail, new_tail);
+
+		if (updated_tail != tail) {
+			char notice[50];
+			int notice_len;
+			uint32_t obsolete_count;
+
+			pr_err("detect tail change from %u to %u\n",
+				tail, updated_tail);
+
+			obsolete_count = (updated_tail + LOG_AREA_SIZE - tail)
+				% LOG_AREA_SIZE;
+
+			/* guarantee there won't be overflow */
+			notice_len = snprintf(notice, 50,
+				"**** missing at least %u bytes ****\n",
+				obsolete_count);
+
+			if (obsolete_count < ret) {
+
+				if (notice_len >= count) {
+					/* user buffer is too short,
+					 * even for holding warning message
+					 */
+					ret = copy_log_to_user(
+						buf, notice, count);
+				} else {
+					ssize_t r1, r2;
+
+					r1 = copy_log_to_user(
+						buf, notice, notice_len);
+
+					if (r1 < 0) {
+						ret = r1;
+						goto exit;
+					}
+
+					r2 = copy_log_to_user(buf + notice_len,
+						kbuf + obsolete_count,
+						count - notice_len >
+							ret - obsolete_count ?
+							ret - obsolete_count :
+							count - notice_len);
+
+					if (r2 < 0) {
+						ret = r2;
+						goto exit;
+					}
+
+					ret += r2;
+				}
+			} else {
+				/* klog_tail increases too fast.
+				 * we do best we can...
+				 */
+				ret = copy_log_to_user(buf, notice,
+					notice_len < count ?
+					notice_len : count);
+			}
+		} else
+			ret = copy_log_to_user(buf, kbuf, ret);
+	}
+
+exit:
+	tee_log_unlock();
+	kfree(kbuf);
 
 	return ret;
 }
 
+static ssize_t tee_log_write(struct file *filp, const char __user *buf,
+				size_t count, loff_t *pos)
+{
+	int r;
+	char flag;
+
+	if (count == 0)
+		return -EINVAL;
+
+	r = copy_from_user(&flag, buf, 1);
+	if (r < 0)
+		return r;
+
+	if (flag == '1')
+		tee_proc_enable_log = true;
+	else if (flag == '0')
+		tee_proc_enable_log = false;
+
+	return count;
+}
+
+/* for the sake of compatibility with old linux kernel */
 int tee_log_open(struct inode *inode, struct file *file)
 {
 	int ret;
-	struct ulog *ulog;
-
-	static const char ulog_flag_begin[] =
-		"------ beginning of tee\n";
-
-	ulog = kmalloc(
-			sizeof(struct ulog),
-			GFP_KERNEL);
-	if (ulog == NULL)
-		return -ENOMEM;
-
-	ulog->tmpbuf = ulog_flag_begin;
-	ulog->klog = &klog;
 
 	ret = nonseekable_open(inode, file);
 
 	if (unlikely(ret)) {
-		kfree(ulog);
-
-		pr_warn("tkcoredrv: open file failed with %d\n", ret);
+		pr_err("open failed: %d\n", ret);
 		return ret;
 	}
 
-	file->private_data = (void *) ulog;
+	file->private_data = NULL;
 
 	return 0;
 }
 
 int tee_log_release(struct inode *inode, struct file *file)
 {
-	kfree(file->private_data);
 	return 0;
 }
 
 static const struct file_operations log_tee_ops = {
 	.read = tee_log_read,
 	.open = tee_log_open,
+	.write = tee_log_write,
 	.release = tee_log_release,
 };
 
@@ -367,7 +424,7 @@ static int tee_trace_open(struct inode *inode, struct file *filp)
 
 #define TRACE_BUF_SIZE 128
 
-static char trace_buf[TRACE_BUF_SIZE + 1];
+char trace_buf[TRACE_BUF_SIZE + 1];
 
 static ssize_t tee_trace_read(struct file *file, char __user *buf, size_t count,
 				loff_t *pos)
@@ -383,6 +440,8 @@ static ssize_t tee_trace_read(struct file *file, char __user *buf, size_t count,
 
 	if (buf == NULL)
 		return -EINVAL;
+
+	pr_debug("trace_read count %Zd pos %p\n", count, pos);
 
 	for (i = 0; i < NTRACES; i++) {
 		int l = snprintf(p, trace_buf + len - p, "%s %d ",
@@ -400,6 +459,8 @@ static ssize_t tee_trace_read(struct file *file, char __user *buf, size_t count,
 		__pos = 0;
 	else
 		__pos = *pos;
+
+	pr_debug("trace_read pos %lld\n", __pos);
 
 	if (__pos >= p - trace_buf)
 		return 0;
@@ -427,7 +488,7 @@ static ssize_t tee_trace_write(struct file *filp, const char __user *buf,
 	struct tee *tee = filp->private_data;
 
 	if (tee == NULL) {
-		pr_warn("bad proc fp\n");
+		pr_err("bad proc fp\n");
 		return -EINVAL;
 	}
 
@@ -475,7 +536,7 @@ static ssize_t tee_trace_write(struct file *filp, const char __user *buf,
 					return len;
 				}
 
-				pr_warn(
+				pr_err(
 					"trace config Failed with 0x%llx\n",
 					(uint64_t) param.a0);
 
@@ -519,7 +580,7 @@ static ssize_t copy_to_user_str(char __user *buf, ssize_t count, loff_t *pos,
 
 	__pos = *pos;
 	if (__pos > strlen(version) + 1) {
-		pr_warn("invalid pos: %lld len: %zu\n",
+		pr_err("invalid pos: %lld len: %zu\n",
 			__pos, strlen(version));
 		return -EINVAL;
 	}
@@ -535,9 +596,10 @@ static ssize_t copy_to_user_str(char __user *buf, ssize_t count, loff_t *pos,
 	*pos += cnt - r;
 
 	return cnt - r;
+
 }
 
-static int tee_version_major, tee_version_minor;
+int tee_version_major, tee_version_minor;
 
 static ssize_t tee_version_read(struct file *file, char __user *buf,
 				size_t count, loff_t *pos)
@@ -686,155 +748,260 @@ err:
 
 static irqreturn_t tkcore_log_irq_handler(int irq, void *dev_id)
 {
-	wake_up_all(&(klog.wq));
+	log_wakeup = 1;
+
+	wake_up_interruptible(&log_wqh);
+
 	return IRQ_HANDLED;
 }
 
-#define LINE_LENGTH	120U
+#define LINEBUF_SIZE	255
+char linebuf[LINEBUF_SIZE + 1];
+char *linebuf_last;
 
-static void log_rb(struct klog *klog)
+static bool ring_buffer_on_segment(uint32_t start, uint32_t count,
+				   uint32_t point)
 {
-	char *p;
-	uint32_t rseq, wseq;
+	uint32_t end;
 
-	const char tail[] = "<...>";
-	char line[LINE_LENGTH + sizeof(tail) + 1];
+	if (point > start)
+		return point - start <= count;
 
-	union tee_log_ctrl *log_ctl = klog->log_ctl;
-	char *rb = klog->tee_rb;
+	end = (start + count) % LOG_AREA_SIZE;
+	if (end >= start)
+		return false;
 
-	strcpy(&line[LINE_LENGTH], tail);
-
-	rseq = log_ctl->info.tee_read_seq;
-	wseq = READ_ONCE(log_ctl->info.tee_write_seq);
-
-	p = line;
-
-	do {
-		uint32_t copy_len, i, k;
-
-		if (rb_overrun(rseq, wseq, klog->tee_rb_len)) {
-			pr_info("---- interrupted\n");
-			rseq = log_ctl->info.tee_read_seq =
-				wseq - klog->tee_rb_len;
-		}
-
-		k = rseq % klog->tee_rb_len;
-
-		copy_len = min(LINE_LENGTH - (uint32_t) (p - line),
-				min(wseq - rseq, klog->tee_rb_len - k));
-
-		for (i = 0; i < copy_len &&
-				rb[k + i] != '\n' && rb[k + i] != '\0';
-				i++, p++) {
-			*p = rb[k + i];
-		}
-
-		rseq += i;
-
-		if (i != copy_len) {
-			/*
-			 * find an '\n' in buffer
-			 * we skip it
-			 */
-			++rseq;
-			*p = '\0';
-		}
-
-		if (((i == copy_len) && (p - line == LINE_LENGTH))
-				|| (i != copy_len)) {
-			pr_info("%s\n", line);
-			p = line;
-			log_ctl->info.tee_read_seq = rseq;
-		}
-
-		wseq = READ_ONCE(log_ctl->info.tee_write_seq);
-		if (wseq >= klog->tee_rb_len)
-			klog->overwrite = true;
-	} while (rseq != wseq);
+	/* wrap around case */
+	return end >= point;
 }
 
-static int logd(void *args)
+/* TODO protect with lock to avoid contention with usr lock */
+static uint32_t adjust_klog_tail(uint32_t head, uint32_t tail, uint32_t count)
 {
-	struct klog *klog = (struct klog *) args;
-	union tee_log_ctrl *log_ctl = klog->log_ctl;
 
-	++log_ctl->info.tee_reader_alive;
-
-	while (!kthread_should_stop()) {
-		/*
-		 * a memory barrier is implied by
-		 * wait_event_interruptible_timeout(..)
-		 */
-		if (wait_event_interruptible_timeout(klog->wq,
-			log_ctl->info.tee_read_seq !=
-			READ_ONCE(log_ctl->info.tee_write_seq),
-			msecs_to_jiffies(TEE_LOG_TIMEOUT_MS)) <= 0) {
-			/*
-			 * interrupted /
-			 * timeout and condition
-			 * evaluated to false
-			 */
-
-			continue;
-		}
-
-		log_rb(klog);
+	if (ring_buffer_on_segment(head, count, tail)) {
+		/* if wrap around happens, move log_tail forward. */
+		return (head + count + 1) % LOG_AREA_SIZE;
 	}
 
-	--log_ctl->info.tee_reader_alive;
-	return 0;
+	return tail;
 }
 
-static int register_klog_irq(struct klog *klog)
+#ifdef TKCORE_LOG_KMSG
+
+static void print_to_kmsg(char *buf, uint32_t count)
 {
-	int r;
-	int irq_num;
+	size_t n = 0;
 
-#ifdef CONFIG_OF
-	struct device_node *node;
-
-	node = of_find_compatible_node(NULL, NULL,
-						"trustkernel,tkcore");
-	if (node) {
-		irq_num = irq_of_parse_and_map(node, 0);
-	} else {
-		pr_err("tkcoredrv: node not found\n");
-		irq_num = -1;
+	if (count == 0) {
+		pr_warn("count == 0!!\n");
+		return;
 	}
-#else
-	irq_num = TEE_LOG_IRQ;
+
+	while (n < (size_t) count) {
+		ssize_t i;
+		bool found = false;
+
+		if (!buf[n]) {
+			if (linebuf_last != linebuf) {
+				/* print log that is left in
+				 * the linebuf (if any) out
+				 * if encountered with a '\0'
+				 */
+
+				/* linebuf_last will not
+				 * exceed &linebuf[LINEBUF]
+				 */
+				*(linebuf_last) = '\0';
+				pr_info("[TKCORE] %s", linebuf);
+				linebuf_last = linebuf;
+				continue;
+			}
+		}
+
+		while (!buf[n] && n < (size_t) count)
+			++n;
+
+		for (i = n; i < count; i++) {
+			if (i - n == linebuf + LINEBUF_SIZE - linebuf_last) {
+				memcpy(linebuf_last, buf + n, i - n);
+				linebuf[LINEBUF_SIZE] = '\0';
+
+				if (buf[i] == '\0') {
+					/* this character happens
+					 * to be a '\0'
+					 */
+					n = i + 1;
+				} else
+					n = i;
+				found = true;
+				break;
+			}
+
+			if (buf[i] == '\0') {
+				/* copy the trailing '\0' */
+				memcpy(linebuf_last, buf + n, i - n + 1);
+				n = i + 1;
+				found = true;
+				break;
+			}
+		}
+
+		if (!found) {
+			/* update linebuf_last */
+			memcpy(linebuf_last, buf + n, count - n);
+			linebuf_last += (count - n);
+			n = count;
+		} else {
+			/* No matter whether '\0' is found, we have to print
+			 * log out, since there is not enough space left.
+			 */
+			pr_info("[TKCORE] %s", linebuf);
+			linebuf_last = linebuf;
+		}
+
+	}
+}
+
 #endif
 
-	if (irq_num < 0) {
-		pr_warn("tkcoredrv: unknown tee_log_irq id\n");
-		return -1;
+static uint32_t do_klog(uint32_t rseq, uint32_t wseq, uint32_t head,
+			uint32_t tail)
+{
+	uint32_t count, idx;
+	uint32_t new_tail;
+
+	count = wseq - rseq;
+
+	if (count > LOG_AREA_SIZE) {
+		pr_err("Truncate log size %u. kbuffer size: %u\n",
+			count, LOG_AREA_SIZE);
+		idx = log_seq2idx(rseq + (count - LOG_AREA_SIZE));
+		count = LOG_AREA_SIZE;
+	} else
+		idx = log_seq2idx(rseq);
+
+	/* copy from TEE to tmpbuf */
+	if (tee_log_len - idx >= count)
+		memcpy(tee_log_buf, tee_log_vir_addr + idx, count);
+	else {
+		memcpy(tee_log_buf, tee_log_vir_addr + idx, tee_log_len - idx);
+		memcpy(tee_log_buf + (tee_log_len - idx), tee_log_vir_addr,
+			   count - (tee_log_len - idx));
+	}
+#ifdef TKCORE_LOG_KMSG
+	print_to_kmsg(tee_log_buf, count);
+#endif
+
+	new_tail = adjust_klog_tail(head, tail, count);
+
+	/* copy from tmpbuf to kernel ring buffer */
+	if (LOG_AREA_SIZE - head >= count)
+		memcpy(tee_log_area + head, tee_log_buf, count);
+	else {
+		memcpy(tee_log_area + head, tee_log_buf, LOG_AREA_SIZE - head);
+
+		memcpy(tee_log_area,
+			   tee_log_buf + (LOG_AREA_SIZE - head),
+			   count - (LOG_AREA_SIZE - head));
 	}
 
-	pr_info("tkcoredrv: tee_log_irq id = %d\n",
-			irq_num);
+	/* guarantee read into kernel log buffer
+	 * will always happen before the update
+	 * of klog_head (and klog_tail if there's
+	 * an overflow
+	 *
+	 * This barrier will make a pair with
+	 * barrier instruction in tee_log_read()
+	 */
+	smp_mb();
 
-	r = request_irq(irq_num,
-		(irq_handler_t) tkcore_log_irq_handler,
-		IRQF_TRIGGER_RISING,
-		"tee_log_irq", NULL);
-
-	if (r != 0) {
-		pr_err("tkcoredrv: failed to register klog_irq with %d\n",
-			r);
-		return -1;
+	if (new_tail != tail) {
+		klog_tail = new_tail;
+		barrier();
 	}
 
-	klog->notify_irq = irq_num;
+	klog_head = (head + count) % LOG_AREA_SIZE;
+
+	wake_up_interruptible(&user_log_wqh);
+
+	return wseq;
+}
+
+int logd(void *data)
+{
+	++tee_buf_vir_ctl->info.tee_reader_alive;
+
+	while (1) {
+		uint32_t head, tail;
+		uint32_t read_seq, new_read_seq, write_seq;
+
+		read_seq = tee_buf_vir_ctl->info.tee_read_seq;
+		write_seq = tee_buf_vir_ctl->info.tee_write_seq;
+
+		while (read_seq == write_seq) {
+			if (kthread_should_stop())
+				goto logd_exit;
+
+			read_seq = tee_buf_vir_ctl->info.tee_read_seq;
+			write_seq = tee_buf_vir_ctl->info.tee_write_seq;
+
+			wait_event_interruptible_timeout(log_wqh,
+				log_wakeup != 0,
+				msecs_to_jiffies(TEE_LOG_TIMEOUT_MS));
+			log_wakeup = 0;
+		}
+
+		if (write_seq - read_seq > tee_log_len) {
+			pr_err(
+				"Wrapped around read_seq %u write_seq %u\n",
+				write_seq, read_seq);
+
+			/* fix the overflow */
+			read_seq = write_seq - tee_log_len;
+
+		}
+
+		head = klog_head;
+		/* the only read from tail in logd happens here */
+		tail = klog_tail;
+
+		new_read_seq = do_klog(read_seq, write_seq, head, tail);
+
+		/* guarantee that read from shared buffer will
+		 * always happen before update of read sequence.
+		 *
+		 * TEE will use read sequence to check whether
+		 * there is a requirement to fire an irq to
+		 * wakeup logd
+		 *
+		 * Therefore, this dmb will make a pair
+		 * with another dmb in TEE OS
+		 */
+		smp_mb();
+		tee_buf_vir_ctl->info.tee_read_seq = new_read_seq;
+	}
+
+logd_exit:
+	--tee_buf_vir_ctl->info.tee_reader_alive;
 
 	return 0;
 }
 
-static int init_tos_version(struct tee *tee)
+int tee_init_procfs(struct tee *tee)
 {
-	struct smc_param param;
+	int r = 0;
+	struct smc_param param = { 0 };
 
-	memset(&param, 0, sizeof(param));
+	if (sizeof(union tee_log_ctrl) != TEE_LOG_CTL_BUF_SIZE) {
+		pr_err(
+			"Invalid tee_log_ctrl size. Expecting %zu bytes. Get %d bytes\n",
+			sizeof(union tee_log_ctrl), TEE_LOG_CTL_BUF_SIZE);
+		return -1;
+	}
+
+	mutex_init(&log_mutex);
+	mutex_init(&trace_mutex);
 
 	/* get os revision */
 	param.a0 = TEESMC32_CALL_GET_OS_REVISION;
@@ -846,197 +1013,142 @@ static int init_tos_version(struct tee *tee)
 	pr_info("tkcoreos-rev: 0.%d.%d-gp\n",
 		tee_version_major, tee_version_minor);
 
-	return 0;
-}
-
-static int init_klog_shm_args(struct tee *tee,
-							unsigned long *shm_pa,
-							unsigned int *shm_len)
-{
-	struct smc_param param;
-
-	unsigned long pa;
-	unsigned int len;
-
-	if (shm_pa == NULL || shm_len == NULL)
-		return -1;
-
-	memset(&param, 0, sizeof(param));
-
+	/* map control header */
 	param.a0 = TEESMC32_ST_FASTCALL_GET_LOGM_CONFIG;
 	tee->ops->raw_call_tee(&param);
 
+	/* wait until */
 	if (param.a0 != TEESMC_RETURN_OK) {
 		pr_err("Log service not available: 0x%x",
 			(uint) param.a0);
 		return -1;
 	}
 
-	pa = param.a1;
-	len = param.a2;
+	pr_info("phy_ctl 0x%llx buf_len 0x%llx\n",
+		(uint64_t) param.a1, (uint64_t) param.a2);
 
-	if (len <= TEE_LOG_CTL_BUF_SIZE) {
-		pr_err("tkcoredrv: invalid shm_len: %u\n",
-				len);
+	tee_buf_phy_ctl = param.a1;
+	tee_buf_len = (unsigned int) param.a2;
+
+	if (tee_buf_len <= TEE_LOG_CTL_BUF_SIZE) {
+		pr_err("Invalid tee_buf_len: %u\n", tee_buf_len);
 		return -1;
 	}
 
-	if ((pa & (PAGE_SIZE - 1)) ||
-		(len & (PAGE_SIZE - 1))) {
-		pr_err("tkcoredrv: invalid klog args\n");
-		pr_err("tkcoredrv: pa=0x%lx len=0x%x\n",
-				pa, len);
+	if ((tee_buf_len & (PAGE_SIZE - 1)) ||
+		(tee_buf_phy_ctl & (PAGE_SIZE - 1))) {
+		pr_err("Invalid tee buf addr: 0x%lx size: 0x%x\n",
+			tee_buf_phy_ctl, tee_buf_len);
 		return -1;
 	}
 
-	*shm_pa = pa;
-	*shm_len = len;
+	tee_buf_vir_ctl = tee_map_cached_shm(tee_buf_phy_ctl, tee_buf_len);
 
-	return 0;
-}
+	tee_log_vir_addr = (uint8_t *) tee_buf_vir_ctl + TEE_LOG_CTL_BUF_SIZE;
+	tee_log_len = tee_buf_vir_ctl->info.tee_buf_size;
 
-static int init_klog_shm(struct klog *klog,
-						unsigned long shm_pa,
-						unsigned int shm_len)
-{
-	char *rb;
-	uint32_t rb_len;
-	union tee_log_ctrl *log_ctl;
-
-	log_ctl = tee_map_cached_shm(shm_pa,
-								shm_len);
-
-	if (log_ctl == NULL) {
-		pr_err("tkcoredrv: failed to map shm\n");
-		pr_err("tkcoredrv: pa=0x%lx len=%u\n",
-				shm_pa, shm_len);
+	if (tee_log_len != tee_buf_len - TEE_LOG_CTL_BUF_SIZE) {
+		iounmap(tee_buf_vir_ctl);
+		pr_err("Invalid tee log length: %u\n",
+			tee_log_len);
 		return -1;
 	}
 
-	rb = (char *) log_ctl + TEE_LOG_CTL_BUF_SIZE;
-	rb_len = log_ctl->info.tee_buf_size;
+	/* map log buffer */
+	tee_buf_vir_ctl->info.tee_reader_alive = 0;
 
-	if (rb_len != shm_len - TEE_LOG_CTL_BUF_SIZE) {
-		pr_err("tkcoredrv:Unexpected shm length: %u\n",
-				shm_len);
-		tee_unmap_cached_shm(log_ctl);
+	init_waitqueue_head(&log_wqh);
+	init_waitqueue_head(&user_log_wqh);
+
+	tee_log_area = (char *) __get_free_pages(
+				GFP_KERNEL, LOG_AREA_PAGE_ORDER);
+	if (tee_log_area == NULL) {
+		iounmap(tee_buf_vir_ctl);
+		pr_err("Failed to allocate 2**4 pages for log area\n");
 		return -1;
 	}
 
-	log_ctl->info.tee_reader_alive = 0;
-
-	klog->log_ctl = log_ctl;
-
-	klog->tee_rb = rb;
-	klog->tee_rb_len = rb_len;
-
-	return 0;
-}
-
-static int init_klog(struct klog *klog, struct tee *tee)
-{
-	unsigned long shm_pa;
-	unsigned int shm_len;
-
-	BUILD_BUG_ON(sizeof(union tee_log_ctrl)
-			!= TEE_LOG_CTL_BUF_SIZE);
-
-	if (init_klog_shm_args(tee, &shm_pa,
-						&shm_len) < 0) {
-		return -1;
+	tee_log_buf = (char *) __get_free_pages(GFP_KERNEL,
+						LOG_AREA_PAGE_ORDER);
+	if (tee_log_buf == NULL) {
+		pr_err("Failed to allocate 2**4 pages for log area\n");
+		goto err0;
 	}
 
-	if (init_klog_shm(klog,
-					shm_pa,
-					shm_len) < 0) {
-		return -1;
+	/* (16 << 10) == 16KB == 4 Pages */
+	memset(tee_log_area, 0, LOG_AREA_SIZE);
+
+	klog_head = klog_tail = 0;
+
+	linebuf_last = linebuf;
+
+	log_ts = kthread_run(logd, NULL, "tkcore_logwq");
+	if (log_ts == NULL) {
+		pr_err("Failed to create kthread log_ts\n");
+		r = -1;
+		goto err1;
 	}
 
-	klog->overwrite = false;
+	{
+		int irq_num;
+#ifdef CONFIG_OF
+		struct device_node *node;
 
-	init_waitqueue_head(&klog->wq);
+		node = of_find_compatible_node(NULL, NULL,
+						"trustkernel,tkcore");
+		if (node)
+			irq_num = irq_of_parse_and_map(node, 0);
+		else {
+			pr_err("tkcoredrv: tkcore node not found\n");
+			irq_num = -1;
+		}
+#else
+		irq_num = TEE_LOG_IRQ;
+#endif
 
-	if (register_klog_irq(klog) < 0)
-		goto err_unmap_shm;
+		if (irq_num > 0) {
+			pr_info("tkcore_log_irq: %d\n", irq_num);
+			r = request_irq(irq_num,
+					(irq_handler_t) tkcore_log_irq_handler,
+					IRQF_TRIGGER_RISING,
+					"tee_log_irq", NULL);
+			if (r != 0) {
+				pr_err(
+					"Failed to request tee_log_irq interrupt\n");
+				goto err2;
+			}
 
-
-	klog->ts = kthread_run(logd,
-				(void *) klog, "tee-log");
-	if (klog->ts == NULL) {
-		pr_err("tkcoredrv: Failed to create kthread\n");
-		goto err_free_irq;
+			log_irq_num = irq_num;
+		}
 	}
 
-	return 0;
-
-err_free_irq:
-	if (klog->notify_irq > 0)
-		free_irq(klog->notify_irq, NULL);
-
-err_unmap_shm:
-	tee_unmap_cached_shm(klog->log_ctl);
-
-	memset(klog, 0, sizeof(*klog));
-	/*
-	 * set notify_irq to
-	 * un-initialized state
-	 */
-	klog->notify_irq = -1;
-
-	return -1;
-}
-
-/* TODO wait for kthread logwq
- * to exit
- */
-static void free_klog(struct klog *klog)
-{
-	if (klog->notify_irq > 0) {
-		free_irq(klog->notify_irq, NULL);
-		klog->notify_irq = -1;
-	}
-
-	kthread_stop(klog->ts);
-	klog->ts = NULL;
-
-	/*
-	 * wake up all waiters
-	 * in wq, since we're
-	 * about to leave
-	 */
-	wake_up_all(&(klog->wq));
-
-	/*
-	 * we don't unmap klog->tee_rb,
-	 * because it's not
-	 * quite easy to check whether
-	 * all user process using
-	 * procfs has finished
-	 */
-}
-
-int tee_init_procfs(struct tee *tee)
-{
-	mutex_init(&trace_mutex);
-
-	init_tos_version(tee);
-
-	if (create_entry(tee) < 0)
-		return -1;
-
-	if (init_klog(&klog, tee) < 0)
-		goto out_remove_entry;
+	if (create_entry(tee))
+		goto err3;
 
 	return 0;
 
-out_remove_entry:
-	remove_entry();
+err3:
+	if (log_irq_num > 0)
+		free_irq(log_irq_num, NULL);
+err2:
+	kthread_stop(log_ts);
+err1:
+	free_pages((unsigned long) tee_log_buf, LOG_AREA_PAGE_ORDER);
+err0:
+	free_pages((unsigned long) tee_log_area, LOG_AREA_PAGE_ORDER);
 
-	return -1;
+	iounmap(tee_buf_vir_ctl);
+
+	return r;
 }
 
 void tee_exit_procfs(void)
 {
 	remove_entry();
-	free_klog(&klog);
+
+	if (log_irq_num > 0)
+		free_irq(log_irq_num, NULL);
+
+	free_pages((unsigned long) tee_log_area, LOG_AREA_PAGE_ORDER);
+	free_pages((unsigned long) tee_log_buf, LOG_AREA_PAGE_ORDER);
 }

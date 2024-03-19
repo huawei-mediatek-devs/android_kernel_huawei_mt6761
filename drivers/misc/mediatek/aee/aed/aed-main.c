@@ -40,7 +40,6 @@
 #include <linux/completion.h>
 #include <linux/rtc.h>
 #include "aed.h"
-#include <linux/highmem.h>
 
 struct aee_req_queue {
 	struct list_head list;
@@ -68,7 +67,7 @@ static int ke_log_available = 1;
 static struct proc_dir_entry *aed_proc_dir;
 
 #define MaxStackSize 8100
-#define MaxMapsSize 65536
+#define MaxMapsSize 16384
 
 /******************************************************************************
  * DEBUG UTILITIES
@@ -80,7 +79,7 @@ void msg_show(const char *prefix, struct AE_Msg *msg)
 	const char *cmd_id = NULL;
 
 	if (msg == NULL) {
-		pr_info("%s: EMPTY msg\n", prefix);
+		LOGD("%s: EMPTY msg\n", prefix);
 		return;
 	}
 
@@ -150,8 +149,7 @@ void msg_show(const char *prefix, struct AE_Msg *msg)
 		break;
 	}
 
-	pr_debug("%s: cmdType=%s[%d] cmdId=%s[%d] seq=%d arg=%x len=%d\n",
-		prefix,
+	LOGD("%s: cmdType=%s[%d] cmdId=%s[%d] seq=%d arg=%x len=%d\n", prefix,
 		cmd_type, msg->cmdType, cmd_id, msg->cmdId, msg->seq, msg->arg,
 		msg->len);
 }
@@ -160,16 +158,16 @@ void msg_show(const char *prefix, struct AE_Msg *msg)
 /******************************************************************************
  * CONSTANT DEFINITIONS
  *****************************************************************************/
-#define CURRENT_KE_CONSOLE "current-ke-console"
 #define CURRENT_EE_COREDUMP "current-ee-coredump"
-
+#ifndef CONFIG_FINAL_RELEASE
+#define CURRENT_KE_CONSOLE "current-ke-console"
 #define CURRENT_KE_ANDROID_MAIN "current-ke-android_main"
 #define CURRENT_KE_ANDROID_RADIO "current-ke-android_radio"
 #define CURRENT_KE_ANDROID_SYSTEM "current-ke-android_system"
 #define CURRENT_KE_USERSPACE_INFO "current-ke-userspace_info"
 
 #define CURRENT_KE_MMPROFILE "current-ke-mmprofile"
-
+#endif
 #define MAX_EE_COREDUMP 0x800000
 
 /******************************************************************************
@@ -223,10 +221,9 @@ static struct aed_dev aed_dev;
 
 inline void msg_destroy(char **ppmsg)
 {
-	char *ppmsg_tmp = *ppmsg;
 	if (*ppmsg != NULL) {
+		vfree(*ppmsg);
 		*ppmsg = NULL;
-		vfree(ppmsg_tmp);
 	}
 }
 
@@ -239,7 +236,7 @@ inline struct AE_Msg *msg_create(char **ppmsg, int extra_size)
 
 	*ppmsg = vzalloc(size);
 	if (*ppmsg == NULL) {
-		pr_info("%s : kzalloc() fail\n", __func__);
+		LOGD("%s : kzalloc() fail\n", __func__);
 		return NULL;
 	}
 
@@ -266,7 +263,7 @@ static ssize_t msg_copy_to_user(const char *prefix, char *msg, char __user *buf,
 		memcpy(msg_tmp, msg,
 		((struct AE_Msg *)msg)->len + sizeof(struct AE_Msg));
 	} else {
-		pr_info("%s : kzalloc() fail!\n", __func__);
+		LOGD("%s : kzalloc() fail!\n", __func__);
 		msg_tmp = msg;
 	}
 
@@ -282,7 +279,7 @@ static ssize_t msg_copy_to_user(const char *prefix, char *msg, char __user *buf,
 	}
 	/* TODO: semaphore */
 	if ((*f_pos + count) > len) {
-		pr_info("read size overflow, count=%zx, *f_pos=%llx\n",
+		LOGD("read size overflow, count=%zx, *f_pos=%llx\n",
 				count, *f_pos);
 		count = len - *f_pos;
 		ret = -EFAULT;
@@ -290,7 +287,7 @@ static ssize_t msg_copy_to_user(const char *prefix, char *msg, char __user *buf,
 	}
 
 	if (copy_to_user(buf, msg_tmp + *f_pos, count)) {
-		pr_info("copy_to_user failed\n");
+		LOGD("copy_to_user failed\n");
 		ret = -EFAULT;
 		goto out;
 	}
@@ -309,6 +306,8 @@ static void ke_gen_notavail_msg(void)
 {
 	struct AE_Msg *rep_msg;
 
+	LOGD("%s\n", __func__);
+
 	rep_msg = msg_create(&aed_dev.kerec.msg, 0);
 	if (rep_msg == NULL)
 		return;
@@ -324,6 +323,8 @@ static void ke_gen_class_msg(void)
 #define KE_CLASS_SIZE 12
 	struct AE_Msg *rep_msg;
 	char *data;
+
+	LOGD("%s\n", __func__);
 
 	rep_msg = msg_create(&aed_dev.kerec.msg, KE_CLASS_SIZE);
 	if (rep_msg == NULL)
@@ -343,6 +344,8 @@ static void ke_gen_type_msg(void)
 	struct AE_Msg *rep_msg;
 	char *data;
 
+	LOGD("%s\n", __func__);
+
 	rep_msg = msg_create(&aed_dev.kerec.msg, KE_TYPE_SIZE);
 	if (rep_msg == NULL)
 		return;
@@ -359,6 +362,7 @@ static void ke_gen_module_msg(void)
 	struct AE_Msg *rep_msg;
 	char *data;
 
+	LOGD("%s\n", __func__);
 	rep_msg = msg_create(&aed_dev.kerec.msg,
 			strlen(aed_dev.kerec.lastlog->module) + 1);
 	if (rep_msg == NULL)
@@ -377,6 +381,9 @@ static void ke_gen_detail_msg(const struct AE_Msg *req_msg)
 	struct AE_Msg *rep_msg;
 	char *data;
 
+	LOGD("%s is called\n", __func__);
+	LOGD("%s req_msg arg:%d\n", __func__, req_msg->arg);
+
 	rep_msg = msg_create(&aed_dev.kerec.msg,
 			aed_dev.kerec.lastlog->detail_len + 1);
 	if (rep_msg == NULL)
@@ -391,6 +398,7 @@ static void ke_gen_detail_msg(const struct AE_Msg *req_msg)
 				aed_dev.kerec.lastlog->detail_len);
 	data[aed_dev.kerec.lastlog->detail_len] = 0;
 
+	LOGD("%s is return: %s\n", __func__, data);
 }
 
 static void ke_gen_process_msg(void)
@@ -398,6 +406,7 @@ static void ke_gen_process_msg(void)
 	struct AE_Msg *rep_msg;
 	char *data;
 
+	LOGD("%s\n", __func__);
 	rep_msg = msg_create(&aed_dev.kerec.msg, AEE_PROCESS_NAME_LENGTH);
 	if (rep_msg == NULL)
 		return;
@@ -417,6 +426,7 @@ static void ke_gen_backtrace_msg(void)
 	struct AE_Msg *rep_msg;
 	char *data;
 
+	LOGD("%s\n", __func__);
 	rep_msg = msg_create(&aed_dev.kerec.msg, AEE_BACKTRACE_LENGTH);
 	if (rep_msg == NULL)
 		return;
@@ -448,13 +458,13 @@ static void ke_gen_userbacktrace_msg(void)
 	rep_msg->cmdId = AE_REQ_USERSPACEBACKTRACE;
 
 	rep_msg->len = userinfo_len;
-	pr_debug("%s rep_msg->len:%lx,\n", __func__, (long)rep_msg->len);
+	LOGD("%s rep_msg->len:%lx,\n", __func__, (long)rep_msg->len);
 
 	memcpy(data, (char *) &(aed_dev.kerec.lastlog->userthread_stack),
 			sizeof(pid_t) + sizeof(int));
-	pr_debug("len(pid+int):%lx\n", (long)(sizeof(pid_t)+sizeof(int)));
-	pr_debug("des :%lx\n", (long)(data + sizeof(pid_t)+sizeof(int)));
-	pr_debug("src addr :%lx\n", (long)((char *)
+	LOGD("len(pid+int):%lx\n", (long)(sizeof(pid_t)+sizeof(int)));
+	LOGD("des :%lx\n", (long)(data + sizeof(pid_t)+sizeof(int)));
+	LOGD("src addr :%lx\n", (long)((char *)
 		(aed_dev.kerec.lastlog->userthread_stack.Userthread_Stack)));
 
 	memcpy((data + sizeof(pid_t)+sizeof(int)), (char *)
@@ -470,6 +480,7 @@ static void ke_gen_userbacktrace_msg(void)
 
 	}
 	#endif
+	LOGD("%s  +++\n", __func__);
 }
 
 static void ke_gen_usermaps_msg(void)
@@ -490,19 +501,20 @@ static void ke_gen_usermaps_msg(void)
 	rep_msg->cmdId = AE_REQ_USER_MAPS;
 
 	rep_msg->len = userinfo_len;
-	pr_debug("%s rep_msg->len:%lx,\n", __func__, (long)rep_msg->len);
+	LOGD("%s rep_msg->len:%lx,\n", __func__, (long)rep_msg->len);
 
 	memcpy(data, (char *) &(aed_dev.kerec.lastlog->userthread_maps),
 			sizeof(pid_t) + sizeof(int));
-	pr_debug("len(pid+int):%lx\n", (long)(sizeof(pid_t)+sizeof(int)));
-	pr_debug("des :%lx\n", (long)(data + sizeof(pid_t)+sizeof(int)));
-	pr_debug("src addr :%lx\n", (long)((char *)
+	LOGD("len(pid+int):%lx\n", (long)(sizeof(pid_t)+sizeof(int)));
+	LOGD("des :%lx\n", (long)(data + sizeof(pid_t)+sizeof(int)));
+	LOGD("src addr :%lx\n", (long)((char *)
 		(aed_dev.kerec.lastlog->userthread_maps.Userthread_maps)));
 
 	memcpy((data + sizeof(pid_t)+sizeof(int)), (char *)
 		(aed_dev.kerec.lastlog->userthread_maps.Userthread_maps),
 		aed_dev.kerec.lastlog->userthread_maps.Userthread_mapsLength);
 
+	LOGD("%s  +++\n", __func__);
 }
 
 
@@ -539,12 +551,14 @@ static void ke_gen_user_reg_msg(void)
 	}
 	#endif
 	#endif
+	LOGD("%s +++\n", __func__);
 }
 
 static int ke_gen_ind_msg(struct aee_oops *oops)
 {
 	unsigned long flags = 0;
 
+	LOGD("%s oops %p\n", __func__, oops);
 	if (oops == NULL)
 		return -1;
 
@@ -559,7 +573,7 @@ static int ke_gen_ind_msg(struct aee_oops *oops)
 		 *  Code should NEVER come here now!!!
 		 */
 
-		pr_info(
+		LOGW(
 			"%s: BUG!!! More than one kernel message queued, AEE does not support concurrent KE dump\n"
 			, __func__);
 		aee_oops_free(oops);
@@ -613,7 +627,7 @@ static int ke_gen_ind_msg(struct aee_oops *oops)
 		 */
 		if (!wait_for_completion_timeout(&aed_ke_com,
 					msecs_to_jiffies(5 * 60 * 1000)))
-			pr_info("%s: TIMEOUT, not receive close event, skip\n",
+			LOGD("%s: TIMEOUT, not receive close event, skip\n",
 					__func__);
 	}
 	return 0;
@@ -623,6 +637,7 @@ static void ke_destroy_log(void)
 {
 	struct aee_oops *lastlog = aed_dev.kerec.lastlog;
 
+	LOGD("%s\n", __func__);
 	msg_destroy(&aed_dev.kerec.msg);
 
 	if (aed_dev.kerec.lastlog) {
@@ -662,7 +677,7 @@ static void ke_queue_request(struct aee_oops *oops)
 	list_add_tail(&oops->list, &ke_queue.list);
 	spin_unlock_irqrestore(&ke_queue.lock, flags);
 	ret = queue_work(system_wq, &ke_work);
-	pr_debug("%s: add new ke work, status %d\n", __func__, ret);
+	LOGI("%s: add new ke work, status %d\n", __func__, ret);
 }
 
 static void ke_worker(struct work_struct *work)
@@ -673,7 +688,7 @@ static void ke_worker(struct work_struct *work)
 
 	list_for_each_entry_safe(oops, n, &ke_queue.list, list) {
 		if (oops == NULL) {
-			pr_info("%s:Invalid aee_oops struct\n", __func__);
+			LOGD("%s:Invalid aee_oops struct\n", __func__);
 			return;
 		}
 
@@ -693,6 +708,8 @@ static void ee_gen_notavail_msg(void)
 {
 	struct AE_Msg *rep_msg;
 
+	LOGD("%s\n", __func__);
+
 	rep_msg = msg_create(&aed_dev.eerec->msg, 0);
 	if (rep_msg == NULL)
 		return;
@@ -709,6 +726,7 @@ static void ee_gen_class_msg(void)
 	struct AE_Msg *rep_msg;
 	char *data;
 
+	LOGD("%s\n", __func__);
 
 	rep_msg = msg_create(&aed_dev.eerec->msg, EX_CLASS_EE_SIZE);
 	if (rep_msg == NULL)
@@ -726,6 +744,8 @@ static void ee_gen_type_msg(void)
 	struct AE_Msg *rep_msg;
 	char *data;
 	struct aed_eerec *eerec = aed_dev.eerec;
+
+	LOGD("%s\n", __func__);
 
 	rep_msg =
 	    msg_create(&eerec->msg,
@@ -750,6 +770,8 @@ static void ee_gen_process_msg(void)
 	char *data;
 	struct aed_eerec *eerec = aed_dev.eerec;
 
+	LOGD("%s\n", __func__);
+
 	rep_msg = msg_create(&eerec->msg, PROCESS_STRLEN);
 	if (rep_msg == NULL)
 		return;
@@ -770,6 +792,7 @@ static void ee_gen_process_msg(void)
 						eerec->fatal2);
 		}
 	} else {
+		LOGD("%s else\n", __func__);
 		n = snprintf(data, PROCESS_STRLEN, "%s", eerec->exp_filename);
 	}
 
@@ -795,6 +818,8 @@ static void ee_gen_detail_msg(void)
 	int ccci_log_size = 0;
 	struct aed_eerec *eerec = aed_dev.eerec;
 
+	LOGD("%s\n", __func__);
+
 	if (strncmp(eerec->assert_type, "md32", 4) == 0) {
 		msgsize = eerec->ee_log_size + 128;
 		rep_msg = msg_create(&eerec->msg, msgsize);
@@ -806,8 +831,7 @@ static void ee_gen_detail_msg(void)
 				"== EXTERNAL EXCEPTION LOG ==\n%s\n",
 				(char *)eerec->ee_log);
 		if (l >= msgsize - n)
-			pr_info("ee_log may overflow! %d >= %d\n",
-				l, msgsize - n);
+			LOGD("ee_log may overflow! %d >= %d\n", l, msgsize - n);
 		n += min(l, msgsize - n);
 	} else {
 		if (strncmp(eerec->assert_type, "modem", 5) == 0) {
@@ -867,6 +891,8 @@ static void ee_gen_coredump_msg(void)
 	struct AE_Msg *rep_msg;
 	char *data;
 
+	LOGD("%s\n", __func__);
+
 	rep_msg = msg_create(&aed_dev.eerec->msg, 256);
 	if (rep_msg == NULL)
 		return;
@@ -882,6 +908,8 @@ static void ee_gen_coredump_msg(void)
 static void ee_destroy_log(void)
 {
 	struct aed_eerec *eerec = aed_dev.eerec;
+
+	LOGD("%s\n", __func__);
 
 	if (eerec == NULL)
 		return;
@@ -922,6 +950,7 @@ static void ee_gen_ind_msg(struct aed_eerec *eerec)
 	unsigned long flags = 0;
 	struct AE_Msg *rep_msg;
 
+	LOGD("%s\n", __func__);
 	if (eerec == NULL)
 		return;
 
@@ -936,7 +965,7 @@ static void ee_gen_ind_msg(struct aed_eerec *eerec)
 	} else {
 		/* should never come here, skip*/
 		spin_unlock_irqrestore(&aed_device_lock, flags);
-		pr_info("%s: More than one EE message queued\n", __func__);
+		LOGW("%s: More than one EE message queued\n", __func__);
 		return;
 	}
 	spin_unlock_irqrestore(&aed_device_lock, flags);
@@ -955,8 +984,7 @@ static void ee_gen_ind_msg(struct aed_eerec *eerec)
 	wake_up(&aed_dev.eewait);
 	if (wait_for_completion_timeout(&aed_ee_com,
 					msecs_to_jiffies(5 * 60 * 1000)))
-		pr_info("%s: TIMEOUT, not receive close event, skip\n",
-			__func__);
+		LOGD("%s: TIMEOUT, not receive close event, skip\n", __func__);
 }
 
 static void ee_queue_request(struct aed_eerec *eerec)
@@ -968,7 +996,7 @@ static void ee_queue_request(struct aed_eerec *eerec)
 	list_add_tail(&eerec->list, &ee_queue.list);
 	spin_unlock_irqrestore(&ee_queue.lock, flags);
 	ret = queue_work(system_wq, &ee_work);
-	pr_debug("%s: add new ee work, status %d\n", __func__, ret);
+	LOGI("%s: add new ee work, status %d\n", __func__, ret);
 }
 
 static void ee_worker(struct work_struct *work)
@@ -978,7 +1006,7 @@ static void ee_worker(struct work_struct *work)
 
 	list_for_each_entry_safe(eerec, tmp, &ee_queue.list, list) {
 		if (eerec == NULL) {
-			pr_info("%s:null eerec\n", __func__);
+			LOGD("%s:null eerec\n", __func__);
 			return;
 		}
 
@@ -997,14 +1025,15 @@ static int aed_ee_open(struct inode *inode, struct file *filp)
 {
 	if (strncmp(current->comm, "aee_aed", 7))
 		return -1;
-	pr_debug("%s:%d:%d\n", __func__, MAJOR(inode->i_rdev),
+
+	LOGD("%s:%d:%d\n", __func__, MAJOR(inode->i_rdev),
 						MINOR(inode->i_rdev));
 	return 0;
 }
 
 static int aed_ee_release(struct inode *inode, struct file *filp)
 {
-	pr_debug("%s:%d:%d\n", __func__, MAJOR(inode->i_rdev),
+	LOGD("%s:%d:%d\n", __func__, MAJOR(inode->i_rdev),
 						MINOR(inode->i_rdev));
 	return 0;
 }
@@ -1023,7 +1052,7 @@ static ssize_t aed_ee_read(struct file *filp, char __user *buf,
 						size_t count, loff_t *f_pos)
 {
 	if (aed_dev.eerec == NULL) {
-		pr_info("%s fail for invalid kerec\n", __func__);
+		LOGD("%s fail for invalid kerec\n", __func__);
 		return 0;
 	}
 	return msg_copy_to_user(__func__, aed_dev.eerec->msg, buf, count,
@@ -1049,13 +1078,13 @@ static ssize_t aed_ee_write(struct file *filp, const char __user *buf,
 
 	/* the request must be an *struct AE_Msg buffer */
 	if (count != sizeof(struct AE_Msg)) {
-		pr_info("%s: ERR, aed_write count=%zx\n", __func__, count);
+		LOGD("%s: ERR, aed_write count=%zx\n", __func__, count);
 		return -1;
 	}
 
 	rsize = copy_from_user(&msg, buf, count);
 	if (rsize != 0) {
-		pr_info("%s: ERR, copy_from_user rsize=%d\n", __func__, rsize);
+		LOGD("%s: ERR, copy_from_user rsize=%d\n", __func__, rsize);
 		return -1;
 	}
 
@@ -1088,7 +1117,7 @@ static ssize_t aed_ee_write(struct file *filp, const char __user *buf,
 			ee_gen_coredump_msg();
 			break;
 		default:
-			pr_info("Unknown command id %d\n", msg.cmdId);
+			LOGD("Unknown command id %d\n", msg.cmdId);
 			ee_gen_notavail_msg();
 			break;
 		}
@@ -1122,13 +1151,14 @@ static int aed_ke_open(struct inode *inode, struct file *filp)
 	major = MAJOR(inode->i_rdev);
 	minor = MINOR(inode->i_rdev);
 	devname = filp->f_path.dentry->d_iname;
-	pr_debug("%s:(%s)%d:%d\n", __func__, devname, major, minor);
+
+	LOGD("%s:(%s)%d:%d\n", __func__, devname, major, minor);
 	return 0;
 }
 
 static int aed_ke_release(struct inode *inode, struct file *filp)
 {
-	pr_debug("%s:%d:%d\n", __func__, MAJOR(inode->i_rdev),
+	LOGD("%s:%d:%d\n", __func__, MAJOR(inode->i_rdev),
 			MINOR(inode->i_rdev));
 	return 0;
 }
@@ -1259,13 +1289,13 @@ static ssize_t aed_ke_write(struct file *filp, const char __user *buf,
 
 	/* the request must be an * AE_Msg buffer */
 	if (count != sizeof(struct AE_Msg)) {
-		pr_info("ERR: aed_write count=%zx\n", count);
+		LOGD("ERR: aed_write count=%zx\n", count);
 		return -1;
 	}
 
 	rsize = copy_from_user(&msg, buf, count);
 	if (rsize != 0) {
-		pr_info("copy_from_user rsize=%d\n", rsize);
+		LOGD("copy_from_user rsize=%d\n", rsize);
 		return -1;
 	}
 
@@ -1331,178 +1361,6 @@ static ssize_t aed_ke_write(struct file *filp, const char __user *buf,
 	return count;
 }
 
-
-void Maps2Buffer(unsigned char *Userthread_maps, int *Userthread_mapsLength,
-	const char *fmt, ...)
-{
-	char buf[256] = {0};
-	int len = 0;
-	va_list ap;
-
-	va_start(ap, fmt);
-	len = strlen(Userthread_maps);
-
-	if ((len + sizeof(buf)) < MaxMapsSize) {
-		vsnprintf(&Userthread_maps[len], sizeof(buf), fmt, ap);
-		*Userthread_mapsLength = len + sizeof(buf);
-	}
-	va_end(ap);
-}
-
-static void print_vma_name(unsigned char *Userthread_maps,
-	int *Userthread_mapsLength, struct vm_area_struct *vma, char *str)
-{
-	const char __user *name = vma_get_anon_name(vma);
-	struct mm_struct *mm = vma->vm_mm;
-
-	unsigned long page_start_vaddr;
-	unsigned long page_offset;
-	unsigned long num_pages;
-	unsigned long max_len = NAME_MAX;
-	int i;
-
-	page_start_vaddr = (unsigned long)name & PAGE_MASK;
-	page_offset = (unsigned long)name - page_start_vaddr;
-	num_pages = DIV_ROUND_UP(page_offset + max_len, PAGE_SIZE);
-
-	for (i = 0; i < num_pages; i++) {
-		int len;
-		int write_len;
-		const char *kaddr;
-		long pages_pinned;
-		struct page *page = NULL;
-
-		pages_pinned = get_user_pages_remote(current, mm,
-				page_start_vaddr, 1, 0, &page, NULL);
-		if (pages_pinned < 1)
-			return;
-
-		kaddr = (const char *)kmap(page);
-		len = min(max_len, PAGE_SIZE - page_offset);
-		write_len = strnlen(kaddr + page_offset, len);
-		if (strnstr((kaddr + page_offset), "signal stack", write_len)) {
-			Maps2Buffer(Userthread_maps, Userthread_mapsLength,
-				"%s[anon:%s]\n", str, (kaddr + page_offset));
-		}
-		kunmap(page);
-		put_page(page);
-
-		/* if strnlen hit a null terminator then we're done */
-		if (write_len != len)
-			break;
-
-		max_len -= len;
-		page_offset = 0;
-		page_start_vaddr += PAGE_SIZE;
-	}
-}
-
-static int is_stack(struct vm_area_struct *vma)
-{
-	return vma->vm_start <= vma->vm_mm->start_stack &&
-		vma->vm_end >= vma->vm_mm->start_stack;
-}
-
-static void show_map_vma(unsigned char *Userthread_maps,
-	int *Userthread_mapsLength, struct vm_area_struct *vma)
-{
-	struct mm_struct *mm = vma->vm_mm;
-	struct file *file = vma->vm_file;
-	vm_flags_t flags = vma->vm_flags;
-	unsigned long ino = 0;
-	unsigned long long pgoff = 0;
-	unsigned long start, end;
-	dev_t dev = 0;
-	const char *name = NULL;
-	struct path base_path;
-	char tpath[512];
-	char *path_p = NULL;
-	char str[512];
-
-	if (file) {
-		struct inode *inode = file_inode(vma->vm_file);
-
-		dev = inode->i_sb->s_dev;
-		ino = inode->i_ino;
-		pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
-	}
-
-	// We don't show the stack guard page in /proc/maps
-	start = vma->vm_start;
-	end = vma->vm_end;
-
-	//
-	// * Print the dentry name for named mappings, and a
-	// * special [heap] marker for the heap:
-	//
-	if (file) {
-		base_path = file->f_path;
-		path_p = d_path(&base_path, tpath, 512);
-		goto done;
-	}
-
-	if (vma->vm_ops && vma->vm_ops->name) {
-		name = vma->vm_ops->name(vma);
-		if (name)
-			goto done;
-	}
-	name = arch_vma_name(vma);
-	if (!name) {
-		if (!mm) {
-			name = "[vdso]";
-			goto done;
-		}
-
-		if (vma->vm_start <= mm->brk &&
-			vma->vm_end >= mm->start_brk) {
-			name = "[heap]";
-			goto done;
-		}
-
-		if (is_stack(vma)) {
-			name = "[stack]";
-			goto done;
-		}
-
-		if (vma_get_anon_name(vma)) {
-			snprintf(str, sizeof(str),
-				"%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu ",
-				start, end, flags & VM_READ ? 'r' : '-',
-				flags & VM_WRITE ? 'w' : '-',
-				flags & VM_EXEC ? 'x' : '-',
-				flags & VM_MAYSHARE ? 's' : 'p',
-				pgoff, MAJOR(dev), MINOR(dev), ino);
-			print_vma_name(Userthread_maps, Userthread_mapsLength,
-				vma, str);
-			return;
-		}
-	}
-
-done:
-
-	if (file && (flags & VM_EXEC)) {
-		Maps2Buffer(Userthread_maps, Userthread_mapsLength,
-			"%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu %s\n",
-			start, end, flags & VM_READ ? 'r' : '-',
-			flags & VM_WRITE ? 'w' : '-',
-			flags & VM_EXEC ? 'x' : '-',
-			flags & VM_MAYSHARE ? 's' : 'p',
-			pgoff,
-			MAJOR(dev), MINOR(dev), ino, path_p);
-	}
-
-	if (name && (flags & VM_WRITE)) {
-		Maps2Buffer(Userthread_maps, Userthread_mapsLength,
-			"%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu %s\n",
-			start, end, flags & VM_READ ? 'r' : '-',
-			flags & VM_WRITE ? 'w' : '-',
-			flags & VM_EXEC ? 'x' : '-',
-			flags & VM_MAYSHARE ? 's' : 'p',
-			pgoff, MAJOR(dev), MINOR(dev), ino, name);
-	}
-
-}
-
 /*
  * aed process daemon and other command line may access me
  * concurrently
@@ -1521,7 +1379,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case AEEIOCTL_SET_AEE_MODE:
 		{
 			if (strncmp(current->comm, "aee_aed", 7)) {
-				pr_info("unexpected user: %s", current->comm);
+				LOGD("unexpected user: %s", current->comm);
 				goto EXIT;
 			}
 
@@ -1539,7 +1397,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				goto EXIT;
 			}
 
-			pr_debug("set aee mode = %d\n", aee_mode);
+			LOGD("set aee mode = %d\n", aee_mode);
 			break;
 		}
 	case AEEIOCTL_SET_AEE_FORCE_EXP:
@@ -1559,7 +1417,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				goto EXIT;
 			}
 
-			pr_debug("set aee force_exp = %d\n", aee_force_exp);
+			LOGD("set aee force_exp = %d\n", aee_force_exp);
 			break;
 		}
 	case AEEIOCTL_DAL_SHOW:
@@ -1582,7 +1440,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			}
 
 			if (aee_mode >= AEE_MODE_CUSTOMER_ENG) {
-				pr_info("DAL_SHOW not allowed (mode %d)\n",
+				LOGD("DAL_SHOW not allowed (mode %d)\n",
 						aee_mode);
 				goto OUT;
 			}
@@ -1590,7 +1448,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			/* Try to prevent overrun */
 			dal_show->msg[sizeof(dal_show->msg) - 1] = 0;
 #ifdef CONFIG_MTK_LCM
-			pr_debug("AEE CALL DAL_Printf now\n");
+			LOGD("AEE CALL DAL_Printf now\n");
 			DAL_Printf("%s", dal_show->msg);
 #endif
 
@@ -1611,10 +1469,10 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			dal_setcolor.background = 0xff0000;	/*red */
 
 #ifdef CONFIG_MTK_LCM
-			pr_debug("AEE CALL DAL_SetColor now\n");
+			LOGD("AEE CALL DAL_SetColor now\n");
 			DAL_SetColor(dal_setcolor.foreground,
 					dal_setcolor.background);
-			pr_debug("AEE CALL DAL_Clean now\n");
+			LOGD("AEE CALL DAL_Clean now\n");
 			DAL_Clean();
 #endif
 			break;
@@ -1625,7 +1483,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			struct aee_dal_setcolor dal_setcolor;
 
 			if (aee_mode >= AEE_MODE_CUSTOMER_ENG) {
-				pr_info("SETCOLOR not allowed (mode %d)\n",
+				LOGD("SETCOLOR not allowed (mode %d)\n",
 						aee_mode);
 				goto EXIT;
 			}
@@ -1637,10 +1495,10 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				goto EXIT;
 			}
 #ifdef CONFIG_MTK_LCM
-			pr_debug("AEE CALL DAL_SetColor now\n");
+			LOGD("AEE CALL DAL_SetColor now\n");
 			DAL_SetColor(dal_setcolor.foreground,
 					dal_setcolor.background);
-			pr_debug("AEE CALL DAL_SetScreenColor now\n");
+			LOGD("AEE CALL DAL_SetScreenColor now\n");
 			DAL_SetScreenColor(dal_setcolor.screencolor);
 #endif
 			break;
@@ -1650,7 +1508,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		{
 			struct aee_thread_reg *tmp;
 
-			pr_debug("%s: get thread registers ioctl\n", __func__);
+			LOGD("%s: get thread registers ioctl\n", __func__);
 
 			tmp = kzalloc(sizeof(struct aee_thread_reg),
 					GFP_KERNEL);
@@ -1694,7 +1552,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				rcu_read_unlock();
 
 			} else {
-				pr_info(
+				LOGD(
 				  "%s: get thread registers ioctl tid invalid\n"
 				  , __func__);
 				kfree(tmp);
@@ -1706,232 +1564,13 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 			break;
 		}
-	case AEEIOCTL_GET_THREAD_STACK_RAW:
-	{
-		struct unwind_info_stack stack_raw;
-		struct task_struct *task;
-		struct vm_area_struct *vma;
-		unsigned long start = 0;
-		unsigned long end = 0, length = 0;
-		unsigned char *stack;
-		int copied;
 
-		pr_info("Get direct unwind backtrace stack");
-
-		if (copy_from_user((void *)(&stack_raw),
-			(struct unwind_info_stack __user *)arg,
-			sizeof(struct unwind_info_stack))) {
-			ret = -EFAULT;
-			goto EXIT;
-		}
-
-		rcu_read_lock();
-		task = find_task_by_vpid(stack_raw.tid);
-		if (task == NULL || task->mm == NULL) {
-			rcu_read_unlock();
-			ret = -EFAULT;
-			goto EXIT;
-		}
-		rcu_read_unlock();
-
-		start = stack_raw.sp;
-		down_read(&task->mm->mmap_sem);
-		vma = task->mm->mmap;
-		while (vma != NULL) {
-			if (vma->vm_start <= start &&
-				vma->vm_end >= start) {
-				end = vma->vm_end;
-				break;
-			}
-			vma = vma->vm_next;
-			if (vma == task->mm->mmap)
-				break;
-		}
-		up_read(&task->mm->mmap_sem);
-
-		if (end == 0) {
-			pr_info("Dump native stack failed:\n");
-			ret = -EFAULT;
-			goto EXIT;
-		}
-
-		length = ((end - start) < (MaxStackSize-1))
-			? (end - start) : (MaxStackSize-1);
-		stack_raw.StackLength = length;
-
-		stack = vmalloc(MaxStackSize);
-		if (!stack) {
-			ret = -ENOMEM;
-			goto EXIT;
-		}
-
-		copied = access_process_vm(task, start, stack,
-				length, 0);
-		if (copied != length) {
-			pr_info("Access stack error");
-			vfree(stack);
-			ret = -EIO;
-			goto EXIT;
-		}
-
-		if (copy_to_user(stack_raw.Userthread_Stack, stack, length)) {
-			vfree(stack);
-			ret = -EFAULT;
-			goto EXIT;
-		}
-
-		if (copy_to_user((struct unwind_info_stack __user *)arg,
-			&stack_raw, sizeof(struct unwind_info_stack))) {
-			vfree(stack);
-			ret = -EFAULT;
-			goto EXIT;
-		}
-
-		vfree(stack);
-		break;
-	}
-	case AEEIOCTL_GET_THREAD_RMS:
-	{
-		struct unwind_info_rms  thread_info;
-		struct vm_area_struct *vma;
-		int mapcount = 0;
-		unsigned long start = 0;
-		unsigned long end = 0, length = 0;
-		unsigned char *maps;
-		int mapsLength;
-		unsigned char *stack;
-		int copied;
-
-		pr_info("Get direct unwind backtrace info");
-
-		if (copy_from_user(&thread_info,
-			(struct unwind_info_rms  __user *)arg,
-			sizeof(struct unwind_info_rms))) {
-			ret = -EFAULT;
-			goto EXIT;
-		}
-
-		if (thread_info.tid > 0) {
-			struct task_struct *task;
-			struct pt_regs *user_ret = NULL;
-
-			rcu_read_lock();
-			task = find_task_by_vpid(thread_info.tid);
-			if (task == NULL || task->stack == NULL) {
-				rcu_read_unlock();
-				ret = -EINVAL;
-				goto EXIT;
-			}
-
-			rcu_read_unlock();
-			// 1. get registers
-			user_ret = task_pt_regs(task);
-
-			if (copy_to_user((void *)thread_info.regs, user_ret,
-				sizeof(struct pt_regs))) {
-				ret = -EFAULT;
-				goto EXIT;
-			}
-
-			// 2. get maps
-			if ((!user_mode(user_ret)) || (task->mm == NULL)) {
-				ret = -EFAULT;
-				goto EXIT;
-			}
-
-			maps = vmalloc(MaxMapsSize);
-			if (!maps) {
-				ret = -ENOMEM;
-				goto EXIT;
-			}
-			memset(maps, 0, MaxMapsSize);
-			down_read(&task->mm->mmap_sem);
-			vma = task->mm->mmap;
-			while (vma && (mapcount < task->mm->map_count)) {
-				show_map_vma(maps, &mapsLength, vma);
-				vma = vma->vm_next;
-				mapcount++;
-			}
-
-			if (copy_to_user(thread_info.Userthread_maps,
-				maps, mapsLength)) {
-				vfree(maps);
-				ret = -EFAULT;
-				goto EXIT;
-			}
-			vfree(maps);
-			thread_info.Userthread_mapsLength = mapsLength;
-
-			// 3. get stack
-#ifndef __aarch64__ //K32+U32
-			start = (ulong)user_ret->ARM_sp;
-#else
-			if (is_compat_task()) //K64+U32
-				start = (ulong)user_ret->user_regs.regs[13];
-			else //K64+U64
-				start = (ulong)user_ret->user_regs.sp;
-#endif
-			vma = task->mm->mmap;
-			while (vma != NULL) {
-				if (vma->vm_start <= start &&
-					vma->vm_end >= start) {
-					end = vma->vm_end;
-					break;
-				}
-				vma = vma->vm_next;
-				if (vma == task->mm->mmap)
-					break;
-			}
-
-			up_read(&task->mm->mmap_sem);
-			if (end == 0) {
-				pr_info("Dump native stack failed:\n");
-				ret = -EFAULT;
-				goto EXIT;
-			}
-
-			length = ((end - start) < (MaxStackSize-1)) ?
-				(end - start) : (MaxStackSize-1);
-			thread_info.StackLength = length;
-
-			stack = vmalloc(MaxStackSize);
-			if (!stack) {
-				ret = -ENOMEM;
-				goto EXIT;
-			}
-
-			copied = access_process_vm(task, start,
-				stack, length, 0);
-			if (copied != length) {
-				pr_info("Access stack error");
-				vfree(stack);
-				ret = -EIO;
-				goto EXIT;
-			}
-
-			if (copy_to_user(thread_info.Userthread_Stack,
-				stack, length)) {
-				vfree(stack);
-				ret = -EFAULT;
-				goto EXIT;
-			}
-
-			if (copy_to_user((struct unwind_info_rms __user *)arg,
-				&thread_info, sizeof(struct unwind_info_rms))) {
-				vfree(stack);
-				ret = -EFAULT;
-				goto EXIT;
-			}
-			vfree(stack);
-		}
-		break;
-	}
 	case  AEEIOCTL_USER_IOCTL_TO_KERNEL_WANING:
 		/* get current user space reg when call
 		 * aee_kernel_warning_api
 		 */
 		{
-			pr_debug(
+			LOGD(
 			  "%s: AEEIOCTL_USER_IOCTL_TO_KERNEL_WANING,call kthread create ,is ok\n"
 			  , __func__);
 			/* kthread_create(Dstate_test, NULL, "D-state"); */
@@ -1947,7 +1586,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		{
 			int pid;
 
-			pr_debug("%s: check suid dumpable ioctl\n", __func__);
+			LOGD("%s: check suid dumpable ioctl\n", __func__);
 
 			if (copy_from_user(&pid, (void __user *)arg,
 						sizeof(int))) {
@@ -1962,7 +1601,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				rcu_read_lock();
 				task = find_task_by_vpid(pid);
 				if (task == NULL) {
-					pr_info("%s: process:%d task null\n",
+					LOGD("%s: process:%d task null\n",
 						__func__, pid);
 					rcu_read_unlock();
 					ret = -EINVAL;
@@ -1971,7 +1610,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 				task_lock(task);
 				if (task->mm == NULL) {
-					pr_info("%s: process:%d task mm null\n",
+					LOGD("%s: process:%d task mm null\n",
 						__func__, pid);
 					task_unlock(task);
 					rcu_read_unlock();
@@ -1981,16 +1620,16 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 				dumpable = get_dumpable(task->mm);
 				if (dumpable == 0) {
-					pr_info("%s: set process:%d dumpable\n",
+					LOGD("%s: set process:%d dumpable\n",
 						__func__, pid);
 					set_dumpable(task->mm, 1);
 				} else
-					pr_info("%s: get process:%d dumpable:%d\n",
+					LOGD("%s: get process:%d dumpable:%d\n",
 						__func__, pid, dumpable);
 				task_unlock(task);
 				rcu_read_unlock();
 			} else {
-				pr_info(
+				LOGD(
 				  "%s: check suid dumpable ioctl pid invalid\n",
 				  __func__);
 				ret = -EINVAL;
@@ -2007,8 +1646,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				ret = -EFAULT;
 				goto EXIT;
 			}
-			pr_debug("force aee red screen = %d\n",
-				force_red_screen);
+			LOGD("force aee red screen = %d\n", force_red_screen);
 			break;
 		}
 
@@ -2016,7 +1654,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		{
 			struct aee_siginfo aee_si;
 
-			pr_debug("%s: get aee_siginfo ioctl\n", __func__);
+			LOGD("%s: get aee_siginfo ioctl\n", __func__);
 
 			if (copy_from_user
 			    (&aee_si, (struct aee_siginfo __user *)arg,
@@ -2058,7 +1696,7 @@ static long aed_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 					}
 				}
 			} else {
-				pr_info("%s: get aee_siginfo ioctl tid invalid\n",
+				LOGD("%s: get aee_siginfo ioctl tid invalid\n",
 						__func__);
 				ret = -EINVAL;
 				goto EXIT;
@@ -2092,7 +1730,7 @@ static void aed_get_traces(char *msg)
 	offset = strlen(msg);
 	for (i = 0; i < trace.nr_entries; i++) {
 		offset += snprintf(msg + offset, AEE_BACKTRACE_LENGTH - offset,
-				"[<%px>] %pS\n", (void *)trace.entries[i],
+				"[<%p>] %pS\n", (void *)trace.entries[i],
 				(void *)trace.entries[i]);
 	}
 }
@@ -2218,8 +1856,15 @@ int DumpThreadNativeInfo(struct aee_oops *oops)
 	up_read(&current_task->mm->mmap_sem);
 	#endif
 
+	pr_info("maps addr(0x%08lx), maps len:%d\n",
+			(long)oops->userthread_maps.Userthread_maps,
+			oops->userthread_maps.Userthread_mapsLength);
+
 #ifndef __aarch64__ /* 32bit */
-	userstack_start = (unsigned long)user_ret->ARM_sp;
+	pr_info(" pc/lr/sp 0x%08lx/0x%08lx/0x%08lx\n",
+			user_ret->ARM_pc, user_ret->ARM_lr,
+			 user_ret->ARM_sp);
+		userstack_start = (unsigned long)user_ret->ARM_sp;
 
 	vma = current_task->mm->mmap;
 	while (vma != NULL) {
@@ -2236,6 +1881,8 @@ int DumpThreadNativeInfo(struct aee_oops *oops)
 		pr_info("Dump native stack failed:\n");
 		return 0;
 	}
+	pr_info("Dump stack range (0x%08lx:0x%08lx)\n",
+		userstack_start, userstack_end);
 
 	length = ((userstack_end - userstack_start) <
 		     (MaxStackSize-1)) ? (userstack_end - userstack_start) :
@@ -2245,9 +1892,15 @@ int DumpThreadNativeInfo(struct aee_oops *oops)
 
 	ret = copy_from_user((void *)(oops->userthread_stack.Userthread_Stack),
 			(const void __user *)(userstack_start), length);
+	pr_info("u+k 32 copy_from_user ret(0x%08x),len:%lx\n", ret, length);
+	pr_info("end dump native stack:\n");
 #else /* 64bit, First deal with K64+U64, the last time to deal with K64+U32 */
 
 	if (is_compat_task()) {	/* K64_U32 */
+		pr_info(" K64+ U32 pc/lr/sp 0x%16lx/0x%16lx/0x%16lx\n",
+				(long)(user_ret->user_regs.pc),
+				(long)(user_ret->user_regs.regs[14]),
+				(long)(user_ret->user_regs.regs[13]));
 		userstack_start = (unsigned long)user_ret->user_regs.regs[13];
 		vma = current_task->mm->mmap;
 		while (vma != NULL) {
@@ -2261,9 +1914,11 @@ int DumpThreadNativeInfo(struct aee_oops *oops)
 			break;
 	}
 	if (userstack_end == 0) {
-		pr_info("Dump native stack failed:\n");
+		LOGD("Dump native stack failed:\n");
 		return 0;
 	}
+	pr_info("Dump stack range (0x%08lx:0x%08lx)\n",
+			userstack_start, userstack_end);
 		length = ((userstack_end - userstack_start) <
 		     (MaxStackSize-1)) ? (userstack_end - userstack_start) :
 							(MaxStackSize-1);
@@ -2271,7 +1926,12 @@ int DumpThreadNativeInfo(struct aee_oops *oops)
 		ret = copy_from_user(
 			(void *)(oops->userthread_stack.Userthread_Stack),
 			(const void __user *)(userstack_start), length);
+		LOGD("copy_from_user ret(0x%16x),len:%lx\n", ret, length);
 	} else {	/*K64+U64*/
+		LOGD(" K64+ U64 pc/lr/sp 0x%16lx/0x%16lx/0x%16lx\n",
+				(long)(user_ret->user_regs.pc),
+				(long)(user_ret->user_regs.regs[30]),
+				(long)(user_ret->user_regs.sp));
 		userstack_start = (unsigned long)user_ret->user_regs.sp;
 		vma = current_task->mm->mmap;
 		while (vma != NULL) {
@@ -2285,10 +1945,12 @@ int DumpThreadNativeInfo(struct aee_oops *oops)
 				break;
 		}
 		if (userstack_end == 0) {
-			pr_info("Dump native stack failed:\n");
+			LOGD("Dump native stack failed:\n");
 			return 0;
 		}
 
+		pr_info("Dump stack range (0x%16lx:0x%16lx)\n",
+				userstack_start, userstack_end);
 		length = ((userstack_end - userstack_start) <
 		     (MaxStackSize-1)) ? (userstack_end - userstack_start) :
 			(MaxStackSize-1);
@@ -2296,6 +1958,7 @@ int DumpThreadNativeInfo(struct aee_oops *oops)
 		ret = copy_from_user(
 			(void *)(oops->userthread_stack.Userthread_Stack),
 			(const void __user *)(userstack_start), length);
+		LOGD("copy_from_user ret(0x%08x),len:%lx\n", ret, length);
 	}
 
 #endif
@@ -2338,7 +2001,7 @@ static void kernel_reportAPI(const enum AE_DEFECT_ATTR attr, const int db_opt,
 			oops->userthread_stack.Userthread_Stack =
 							vzalloc(MaxStackSize);
 			if (oops->userthread_stack.Userthread_Stack == NULL) {
-				pr_info(
+				LOGD(
 				  "%s: oops->userthread_stack.Userthread_Stack Vmalloc fail"
 				  , __func__);
 				kfree(oops);
@@ -2347,26 +2010,32 @@ static void kernel_reportAPI(const enum AE_DEFECT_ATTR attr, const int db_opt,
 			oops->userthread_maps.Userthread_maps =
 							vzalloc(MaxMapsSize);
 			if (oops->userthread_maps.Userthread_maps == NULL) {
-				pr_info(
+				LOGD(
 				  "%s: oops->userthread_maps.Userthread_maps Vmalloc fail"
 				  , __func__);
+				vfree(oops->userthread_stack.Userthread_Stack);
 				kfree(oops);
 				return;
 			}
+			LOGD(
+				"%s: oops->userthread_stack.Userthread_Stack :0x%08lx,maps:0x%08lx",
+				__func__,
+				(long)oops->userthread_stack.Userthread_Stack,
+				(long)oops->userthread_maps.Userthread_maps);
 			oops->userthread_stack.StackLength = MaxStackSize;
 			oops->userthread_maps.Userthread_mapsLength =
 								MaxMapsSize;
 			DumpThreadNativeInfo(oops);
 
 		}
-		pr_debug("%s,%s,%s,0x%x\n", __func__, module, msg, db_opt);
+		LOGI("%s,%s,%s,0x%x\n", __func__, module, msg, db_opt);
 		ke_queue_request(oops);
 	}
 }
 
 void aee_kernel_dal_api(const char *file, const int line, const char *msg)
 {
-	pr_debug("%s has been phased out! caller info: <%s:%d> %s ",
+	LOGD("%s has been phased out! caller info: <%s:%d> %s ",
 			__func__, file, line, msg);
 }
 EXPORT_SYMBOL(aee_kernel_dal_api);
@@ -2381,11 +2050,14 @@ static void external_exception(const char *assert_type, const int *log,
 	struct timeval tv = { 0 };
 	char trigger_time[60];
 
+	LOGD("%s : [%s] log ptr %p size %d, phy ptr %p size %d\n", __func__,
+	     assert_type, log, log_size, phy, phy_size);
 	if ((aee_mode >= AEE_MODE_CUSTOMER_USER) &&
 		(aee_force_exp == AEE_FORCE_EXP_NOT_SET))
 		return;
 	eerec = kzalloc(sizeof(struct aed_eerec), GFP_ATOMIC);
 	if (eerec == NULL) {
+		LOGD("%s: kmalloc fail", __func__);
 		return;
 	}
 
@@ -2403,7 +2075,7 @@ static void external_exception(const char *assert_type, const int *log,
 	}
 
 	if (ee_log == NULL) {
-		pr_info("%s : memory alloc() fail\n", __func__);
+		LOGD("%s : memory alloc() fail\n", __func__);
 		kfree(eerec);
 		return;
 	}
@@ -2423,7 +2095,7 @@ static void external_exception(const char *assert_type, const int *log,
 			sizeof(eerec->exp_filename) - 1);
 	strncat(eerec->exp_filename, detail,
 			sizeof(eerec->exp_filename) - 1 - strlen(trigger_time));
-	pr_debug("EE %s\n", eerec->assert_type);
+	LOGD("EE %s\n", eerec->assert_type);
 
 	eerec->exp_linenum = 0;
 	eerec->fatal1 = 0;
@@ -2432,11 +2104,11 @@ static void external_exception(const char *assert_type, const int *log,
 	/* Check if we can dump memory */
 	if (in_interrupt()) {
 		/* kernel vamlloc cannot be used in interrupt context */
-		pr_info(
+		LOGD(
 		  "External exception occur in interrupt context, no coredump");
 		phy_size = 0;
 	} else if ((phy == NULL) || (phy_size > MAX_EE_COREDUMP)) {
-		pr_info("EE Physical memory size(%d) too large or invalid",
+		LOGD("EE Physical memory size(%d) too large or invalid",
 				phy_size);
 		phy_size = 0;
 	}
@@ -2447,7 +2119,7 @@ static void external_exception(const char *assert_type, const int *log,
 			memcpy(eerec->ee_phy, phy, phy_size);
 			eerec->ee_phy_size = phy_size;
 		} else {
-			pr_info("Losing ee phy mem due to vmalloc return NULL\n");
+			LOGD("Losing ee phy mem due to vmalloc return NULL\n");
 			eerec->ee_phy_size = 0;
 		}
 	} else {
@@ -2456,7 +2128,7 @@ static void external_exception(const char *assert_type, const int *log,
 	}
 	eerec->db_opt = db_opt;
 	ee_queue_request(eerec);
-	pr_debug("%s out\n", __func__);
+	LOGD("%s out\n", __func__);
 }
 
 static bool rr_reported;
@@ -2471,7 +2143,7 @@ static struct aee_kernel_api kernel_api = {
 	.combo_exception = external_exception,
 	.common_exception = external_exception
 };
-
+#ifndef CONFIG_FINAL_RELEASE
 AED_CURRENT_KE_OPEN(console);
 AED_PROC_CURRENT_KE_FOPS(console);
 AED_CURRENT_KE_OPEN(userspace_info);
@@ -2486,7 +2158,7 @@ AED_CURRENT_KE_OPEN(mmprofile);
 AED_PROC_CURRENT_KE_FOPS(mmprofile);
 AED_CURRENT_KE_OPEN(mini_rdump);
 AED_PROC_CURRENT_KE_FOPS(mini_rdump);
-
+#endif
 
 static int current_ke_ee_coredump_open(struct inode *inode, struct file *file)
 {
@@ -2515,10 +2187,11 @@ static int aed_proc_init(void)
 {
 	aed_proc_dir = proc_mkdir("aed", NULL);
 	if (aed_proc_dir == NULL) {
-		pr_info("aed proc_mkdir failed\n");
+		LOGD("aed proc_mkdir failed\n");
 		return -ENOMEM;
 	}
 	/* 0400: S_IRUSR */
+#ifndef CONFIG_FINAL_RELEASE
 	AED_PROC_ENTRY(current-ke-console, current_ke_console, 0400);
 	AED_PROC_ENTRY(current-ke-userspace_info, current_ke_userspace_info,
 									0400);
@@ -2529,6 +2202,7 @@ static int aed_proc_init(void)
 	AED_PROC_ENTRY(current-ke-android_main, current_ke_android_main, 0400);
 	AED_PROC_ENTRY(current-ke-mmprofile, current_ke_mmprofile, 0400);
 	AED_PROC_ENTRY(current-ke-mini_rdump, current_ke_mini_rdump, 0400);
+#endif
 	AED_PROC_ENTRY(current-ee-coredump, current_ke_ee_coredump, 0400);
 
 	aee_rr_proc_init(aed_proc_dir);
@@ -2540,7 +2214,9 @@ static int aed_proc_init(void)
 
 static int aed_proc_done(void)
 {
+#ifndef CONFIG_FINAL_RELEASE
 	remove_proc_entry(CURRENT_KE_CONSOLE, aed_proc_dir);
+#endif
 	remove_proc_entry(CURRENT_EE_COREDUMP, aed_proc_dir);
 
 	aed_proc_debug_done(aed_proc_dir);
@@ -2622,13 +2298,13 @@ static int __init aed_init(void)
 	spin_lock_init(&aed_device_lock);
 	err = misc_register(&aed_ee_dev);
 	if (unlikely(err)) {
-		pr_info("aee: failed to register aed0(ee) device!\n");
+		LOGD("aee: failed to register aed0(ee) device!\n");
 		return err;
 	}
 
 	err = misc_register(&aed_ke_dev);
 	if (unlikely(err)) {
-		pr_info("aee: failed to register aed1(ke) device!\n");
+		LOGD("aee: failed to register aed1(ke) device!\n");
 		return err;
 	}
 

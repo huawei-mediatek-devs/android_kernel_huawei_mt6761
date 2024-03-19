@@ -84,6 +84,8 @@ int (*rt_hal_fled_get_strobe_timeout)(struct rt_fled_dev *fled_dev);
 int (*rt_hal_fled_get_is_ready)(struct rt_fled_dev *fled_dev);
 	/* PM shutdown, optional */
 void (*rt_hal_fled_shutdown)(struct rt_fled_dev *fled_dev);
+int (*rt_hal_fled_enable)(struct rt_fled_dev *fled_dev, bool en);
+int (*rt_hal_fled_is_enabled)(struct rt_fled_dev *fled_dev);
 };
 struct rt_fled_dev {
 	struct rt_fled_hal *hal;

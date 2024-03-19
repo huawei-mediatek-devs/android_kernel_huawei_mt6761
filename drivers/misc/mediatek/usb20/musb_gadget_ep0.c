@@ -332,7 +332,6 @@ __acquires(musb->lock)
 						pr_debug("<ratelimit> restarting the request\n");
 					musb_ep_restart(musb, request);
 				} else if (!is_in) {
-					/* Modification for ALPS00451478 */
 					csr  = musb_readw(regs, MUSB_RXCSR);
 					DBG(0,
 						"no more req, clr RXPKTRDY to avoid err RX FIFO/DMA read!! csr:0x%x\n"
@@ -340,7 +339,6 @@ __acquires(musb->lock)
 					csr &= ~(MUSB_RXCSR_RXPKTRDY);
 					musb_writew(regs, MUSB_RXCSR, csr);
 				}
-				/* Modification for ALPS00451478 */
 
 				/* select ep0 again */
 				musb_ep_select(mbase, 0);
@@ -500,18 +498,17 @@ stall:
 					break;
 
 				ep = musb->endpoints + epnum;
+				if (!ep) {
+					pr_info("ep %d is null\n", epnum);
+					break;
+				}
+
 				regs = ep->regs;
 				is_in = ctrlrequest->wIndex & USB_DIR_IN;
 				if (is_in)
 					musb_ep = &ep->ep_in;
 				else
 					musb_ep = &ep->ep_out;
-
-				if (!ep) {
-					pr_err("ep %d is null, is_in=%d\n",
-						epnum, is_in);
-					break;
-				}
 
 				if (!musb_ep->desc)
 					break;

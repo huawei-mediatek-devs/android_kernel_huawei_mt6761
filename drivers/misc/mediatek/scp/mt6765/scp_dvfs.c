@@ -377,8 +377,9 @@ void scp_pll_ctrl_handler(int id, void *data, unsigned int len)
 {
 	unsigned int *pll_ctrl_flag = (unsigned int *)data;
 	unsigned int *pll_sel =  (unsigned int *) (data + 1);
+	int ret = 0;
 
-	scp_pll_ctrl_set(*pll_ctrl_flag, *pll_sel);
+	ret = scp_pll_ctrl_set(*pll_ctrl_flag, *pll_sel);
 }
 
 #ifdef CONFIG_PROC_FS

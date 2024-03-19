@@ -103,6 +103,11 @@ config MMC_FFU
 	  Field firmware updates (FFU) enables features enhancment
 	  in the field.
 
+config HW_SD_HEALTH_DETECT
+	bool "SD HEALTH DIAG SUPPORT"
+	default y
+	help
+	  This is an option to diag sd health status.
 config MTK_MMC_PWR_WP
 	bool "Kernel power-on write protect Support"
 	depends on MMC

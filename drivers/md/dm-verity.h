@@ -37,7 +37,11 @@ struct dm_verity {
 	struct dm_target *ti;
 	struct dm_bufio_client *bufio;
 	char *alg_name;
+#ifdef CONFIG_DM_OEM_USE_SOFT_SHA1
 	struct crypto_shash *tfm;
+	char *alg_name_soft;
+#endif
+	struct crypto_shash *tfm_soft;
 	u8 *root_digest;	/* digest of the root block */
 	u8 *salt;		/* salt: its size is salt_size */
 	u8 *zero_digest;	/* digest for a zero block */
@@ -137,5 +141,13 @@ extern void verity_io_hints(struct dm_target *ti, struct queue_limits *limits);
 extern void verity_dtr(struct dm_target *ti);
 extern int verity_ctr(struct dm_target *ti, unsigned argc, char **argv);
 extern int verity_map(struct dm_target *ti, struct bio *bio);
-extern void dm_verity_avb_error_handler(void);
+#if defined (CONFIG_OEM_DEFINE_VERITY_FEC)
+int verity_hash_init(struct dm_verity *v, struct shash_desc *desc, u32 alg);
+int verity_hash_update(struct dm_verity *v, struct shash_desc *desc,
+			      const u8 *data, size_t len);
+int verity_hash_final(struct dm_verity *v, struct shash_desc *desc,
+			     u8 *digest);
+int verity_bv_hash_update(struct dm_verity *v, struct dm_verity_io *io,
+				 u8 *data, size_t len);
+#endif
 #endif /* DM_VERITY_H */

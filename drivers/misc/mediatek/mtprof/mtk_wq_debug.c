@@ -56,8 +56,6 @@ struct work_info {
 	/* linked pool_workqueue address */
 	unsigned long long	ts;
 	/* timestamp while work queued/exec */
-	char			sfunc[32];
-	/* store name of the work */
 	struct hlist_node	hash;
 };
 
@@ -81,7 +79,7 @@ static struct work_info *find_active_work(struct work_struct *work)
 	struct hlist_node *tmp;
 	struct work_info target = {
 		.work	= (unsigned long)work,
-//		.func	= (unsigned long)work->func,
+		.func	= (unsigned long)work->func,
 	};
 
 	hash_for_each_possible_safe(active_works, wi, tmp,
@@ -131,6 +129,7 @@ _work_queued(void *ignore, unsigned int req_cpu, struct pool_workqueue *pwq,
 {
 	gfp_t gfp = GFP_ATOMIC | __GFP_NORETRY | __GFP_NOWARN;
 	struct work_info *work_info = NULL;
+
 	raw_spin_lock(&works_lock);
 	work_info = find_active_work(work);
 	if (!work_info) {
@@ -142,8 +141,6 @@ _work_queued(void *ignore, unsigned int req_cpu, struct pool_workqueue *pwq,
 		work_info->func = (unsigned long)work->func;
 		work_info->pwq = (unsigned long)pwq;
 		work_info->state = WORK_QUEUED;
-		snprintf(work_info->sfunc, sizeof(work_info->sfunc), "%pf",
-			(void *)work_info->func);
 		hash_add(active_works, &work_info->hash,
 			 work_hash(work_info));
 	}
@@ -181,7 +178,7 @@ static void _work_exec_end(void *ignore, struct work_struct *work)
 		return;
 	}
 	ts = sched_clock() - work_info->ts;
-	strncpy(w.sfunc, work_info->sfunc, sizeof(work_info->sfunc));
+	w.func = work_info->func;
 	w.work = work_info->work;
 	hash_del(&work_info->hash);
 	kmem_cache_free(work_info_cache, work_info);
@@ -190,12 +187,11 @@ static void _work_exec_end(void *ignore, struct work_struct *work)
 
 	if (ts > WORK_EXEC_MAX) {
 		rem_nsec = do_div(ts, NSEC_PER_SEC);
-		pr_debug(TAG "work(%s,%lx) exec %ld.%06lds, more than 1s\n",
-			 w.sfunc,
+		pr_debug(TAG "work(%pf,%lx) exec %ld.%06lds, more than 1s\n",
+			 (void *)w.func,
 			 (unsigned long)w.work,
 			 (unsigned long)ts, rem_nsec / NSEC_PER_USEC);
 	}
-
 }
 
 static void work_debug_enable(unsigned int on)

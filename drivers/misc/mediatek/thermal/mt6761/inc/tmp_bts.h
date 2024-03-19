@@ -20,30 +20,51 @@
 
 #define AUX_IN0_NTC (0)
 #define AUX_IN1_NTC (1)
+#define AUX_IN3_NTC (3)
+#define AUX_IN4_NTC (4)
 
-#define BTS_RAP_PULL_UP_R		390000 /* 390K, pull up resister */
+#define BTS_RAP_PULL_UP_R		37400 /* 37.4K, pulli up resister */
 
-#define BTS_TAP_OVER_CRITICAL_LOW	4397119 /* base on 100K NTC temp
+#define BTS_TAP_OVER_CRITICAL_LOW	188500 /* base on 10K NTC temp
 						 * default value -40 deg
 						 */
 
 #define BTS_RAP_PULL_UP_VOLTAGE		1800 /* 1.8V ,pull up voltage */
 
-#define BTS_RAP_NTC_TABLE		7 /* default is NCP15WF104F03RC(100K) */
+#define BTS_RAP_NTC_TABLE		8 /* NTCG103JF103F (10K) */
 
 #define BTS_RAP_ADC_CHANNEL		AUX_IN0_NTC /* default is 0 */
 
-#define BTSMDPA_RAP_PULL_UP_R		390000 /* 390K, pull up resister */
+#define BTSMDPA_RAP_PULL_UP_R		37400 /* 37.4K, pull up resister */
 
-#define BTSMDPA_TAP_OVER_CRITICAL_LOW	4397119 /* base on 100K NTC temp
+#define BTSMDPA_TAP_OVER_CRITICAL_LOW	188500 /* base on 10K NTC temp
 						 * default value -40 deg
 						 */
 
 #define BTSMDPA_RAP_PULL_UP_VOLTAGE	1800 /* 1.8V ,pull up voltage */
 
-#define BTSMDPA_RAP_NTC_TABLE		7 /* default is NCP15WF104F03RC(100K) */
+#define BTSMDPA_RAP_NTC_TABLE		8 /* NTCG103JF103F (10K) */
 
 #define BTSMDPA_RAP_ADC_CHANNEL		AUX_IN1_NTC /* default is 1 */
+
+
+#define BTS_USBNTC_RAP_PULL_UP_R		37400 /* 37.4K, pull up resister */
+#define BTS_USBNTC_TAP_OVER_CRITICAL_LOW	188500 /* base on 10K NTC temp
+						 * default value -40 deg
+						 */
+#define BTS_USBNTC_RAP_PULL_UP_VOLTAGE		1800 /* 1.8V ,pull up voltage */
+#define BTS_USBNTC_RAP_NTC_TABLE		8 /* NTCG103JF103F (10K) */
+#define BTS_USBNTC_RAP_ADC_CHANNEL		AUX_IN3_NTC /* default is 0 */
+
+
+#define BTS_CHARGERNTC_RAP_PULL_UP_R		37400 /* 37.4K, pull up resister */
+#define BTS_CHARGERNTC_TAP_OVER_CRITICAL_LOW	188500 /* base on 10K NTC temp
+						 * default value -40 deg
+						 */
+#define BTS_CHARGERNTC_RAP_PULL_UP_VOLTAGE		1800 /* 1.8V ,pull up voltage */
+#define BTS_CHARGERNTC_RAP_NTC_TABLE		8 /* NTCG103JF103F (10K) */
+#define BTS_CHARGERNTC_RAP_ADC_CHANNEL		AUX_IN4_NTC /* default is 0 */
+
 
 extern int IMM_GetOneChannelValue(int dwChannel, int data[4], int *rawdata);
 extern int IMM_IsAdcInitReady(void);

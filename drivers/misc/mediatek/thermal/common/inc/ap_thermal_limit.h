@@ -18,8 +18,6 @@
 struct apthermolmt_user {
 	char *log;
 	unsigned int cpu_limit;
-	unsigned int vpu_limit;
-	unsigned int mdla_limit;
 	unsigned int gpu_limit;
 	void *ptr;
 };
@@ -49,20 +47,6 @@ void apthermolmt_set_cpu_power_limit
  *	@limit 0x7FFFFFFF for unlimit
  */
 extern
-void apthermolmt_set_vpu_power_limit
-(struct apthermolmt_user *handle, unsigned int limit);
-
-/*
- *	@limit 0x7FFFFFFF for unlimit
- */
-extern
-void apthermolmt_set_mdla_power_limit
-(struct apthermolmt_user *handle, unsigned int limit);
-
-/*
- *	@limit 0x7FFFFFFF for unlimit
- */
-extern
 void apthermolmt_set_gpu_power_limit
 (struct apthermolmt_user *handle, unsigned int limit);
 
@@ -84,24 +68,6 @@ extern
 unsigned int apthermolmt_get_cpu_power_limit(void);
 
 extern
-unsigned int apthermolmt_get_cpu_min_power(void);
-
-extern
 unsigned int apthermolmt_get_gpu_power_limit(void);
-
-extern
-unsigned int apthermolmt_get_gpu_min_power(void);
-
-extern
-unsigned int apthermolmt_get_vpu_power_limit(void);
-
-extern
-unsigned int apthermolmt_get_vpu_min_power(void);
-
-extern
-unsigned int apthermolmt_get_mdla_power_limit(void);
-
-extern
-unsigned int apthermolmt_get_mdla_min_power(void);
 
 #endif	/* __AP_THERMAL_LIMIT_H__ */

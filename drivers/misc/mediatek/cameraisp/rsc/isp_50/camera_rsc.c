@@ -2639,7 +2639,7 @@ EXIT:
  ******************************************************************************/
 static signed int RSC_mmap(struct file *pFile, struct vm_area_struct *pVma)
 {
-	unsigned long length = 0;
+	long length = 0;
 	unsigned int pfn = 0x0;
 
 	length = pVma->vm_end - pVma->vm_start;
@@ -2936,8 +2936,6 @@ static signed int RSC_probe(struct platform_device *pDev)
 		cmdqCoreRegisterTaskCycleCB(CMDQ_GROUP_RSC, cmdq_pm_qos_start,
 							cmdq_pm_qos_stop);
 #endif
-
-		seqlock_init(&(rsc_reqs.seqlock));
 
 	}
 

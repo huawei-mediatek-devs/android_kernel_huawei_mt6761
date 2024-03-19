@@ -432,15 +432,7 @@ bool mt_usb_is_device(void)
 	return true;
 #endif
 }
-
-/* to avoid build error due to PMIC module not ready */
-#ifndef CONFIG_MTK_CHARGER
-#define BYPASS_PMIC_LINKAGE
-#endif
-
-#ifdef BYPASS_PMIC_LINKAGE
 static struct delayed_work disconnect_check_work;
-static bool musb_hal_is_vbus_exist(void);
 void do_disconnect_check_work(struct work_struct *data)
 {
 	bool vbus_exist = false;
@@ -484,8 +476,11 @@ void trigger_disconnect_check_work(void)
 	}
 	queue_delayed_work(mtk_musb->st_wq, &disconnect_check_work, 0);
 }
-#endif
 
+/* to avoid build error due to PMIC module not ready */
+#ifndef CONFIG_MTK_CHARGER
+#define BYPASS_PMIC_LINKAGE
+#endif
 static enum charger_type musb_hal_get_charger_type(void)
 {
 	enum charger_type chg_type;
@@ -497,7 +492,7 @@ static enum charger_type musb_hal_get_charger_type(void)
 #endif
 	return chg_type;
 }
-static bool musb_hal_is_vbus_exist(void)
+bool musb_hal_is_vbus_exist(void)
 {
 	bool vbus_exist;
 
@@ -1805,16 +1800,15 @@ static int mt_usb_probe(struct platform_device *pdev)
 
 #ifdef CONFIG_MTK_MUSB_QMU_SUPPORT
 	isoc_ep_end_idx = 1;
-	isoc_ep_gpd_count = 550; /* 30 ms for HS, at most (30*8 + 1) */
+	isoc_ep_gpd_count = 248; /* 30 ms for HS, at most (30*8 + 1) */
 
 	mtk_host_qmu_force_isoc_restart = 0;
 #endif
 #ifndef FPGA_PLATFORM
 	register_usb_hal_dpidle_request(usb_6765_dpidle_request);
 #endif
-#ifdef BYPASS_PMIC_LINKAGE
 	register_usb_hal_disconnect_check(trigger_disconnect_check_work);
-#endif
+
 	INIT_DELAYED_WORK(&idle_work, do_idle_work);
 
 	DBG(0, "keep musb->power & mtk_usb_power in the samae value\n");
@@ -1858,7 +1852,7 @@ static int mt_usb_probe(struct platform_device *pdev)
 #endif
 
 #ifndef FPGA_PLATFORM
-	if (get_boot_mode() == META_BOOT || get_boot_mode() == RECOVERY_BOOT) {
+	if (get_boot_mode() == META_BOOT) {
 		DBG(0, "in special mode %d\n", get_boot_mode());
 		musb_force_on = 1;
 	}

@@ -232,8 +232,8 @@ static int wmt_send_signal(int level)
 		siginfo_t info;
 
 		info.si_signo = SIGIO;
-		info.si_code = 4;
-		info.si_errno = thro;
+		info.si_errno = 0;
+		info.si_code = thro;
 		info.si_addr = NULL;
 		ret = send_sig_info(SIGIO, &info, pg_task);
 	}
@@ -471,7 +471,7 @@ int tswmt_get_WiFi_tx_tput(void)
 	return tx_throughput;
 }
 
-static void wmt_cal_stats(unsigned long data)
+static int wmt_cal_stats(unsigned long data)
 {
 	struct wmt_stats *stats_info = (struct wmt_stats *)data;
 	struct timeval cur_time;
@@ -524,6 +524,7 @@ static void wmt_cal_stats(unsigned long data)
 
 	wmt_stats_timer.expires = jiffies + 1 * HZ;
 	add_timer(&wmt_stats_timer);
+	return 0;
 }
 
 static int wmt_thz_bind(struct thermal_zone_device *thz_dev,
@@ -663,7 +664,8 @@ static int wmt_thz_get_temp(struct thermal_zone_device *thz_dev, int *pv)
 	if (sensor_select < 0 || sensor_select >= NR_TS_SENSORS) {
 		#ifdef CONFIG_MTK_AEE_FEATURE
 		aee_kernel_warning_api(__FILE__, __LINE__, DB_OPT_DEFAULT,
-					"%s ", __func__);
+					"wmt_thz_get_temp ",
+					"sensor_select: %d\n", sensor_select);
 		#endif
 		sensor_select = 0;
 	}
@@ -1177,7 +1179,6 @@ static int wmt_wifi_tx_thro_limit_open(struct inode *inode, struct file *file)
 	return single_open(file, wmt_wifi_tx_thro_limit_read, PDE_DATA(inode));
 }
 
-int wmt_test_thro;
 /* New Wifi throttling Algo+ */
 ssize_t wmt_wifi_algo_write(
 struct file *filp, const char __user *buf, size_t len, loff_t *data)
@@ -1235,14 +1236,6 @@ struct file *filp, const char __user *buf, size_t len, loff_t *data)
 		else
 			wmt_tm_debug_log = 0;
 
-		return len;
-	}
-
-	if (sscanf(desc, "thro=%d", &wmt_test_thro) == 1) {
-		if (wmt_test_thro ==  0)
-			wmt_test_thro = -1;
-		wmt_tm_printk("set wmt thro = %d\n", wmt_test_thro);
-		wmt_send_signal(wmt_test_thro);
 		return len;
 	}
 
@@ -1360,7 +1353,8 @@ struct file *filp, const char __user *buf, size_t len, loff_t *data)
 	if (sensor_select < 0 || sensor_select >= NR_TS_SENSORS) {
 		#ifdef CONFIG_MTK_AEE_FEATURE
 		aee_kernel_warning_api(__FILE__, __LINE__, DB_OPT_DEFAULT,
-					"%s ",	__func__);
+					"wmt_wifi_in_soc_write ",
+					"sensor_select: %d\n", sensor_select);
 		#endif
 		sensor_select = 0;
 	}
@@ -1877,7 +1871,7 @@ static int wmt_tm_proc_register(void)
 		if (entry)
 			proc_set_user(entry, uid, gid);
 
-		entry = proc_create("clwmtx_pid", 0660, wmt_tm_proc_dir,
+		entry = proc_create("clwmt_pid", 0660, wmt_tm_proc_dir,
 								&_tm_pid_fops);
 
 		if (entry)
@@ -1957,7 +1951,7 @@ static int __init wmt_tm_init(void)
 	wmt_stats_info.pre_tx_bytes = 0;
 
 	init_timer_deferrable(&wmt_stats_timer);
-	wmt_stats_timer.function = &wmt_cal_stats;
+	wmt_stats_timer.function = (void *)&wmt_cal_stats;
 	wmt_stats_timer.data = (unsigned long)&wmt_stats_info;
 	wmt_stats_timer.expires = jiffies + 1 * HZ;
 	add_timer(&wmt_stats_timer);

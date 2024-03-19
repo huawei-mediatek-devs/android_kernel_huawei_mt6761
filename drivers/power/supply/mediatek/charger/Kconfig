@@ -58,15 +58,6 @@ config MTK_PUMP_EXPRESS_PLUS_20_SUPPORT
 	  Set Yes to enable PE+2.0
 	  Set No to disable PE+2.0
 
-config MTK_DUAL_CHARGER_SUPPORT
-	bool "MediaTek dual charger support"
-	default n
-	depends on MTK_CHARGER
-	help
-	  Use two charging ICs (master and slave) to charge the system.
-	  The master IC is connected to VBUS, VSYS, and VBAT, the slave
-	  IC is conneceted to PMID pin from the master and VBAT.
-	  Say Yes to enable dual charger support.
 
 config SWCHR_POWER_PATH
 	bool "External charger IC supports powerpath"
@@ -89,57 +80,11 @@ config CHARGER_RT9465
 	  application.
 	  It depends on config MTK_CHARGER.
 
-config CHARGER_RT9471
-	bool "Charger Driver for Richtek RT9471 Charger IC"
-	default n
-	depends on MTK_CHARGER
-	help
-	  Say Yes to enable Richtek RT9471 driver.
-	  It supports RT9470/RT9470D/RT9471/RT9471D,
-	  which RT9470D and RT9471D support BC1.2
-	  It depends on config MTK_CHARGER.
-
 config MTK_CHARGER_UNLIMITED
 	bool "MediaTek Charger Unlimited"
 	default n
 	depends on MTK_CHARGER
 	help
 	  Say Yes to release charging current restrictions.
-	  Say No to not release charging current restrictions.
 	  It is mainly used for long-term tests.
 	  It depends on config MTK_CHARGER.
-
-config MTK_BQ24196_SUPPORT
-	bool "MediaTek Battery driver for TI BQ24196"
-	help
-	  BQ24196 charger IC support
-	  This is to enable MediaTek supports to BQ24196.
-	  It depends on config MTK_SMART_BATTERY
-	  and config MTK_SWCHR_SUPPORT
-	  Set to Yes if BQ24196 is used.
-
-config MTK_BQ24296_SUPPORT
-	bool "MTK_BQ24296_SUPPORT"
-	help
-	  This is to enable MediaTek supports to BQ24296.
-	  It depends on config MTK_SMART_BATTERY
-	  and config MTK_SWCHR_SUPPORT
-	  Set to Yes if BQ24296 is used.
-
-config CHARGER_BQ25601
-	bool "CHARGER_BQ25601"
-	help
-	  This is to enable MediaTek supports to BQ25601.
-	  It depends on config MTK_SMART_BATTERY
-	  and config MTK_SWCHR_SUPPORT
-	  Set to Yes if BQ25601 is used.
-
-config MTK_BQ25890_SUPPORT
-	bool "Charger driver for TI BQ25890 charger IC"
-	default n
-	depends on MTK_CHARGER
-	help
-	  This is to enable MediaTek support to BQ25890.
-	  It also supports BC1.2 function.
-	  It depends on config MTK_CHARGER.
-	  Say yes to enable BQ25890 charger driver.

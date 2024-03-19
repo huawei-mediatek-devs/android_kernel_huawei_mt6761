@@ -37,7 +37,6 @@
 #include "ccci_hif.h"
 #include "ccci_port.h"
 #include "port_proxy.h"
-#include "port_udc.h"
 #define TAG PORT
 #define CCCI_DEV_NAME "ccci"
 
@@ -79,6 +78,8 @@ int port_dev_open(struct inode *inode, struct file *file)
 	struct port_t *port;
 
 	port = port_get_by_node(major, minor);
+	if (port == NULL)
+		return -ENOENT;
 	if (port->rx_ch != CCCI_CCB_CTRL && atomic_read(&port->usage_cnt))
 		return -EBUSY;
 	md_id = port->md_id;
@@ -349,7 +350,6 @@ long port_dev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	long ret = 0;
 	struct port_t *port = file->private_data;
-	struct ccci_smem_region *sub_smem;
 
 	switch (cmd) {
 	case CCCI_IOC_SET_HEADER:
@@ -357,31 +357,6 @@ long port_dev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case CCCI_IOC_CLR_HEADER:
 		port->flags &= ~PORT_F_USER_HEADER;
-		break;
-	case CCCI_IOC_SMEM_BASE:
-		if (port->rx_ch != CCCI_WIFI_RX)
-			return -EFAULT;
-		sub_smem = ccci_md_get_smem_by_user_id(port->md_id,
-						SMEM_USER_MD_WIFI_PROXY);
-		if (!sub_smem)
-			return -EFAULT;
-		CCCI_NORMAL_LOG(port->md_id, TAG, "wifi smem phy =%lx\n",
-			(unsigned long)sub_smem->base_ap_view_phy);
-		ret = put_user((unsigned int)sub_smem->base_ap_view_phy,
-				(unsigned int __user *)arg);
-		break;
-	case CCCI_IOC_SMEM_LEN:
-		if (port->rx_ch != CCCI_WIFI_RX)
-			return -EFAULT;
-		sub_smem = ccci_md_get_smem_by_user_id(port->md_id,
-						SMEM_USER_MD_WIFI_PROXY);
-		if (!sub_smem)
-			return -EFAULT;
-		sub_smem->size &= ~(PAGE_SIZE - 1);
-		CCCI_NORMAL_LOG(port->md_id, TAG, "wifi smem size =%lx(%d)\n",
-			(unsigned long)sub_smem->size, (int)PAGE_SIZE);
-		ret = put_user((unsigned int)sub_smem->size,
-				(unsigned int __user *)arg);
 		break;
 	default:
 		ret = -1;
@@ -422,61 +397,6 @@ long port_dev_compat_ioctl(struct file *filp, unsigned int cmd,
 }
 #endif
 
-
-int port_dev_mmap(struct file *fp, struct vm_area_struct *vma)
-{
-	struct port_t *port = fp->private_data;
-	int md_id = port->md_id;
-	int len, ret;
-	unsigned long pfn;
-	struct ccci_smem_region *wifi_smem;
-
-	if (port->rx_ch != CCCI_WIFI_RX)
-		return -EFAULT;
-
-	wifi_smem = ccci_md_get_smem_by_user_id(md_id,
-						SMEM_USER_MD_WIFI_PROXY);
-	if (!wifi_smem)
-		return -EFAULT;
-	wifi_smem->size &= ~(PAGE_SIZE - 1);
-	CCCI_NORMAL_LOG(md_id, CHAR,
-			"remap wifi smem addr:0x%llx len:%d  map-len:%lu\n",
-			(unsigned long long)wifi_smem->base_ap_view_phy,
-			wifi_smem->size, vma->vm_end - vma->vm_start);
-	if ((vma->vm_end - vma->vm_start) > wifi_smem->size) {
-		CCCI_ERROR_LOG(md_id, CHAR,
-			"invalid mm size request from %s\n",
-			port->name);
-		return -EINVAL;
-	}
-
-	len = (vma->vm_end - vma->vm_start) < wifi_smem->size ?
-		vma->vm_end - vma->vm_start : wifi_smem->size;
-	pfn = wifi_smem->base_ap_view_phy;
-	pfn >>= PAGE_SHIFT;
-	/* ensure that memory does not get swapped to disk */
-	vma->vm_flags |= VM_IO;
-	/* ensure non-cacheable */
-	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
-	ret = remap_pfn_range(vma, vma->vm_start, pfn,
-				len, vma->vm_page_prot);
-	if (ret) {
-		CCCI_ERROR_LOG(md_id, CHAR,
-			"wifi smem remap failed %d/%lx, 0x%llx -> 0x%llx\n",
-			ret, pfn,
-			(unsigned long long)wifi_smem->base_ap_view_phy,
-			(unsigned long long)vma->vm_start);
-		return -EAGAIN;
-	}
-
-	CCCI_NORMAL_LOG(md_id, CHAR,
-		"wifi smem remap succeed %lx, 0x%llx -> 0x%llx\n", pfn,
-		(unsigned long long)wifi_smem->base_ap_view_phy,
-		(unsigned long long)vma->vm_start);
-
-	return 0;
-}
-
 /**************************************************************************/
 /* REGION: port common API implementation,
  * these APIs are valiable for every port
@@ -489,8 +409,6 @@ static inline void port_struct_init(struct port_t *port,
 	INIT_LIST_HEAD(&port->exp_entry);
 	INIT_LIST_HEAD(&port->queue_entry);
 	skb_queue_head_init(&port->rx_skb_list);
-	if (port->tx_ch == CCCI_UDC_TX)
-		skb_queue_head_init(&port->rx_skb_list_hp);
 	init_waitqueue_head(&port->rx_wq);
 	port->tx_busy_count = 0;
 	port->rx_busy_count = 0;
@@ -1158,7 +1076,7 @@ static inline int proxy_dispatch_recv_skb(struct port_proxy *proxy_p,
 		if (channel == CCCI_CONTROL_RX)
 			CCCI_ERROR_LOG(md_id, CORE,
 				"drop on channel %d, ret %d\n", channel, ret);
-		if (skb)
+		if (ret != -CCCI_ERR_INVALID_PARAM)
 			ccci_free_skb(skb);
 		ret = -CCCI_ERR_DROP_PACKET;
 	}
@@ -1470,7 +1388,6 @@ static inline void user_broadcast_wrapper(int md_id, unsigned int state)
 
 	switch (state) {
 	case GATED:
-		mapped_event = MD_STA_EV_STOP;
 		break;
 	case BOOT_WAITING_FOR_HS1:
 		break;
@@ -1507,7 +1424,6 @@ void ccci_port_md_status_notify(int md_id, unsigned int state)
 	CHECK_MD_ID(md_id);
 	proxy_p = GET_PORT_PROXY(md_id);
 	proxy_dispatch_md_status(proxy_p, (unsigned int)state);
-	user_broadcast_wrapper(md_id, state);
 }
 
 

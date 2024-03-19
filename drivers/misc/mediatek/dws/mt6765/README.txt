@@ -1,0 +1,2 @@
+-To unify the dws file, move k62v1_64_mexico.dws to vendor/huawei/chipset_common/config/mtk/mt6765/mt6765_64/mt6765_64/dws/codegen.dws
+-If you want to modify k62v1_64_mexico.dws, please modify in vendor/huawei/chipset_common/config/mtk/mt6765/mt6765_64/mt6765_64/dws/codegen.dws

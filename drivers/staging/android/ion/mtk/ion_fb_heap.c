@@ -120,7 +120,7 @@ static int ion_fb_heap_phys(struct ion_heap *heap, struct ion_buffer *buffer,
 	}
 
 	memset((void *)&port_info, 0, sizeof(port_info));
-	port_info.module_id = buffer_info->module_id;
+	port_info.eModuleID = buffer_info->module_id;
 	port_info.cache_coherent = buffer_info->coherent;
 	port_info.security = buffer_info->security;
 #if defined(CONFIG_MTK_M4U)
@@ -158,12 +158,7 @@ static int ion_fb_heap_allocate(struct ion_heap *heap,
 {
 	struct ion_fb_buffer_info *buffer_info = NULL;
 	ion_phys_addr_t paddr;
-#ifdef CONFIG_MTK_PSEUDO_M4U
-	ion_phys_addr_t iova = 0;
-	dma_addr_t offset = 0;
-	struct scatterlist *sg;
-	int i = 0;
-#endif
+
 	if (align > PAGE_SIZE)
 		return -EINVAL;
 
@@ -195,18 +190,6 @@ static int ion_fb_heap_allocate(struct ion_heap *heap,
 	buffer->size = size;
 	buffer->sg_table = ion_fb_heap_map_dma(heap, buffer);
 
-#ifdef CONFIG_MTK_PSEUDO_M4U
-	buffer_info->module_id = 0;
-	ion_fb_heap_phys(heap, buffer, &iova, &size);
-
-	sg = buffer->sg_table->sgl;
-	for_each_sg(buffer->sg_table->sgl, sg, buffer->sg_table->nents, i) {
-		sg_dma_address(sg) = iova + offset;
-		sg_dma_len(sg) = sg->length;
-		offset += sg->length;
-	}
-	buffer->priv_virt = buffer_info;
-#endif
 	return buffer_info->priv_phys == ION_FB_ALLOCATE_FAIL ? -ENOMEM : 0;
 }
 
@@ -311,7 +294,7 @@ struct ion_heap *ion_fb_heap_create(struct ion_platform_heap *heap_data)
 	fb_heap->size = heap_data->size;
 	gen_pool_add(fb_heap->pool, fb_heap->base, fb_heap->size, -1);
 	fb_heap->heap.ops = &fb_heap_ops;
-	fb_heap->heap.type = (unsigned int)ION_HEAP_TYPE_FB;
+	fb_heap->heap.type = ION_HEAP_TYPE_FB;
 	fb_heap->heap.flags = ION_HEAP_FLAG_DEFER_FREE;
 	fb_heap->heap.debug_show = ion_fb_heap_debug_show;
 
@@ -337,7 +320,7 @@ int ion_drv_create_FB_heap(ion_phys_addr_t fb_base, size_t fb_size)
 		return -ENOMEM;
 
 	heap_data->id = ION_HEAP_TYPE_FB;
-	heap_data->type = (unsigned int)ION_HEAP_TYPE_FB;
+	heap_data->type = ION_HEAP_TYPE_FB;
 	heap_data->name = "ion_fb_heap";
 	heap_data->base = fb_base;
 	heap_data->size = fb_size;

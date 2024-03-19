@@ -390,7 +390,7 @@ static void mtkfb_ion_free_handle(struct ion_client *client,
 static size_t mtkfb_ion_phys_mmu_addr(struct ion_client *client,
 	struct ion_handle *handle, unsigned int *mva)
 {
-	size_t size;
+	size_t size = 0;
 	ion_phys_addr_t phy_addr = 0;
 
 	if (!ion_client) {
@@ -408,32 +408,26 @@ static size_t mtkfb_ion_phys_mmu_addr(struct ion_client *client,
 }
 
 static void mtkfb_ion_cache_flush(struct ion_client *client,
-				struct ion_handle *handle, unsigned int size)
+	struct ion_handle *handle)
 {
 	struct ion_sys_data sys_data;
-	void *va = NULL;
 
 	if (!ion_client || !handle)
 		return;
 
-	va = ion_map_kernel(client, handle);
 	sys_data.sys_cmd = ION_SYS_CACHE_SYNC;
 	sys_data.cache_sync_param.kernel_handle = handle;
-	sys_data.cache_sync_param.va = va;
-	sys_data.cache_sync_param.size = size;
-	sys_data.cache_sync_param.sync_type = ION_CACHE_FLUSH_BY_RANGE;
+	sys_data.cache_sync_param.sync_type = ION_CACHE_FLUSH_ALL;
 
 	if (ion_kernel_ioctl(client, ION_CMD_SYSTEM, (unsigned long)&sys_data))
 		pr_info("ion cache flush failed!\n");
-
-	ion_unmap_kernel(client, handle);
 }
 #endif /* #if defined (MTK_FB_ION_SUPPORT) */
 
 unsigned int mtkfb_query_buf_mva(unsigned int session_id,
 	unsigned int layer_id, unsigned int idx)
 {
-	struct mtkfb_fence_buf_info *buf = NULL;
+	struct mtkfb_fence_buf_info *buf;
 	unsigned int mva = 0x0;
 	struct disp_sync_info *layer_info = NULL;
 
@@ -459,8 +453,8 @@ unsigned int mtkfb_query_buf_mva(unsigned int session_id,
 			mmprofile_log_ex(
 				ddp_mmp_get_events()->primary_cache_sync,
 				MMPROFILE_FLAG_START, current->pid, 0);
-		mtkfb_ion_cache_flush(ion_client, buf->hnd, buf->size);
-		mmprofile_log_ex(
+			mtkfb_ion_cache_flush(ion_client, buf->hnd);
+			mmprofile_log_ex(
 				ddp_mmp_get_events()->primary_cache_sync,
 				MMPROFILE_FLAG_END, current->pid, 0);
 		}
@@ -488,6 +482,11 @@ unsigned int mtkfb_query_buf_va(unsigned int session_id, unsigned int layer_id,
 	ASSERT(layer_id < DISP_SESSION_TIMELINE_COUNT);
 
 	session_info = _get_session_sync_info(session_id);
+	if (session_info == NULL) {
+		DISPERR("[%s]:Error get session sync info failed\n", __func__);
+		return 0;
+	}
+
 	layer_info = &(session_info->session_layer_info[layer_id]);
 	if (layer_id != layer_info->layer_id) {
 		pr_info("wrong layer id %d(rt), %d(in)!\n",
@@ -520,11 +519,16 @@ unsigned int mtkfb_query_release_idx(unsigned int session_id,
 	struct mtkfb_fence_buf_info *buf = NULL;
 	struct mtkfb_fence_buf_info *pre_buf = NULL;
 	unsigned int idx = 0x0;
-	struct disp_session_sync_info *session_info =
-		_get_session_sync_info(session_id);
-	struct disp_sync_info *layer_info =
-		&(session_info->session_layer_info[layer_id]);
+	struct disp_session_sync_info *session_info = NULL;
+	struct disp_sync_info *layer_info = NULL;
 
+	session_info = _get_session_sync_info(session_id);
+	if (session_info == NULL) {
+		DISPERR("[%s]:Error get session sync info failed\n", __func__);
+		return 0;
+	}
+
+	layer_info = &(session_info->session_layer_info[layer_id]);
 	if (layer_id != layer_info->layer_id) {
 		pr_info("wrong layer id %d(rt), %d(in)!\n",
 			layer_info->layer_id, layer_id);
@@ -591,6 +595,10 @@ unsigned int mtkfb_update_buf_ticket(unsigned int session_id,
 	}
 
 	session_info = _get_session_sync_info(session_id);
+	if (session_info == NULL) {
+		DISPERR("[%s]:Error get session sync info failed\n", __func__);
+		return 0;
+	}
 	layer_info = &(session_info->session_layer_info[layer_id]);
 
 	if (layer_id != layer_info->layer_id) {
@@ -617,10 +625,16 @@ unsigned int mtkfb_query_idx_by_ticket(unsigned int session_id,
 {
 	struct mtkfb_fence_buf_info *buf = NULL;
 	int idx = -1;
-	struct disp_session_sync_info *session_info =
-		_get_session_sync_info(session_id);
-	struct disp_sync_info *layer_info =
-		&(session_info->session_layer_info[layer_id]);
+	struct disp_session_sync_info *session_info;
+	struct disp_sync_info *layer_info;
+
+	session_info = _get_session_sync_info(session_id);
+	if (session_info == NULL) {
+		DISPERR("[%s]:Error get session sync info failed\n", __func__);
+		return 0;
+	}
+
+	layer_info = &(session_info->session_layer_info[layer_id]);
 
 	if (layer_id != layer_info->layer_id) {
 		DISPERR("wrong layer id %d(rt), %d(in)!\n",
@@ -653,6 +667,10 @@ bool mtkfb_update_buf_info_new(unsigned int session_id,
 	}
 
 	session_info = _get_session_sync_info(session_id);
+	if (session_info == NULL) {
+		DISPERR("[%s]:Error get session sync info failed\n", __func__);
+		return 0;
+	}
 	layer_info = &(session_info->session_layer_info[buf_info->layer_id]);
 	if (buf_info->layer_id != layer_info->layer_id) {
 		DISPERR("wrong layer id %d(rt), %d(in)!\n",
@@ -687,6 +705,10 @@ unsigned int mtkfb_query_buf_info(unsigned int session_id,
 	int query_info = 0;
 
 	session_info = _get_session_sync_info(session_id);
+	if (session_info == NULL) {
+		DISPERR("[%s]:Error get session sync info failed\n", __func__);
+		return 0;
+	}
 	layer_info = &(session_info->session_layer_info[layer_id]);
 	if (layer_id != layer_info->layer_id) {
 		DISPERR("wrong layer id %d(rt), %d(in)!\n",
@@ -842,9 +864,14 @@ static struct mtkfb_fence_buf_info *mtkfb_get_buf_info(void)
 	} else {
 		info = kzalloc(sizeof(struct mtkfb_fence_buf_info),
 			GFP_KERNEL);
-		mtkfb_init_buf_info(info);
-		MTKFB_FENCE_LOG("create new mtkfb_fence_buf_info node %p\n",
+		if (info != NULL) {
+			mtkfb_init_buf_info(info);
+			MTKFB_FENCE_LOG(
+			"create mtkfb_fence_buf_info node %p\n",
 			info);
+		} else
+			MTKFB_FENCE_LOG(
+			"Fail to create mtkfb_fence_buf_info\n");
 		mutex_unlock(&fence_buffer_mutex);
 	}
 
@@ -911,10 +938,14 @@ void mtkfb_release_fence(unsigned int session_id, unsigned int layer_id,
 
 			list_del_init(&buf->list);
 #ifdef MTK_FB_ION_SUPPORT
+			if (!ion_client )
+				DISPERR("%s ioc_client is NULL\n", __func__);
 			if (buf->va &&
 				((DISP_SESSION_TYPE(session_id) >
-				DISP_SESSION_PRIMARY)))
-				ion_unmap_kernel(ion_client, buf->hnd);
+				DISP_SESSION_PRIMARY))) {
+				if ((ion_client != NULL) && (buf->hnd != NULL))
+					ion_unmap_kernel(ion_client, buf->hnd);
+			}
 
 			if (buf->hnd)
 				mtkfb_ion_free_handle(ion_client, buf->hnd);
@@ -1204,6 +1235,11 @@ struct mtkfb_fence_buf_info *disp_sync_prepare_buf(
 	dprec_start(&session_info->event_prepare, buf->layer_id, buf->ion_fd);
 
 	buf_info = mtkfb_get_buf_info();
+	if (!buf_info ) {
+		DISPERR("mtkfb_get_buf_info return NULL\n");
+		return NULL;
+	}
+
 	mutex_lock(&layer_info->sync_lock);
 	data.fence = MTK_FB_INVALID_FENCE_FD;
 	data.value = ++(layer_info->fence_idx);
@@ -1343,7 +1379,7 @@ unsigned int disp_sync_buf_cache_sync(unsigned int session_id,
 		if (buf->cache_sync) {
 			dprec_logger_start(DPREC_LOGGER_DISPMGR_CACHE_SYNC,
 				(unsigned long)buf->hnd, buf->mva);
-			mtkfb_ion_cache_flush(ion_client, buf->hnd, buf->size);
+			mtkfb_ion_cache_flush(ion_client, buf->hnd);
 			dprec_logger_done(DPREC_LOGGER_DISPMGR_CACHE_SYNC,
 				(unsigned long)buf->hnd, buf->mva);
 		}
@@ -1399,7 +1435,7 @@ static unsigned int __disp_sync_query_buf_info(unsigned int session_id,
 		if (buf->cache_sync && need_sync) {
 			dprec_logger_start(DPREC_LOGGER_DISPMGR_CACHE_SYNC,
 				(unsigned long)buf->hnd, buf->mva);
-			mtkfb_ion_cache_flush(ion_client, buf->hnd, buf->size);
+			mtkfb_ion_cache_flush(ion_client, buf->hnd);
 			dprec_logger_done(DPREC_LOGGER_DISPMGR_CACHE_SYNC,
 				(unsigned long)buf->hnd, buf->mva);
 		}

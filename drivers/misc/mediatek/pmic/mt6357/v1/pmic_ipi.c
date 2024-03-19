@@ -137,8 +137,7 @@ unsigned int pmic_ipi_read_interface(unsigned int RegNum,
 
 	ret = pmic_ipi_to_sspm(&send, &recv, lock);
 
-	if (ret >= 0)
-		*val = recv.data[1];
+	*val = recv.data[1];
 
 	return ret;
 }
@@ -239,8 +238,8 @@ unsigned int pmic_ipi_test_code(void)
 	unsigned int error = 0;
 
 	error = pmic_regulator_test_code(0); /*--function UT/IT--*/
-	error = pmic_interface_test_code();
-	error = pmic_regulator_test_code(1); /*--function profiling--*/
+	error |= pmic_interface_test_code();
+	error |= pmic_regulator_test_code(1); /*--function profiling--*/
 
 	return error;
 }
@@ -263,7 +262,7 @@ unsigned int stf_val;
  */
 int stf_pmic_test(void *data)
 {
-	pr_debug("%s\n", __func__);
+	pr_debug("stf_pmic_test\n");
 	stf_val = 0;
 	stf_val = sspm_ipi_send_sync_ex(IPI_ID_PMIC, IPI_OPT_DEFAUT, &stf_send,
 					PMIC_IPI_SEND_SLOT_SIZE, &stf_recv,
@@ -277,7 +276,7 @@ int stf_pmic_chk(void *data)
 	/* Real PMIC service execution result, by each PMIC service */
 	if (stf_val) {
 		ret_val = ((struct pmic_ipi_ret_datas *)(&stf_recv))->data[0];
-		pr_debug("%s = %d\n", __func__, ret_val);
+		pr_debug("stf_pmic_chk = %d\n", ret_val);
 	}
 
 	return ret_val;

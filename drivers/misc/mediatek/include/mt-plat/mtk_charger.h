@@ -24,6 +24,7 @@
 //#include <mach/mtk_charger_init.h>
 
 #include <mt-plat/charger_type.h>
+#include <mt-plat/charger_class.h>
 
 /* charger_manager notify charger_consumer */
 enum {
@@ -37,7 +38,6 @@ enum {
 enum {
 	MAIN_CHARGER = 0,
 	SLAVE_CHARGER = 1,
-	TOTAL_CHARGER = 2,
 	DIRECT_CHARGER = 10,
 };
 
@@ -106,12 +106,17 @@ extern int charger_manager_get_zcv(
 	struct charger_consumer *consumer,
 	int idx,
 	u32 *uV);
-extern int charger_manager_enable_chg_type_det(
+extern int charger_manager_enable_kpoc_shutdown(
 	struct charger_consumer *consumer,
 	bool en);
+extern int charger_manager_const_charge_current_max(struct charger_consumer *consumer);
+extern int charger_manager_get_charge_full_design(struct charger_consumer *consumer);
+extern int charger_manager_get_voltage_max(struct charger_consumer *consumer);
+extern int charger_manager_reset_learned_cc(struct charger_consumer *consumer,int val);
+extern int charger_manager_set_voltage_max(struct charger_consumer *consumer,int val);
+extern int charger_manager_set_current_max(struct charger_consumer *consumer,int val);
+
 extern int mtk_chr_is_charger_exist(unsigned char *exist);
 extern bool is_power_path_supported(void);
-extern int charger_get_vbus(void);
-extern bool mt_charger_plugin(void);
 
 #endif /* __MTK_CHARGER_H__ */

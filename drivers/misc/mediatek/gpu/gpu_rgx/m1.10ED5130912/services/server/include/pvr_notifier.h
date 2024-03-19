@@ -149,7 +149,7 @@ Debug Notifier Interface
 		if (pfnDumpDebugPrintf)\
 			pfnDumpDebugPrintf(pvDumpDebugFile, __VA_ARGS__);\
 		else\
-			MTKPP_LOG(g_use_id, __VA_ARGS__);\
+			{MTKPP_LOG(g_use_id, __VA_ARGS__);PVR_LOG((__VA_ARGS__));}\
 	} while (0)
 #else
 #define PVR_DUMPDEBUG_LOG(...)                                            \

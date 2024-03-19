@@ -10,13 +10,8 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  */
-#ifndef __GZ_UT_H__
-#define __GZ_UT_H__
+
+#define GZ_ECHO_SRV_NAME "com.mediatek.geniezone.srv.echo"
+#define GZ_MEM_SRV_NAME "com.mediatek.geniezone.srv.mem"
 
 int dma_test(void *args);
-int gz_tipc_test(void *args);
-int gz_test(void *arg);
-int gz_abort_test(void *args);
-
-#endif
-

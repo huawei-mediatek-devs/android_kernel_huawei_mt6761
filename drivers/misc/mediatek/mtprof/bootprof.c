@@ -21,10 +21,19 @@
 #include <linux/printk.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
-#include <log_store_kernel.h>
+#include <soc/mediatek/log_store_kernel.h>
 
 #include "internal.h"
 #include "mtk_sched_mon.h"
+
+#ifndef CONFIG_FINAL_RELEASE
+#ifdef CONFIG_MTK_WATCHDOG_COMMON
+#include <mt-plat/mtk_wd_api.h>
+#ifdef CONFIG_MTK_PMIC_COMMON
+#include <mt-plat/upmu_common.h>
+#endif
+#endif
+#endif
 
 #define BOOT_STR_SIZE 256
 #define BUF_COUNT 12
@@ -104,6 +113,9 @@ void log_boot(char *str)
 out:
 	mutex_unlock(&bootprof_lock);
 }
+#ifdef CONFIG_MICROTRUST_TEE_SUPPORT
+EXPORT_SYMBOL(log_boot);
+#endif
 
 void bootprof_initcall(initcall_t fn, unsigned long long ts)
 {
@@ -114,7 +126,7 @@ void bootprof_initcall(initcall_t fn, unsigned long long ts)
 
 	if (ts > INITCALL_THRESHOLD) {
 		msec_rem = do_div(ts, NSEC_PER_MSEC);
-		snprintf(msgbuf, MSG_SIZE, "initcall: %ps %5llu.%06lums",
+		snprintf(msgbuf, MSG_SIZE, "initcall: %pf %5llu.%06lums",
 			 fn, ts, msec_rem);
 		log_boot(msgbuf);
 	}
@@ -133,13 +145,13 @@ void bootprof_probe(unsigned long long ts, struct device *dev,
 		return;
 	msec_rem = do_div(ts, NSEC_PER_MSEC);
 
-	pos += snprintf(msgbuf, MSG_SIZE, "probe: probe=%ps", (void *)probe);
+	pos += snprintf(msgbuf, MSG_SIZE, "probe: probe=%pf", (void *)probe);
 	if (drv)
-		pos += snprintf(msgbuf + pos, MSG_SIZE - pos, " drv=%s(%ps)",
+		pos += snprintf(msgbuf + pos, MSG_SIZE - pos, " drv=%s(%p)",
 				drv->name ? drv->name : "",
 				(void *)drv);
 	if (dev && dev->init_name)
-		pos += snprintf(msgbuf + pos, MSG_SIZE - pos, " dev=%s(%ps)",
+		pos += snprintf(msgbuf + pos, MSG_SIZE - pos, " dev=%s(%p)",
 				dev->init_name, (void *)dev);
 	pos += snprintf(msgbuf + pos, MSG_SIZE - pos, " %5llu.%06lums",
 			ts, msec_rem);
@@ -156,14 +168,43 @@ void bootprof_pdev_register(unsigned long long ts, struct platform_device *pdev)
 	if (ts <= PROBE_THRESHOLD || !pdev)
 		return;
 	msec_rem = do_div(ts, NSEC_PER_MSEC);
-	snprintf(msgbuf, MSG_SIZE, "probe: pdev=%s(%ps) %5llu.%06lums",
+	snprintf(msgbuf, MSG_SIZE, "probe: pdev=%s(%p) %5llu.%06lums",
 		 pdev->name, (void *)pdev, ts, msec_rem);
 	log_boot(msgbuf);
 }
 
 static void bootup_finish(void)
 {
+#ifndef CONFIG_FINAL_RELEASE
+#ifdef CONFIG_MTK_WATCHDOG_COMMON
+	int res;
+	struct wd_api *wd_api = NULL;
+#endif
+#endif
 	initcall_debug = 0;
+#ifndef CONFIG_FINAL_RELEASE
+#ifdef CONFIG_MTK_PMIC_COMMON
+	pr_notice("long_press_mode = SHUTDOWN\n");
+	pmic_enable_smart_reset(0, 0);
+#endif
+#ifdef CONFIG_MTK_WATCHDOG_COMMON
+	res = get_wd_api(&wd_api);
+	if (res < 0)
+		pr_notice("%s: get_wd_api failed:%d\n", __func__, res);
+	else {
+		res = wd_api->wd_debug_key_eint_config(0, WD_REQ_RST_MODE);
+		if (res == -1)
+			pr_notice("%s: disable EINT failed\n", __func__);
+		else
+			pr_notice("%s:disable EINT mode\n", __func__);
+		res = wd_api->wd_debug_key_sysrst_config(0, WD_REQ_RST_MODE);
+		if (res == -1)
+			pr_notice("%s: disable SYSRST failed\n", __func__);
+		else
+			pr_notice("%s:disable SYSRST OK\n", __func__);
+	}
+#endif
+#endif
 #ifdef CONFIG_MTK_PRINTK_UART_CONSOLE
 	mt_disable_uart();
 #endif

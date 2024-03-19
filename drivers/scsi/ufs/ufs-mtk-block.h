@@ -44,6 +44,9 @@ enum {
 };
 
 struct ufs_mtk_bio_context_task {
+	int task_id;
+	int cpu_id;
+	pid_t pid;
 	__u32 qid;
 	__u16 cmd;
 	__u16 len;
@@ -56,8 +59,7 @@ struct ufs_mtk_bio_context {
 	int id;
 	int state;
 	pid_t pid;
-	__u16 qid;
-	__u16 q_depth;
+	__u32 qid;
 	spinlock_t lock;
 	uint64_t busy_start_t;
 	uint64_t period_start_t;

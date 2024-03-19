@@ -354,13 +354,16 @@ static int get_ovl_by_phy(int layer_map_tb, int phy_layer_idx)
 
 static int get_phy_ovl_index(int layer_idx)
 {
-	int ovl_mapping_tb = l_rule_ops->get_mapping_table(DISP_HW_OVL_TB, 0);
-	int phy_layer_cnt, layer_flag;
+	unsigned int ovl_mapping_tb =
+		l_rule_ops->get_mapping_table(DISP_HW_OVL_TB, 0);
+	int phy_layer_cnt = 0;
+	unsigned int layer_flag = 0;
+	unsigned int layer_idx_u32 = layer_idx;
 
 	phy_layer_cnt = 0;
-	layer_flag = 1 << layer_idx;
-	while (layer_idx) {
-		layer_idx--;
+	layer_flag = 1 << layer_idx_u32;
+	while (layer_idx_u32) {
+		layer_idx_u32--;
 		layer_flag >>= 1;
 		if (ovl_mapping_tb & layer_flag)
 			break;
@@ -916,7 +919,19 @@ static int add_layer_entry(struct layer_config *l_info,
 	struct hrt_sort_entry **p_entry;
 
 	begin_t = kzalloc(sizeof(struct hrt_sort_entry), GFP_KERNEL);
+
+	if (!begin_t) {
+		DISPERR("(%s)Alloc begin_t fail !!\n", __func__);
+		return -1;
+	}
+
 	end_t = kzalloc(sizeof(struct hrt_sort_entry), GFP_KERNEL);
+
+	if (!end_t) {
+		DISPERR("(%s)Alloc end_t fail !!\n", __func__);
+		kfree(begin_t);
+		return -1;
+	}
 
 	begin_t->head = NULL;
 	begin_t->tail = NULL;
@@ -1600,7 +1615,10 @@ static int check_layering_result(struct disp_layer_info *info)
 
 int check_disp_info(struct disp_layer_info *disp_info)
 {
-	int disp_idx, ghead, gtail;
+	int disp_idx = 0;
+	int ghead = 0;
+	int gtail = 0;
+	int layer_num = 0;
 
 	if (disp_info == NULL) {
 		DISPERR("[HRT]disp_info is empty\n");
@@ -1609,7 +1627,8 @@ int check_disp_info(struct disp_layer_info *disp_info)
 
 	for (disp_idx = 0 ; disp_idx < 2 ; disp_idx++) {
 
-		if (disp_info->layer_num[disp_idx] > 0 &&
+		layer_num = disp_info->layer_num[disp_idx];
+		if (layer_num > 0 &&
 			disp_info->input_config[disp_idx] == NULL) {
 			DISPERR("[HRT]input config is empty,disp:%d,l_num:%d\n",
 				disp_idx, disp_info->layer_num[disp_idx]);
@@ -1618,8 +1637,10 @@ int check_disp_info(struct disp_layer_info *disp_info)
 
 		ghead = disp_info->gles_head[disp_idx];
 		gtail = disp_info->gles_tail[disp_idx];
-		if ((ghead < 0 && gtail >= 0) || (gtail < 0 && ghead >= 0)) {
-			dump_disp_info(disp_info, DISP_DEBUG_LEVEL_ERR);
+		if ((!((ghead == -1) && (gtail == -1)) &&
+			!((ghead >= 0) && (gtail >= 0)))
+			|| (ghead >= layer_num) || (gtail >= layer_num)
+			|| (ghead > gtail)) {
 			DISPERR("[HRT]gles invalid,disp:%d,head:%d,tail:%d\n",
 				disp_idx, disp_info->gles_head[disp_idx],
 				disp_info->gles_tail[disp_idx]);
@@ -1793,13 +1814,13 @@ int layering_rule_start(struct disp_layer_info *disp_info_user,
 	l_rule_info->dal_enable = is_DAL_Enabled();
 
 	if (l_rule_ops->rollback_to_gpu_by_hw_limitation)
-		ret = l_rule_ops->rollback_to_gpu_by_hw_limitation(
+		l_rule_ops->rollback_to_gpu_by_hw_limitation(
 			&layering_info);
 
 	/* Check and choose the Resize Scenario */
 	if (get_layering_opt(LYE_OPT_RPO)) {
 		if (l_rule_ops->resizing_rule)
-			ret = l_rule_ops->resizing_rule(&layering_info);
+			l_rule_ops->resizing_rule(&layering_info);
 		else
 			DISPWARN("RSZ on, but no resizing rule.\n");
 	} else {
@@ -1812,9 +1833,9 @@ int layering_rule_start(struct disp_layer_info *disp_info_user,
 	/* Initial HRT conditions */
 	l_rule_ops->scenario_decision(&layering_info);
 	/* Layer Grouping */
-	ret = ext_layer_grouping(&layering_info);
+	ext_layer_grouping(&layering_info);
 	/* GLES adjustment and ext layer checking */
-	ret = filter_by_ovl_cnt(&layering_info);
+	filter_by_ovl_cnt(&layering_info);
 
 
 /**
@@ -1850,7 +1871,7 @@ int layering_rule_start(struct disp_layer_info *disp_info_user,
 	if (adaptive_dc_request)
 		layering_info.hrt_num = 0;
 
-	ret = dispatch_ovl_id(&layering_info);
+	dispatch_ovl_id(&layering_info);
 	check_layering_result(&layering_info);
 
 	HRT_SET_PATH_SCENARIO(layering_info.hrt_num, l_rule_info->disp_path);
@@ -1933,14 +1954,14 @@ static char *parse_hrt_data_value(char *start, long int *value)
 static int load_hrt_test_data(struct disp_layer_info *disp_info)
 {
 	char filename[] = "/sdcard/hrt_data.txt";
-	char line_buf[512];
-	char *tok;
-	struct file *filp;
-	mm_segment_t oldfs;
-	int ret, pos, i;
-	long int disp_id, test_case;
+	char line_buf[512] = { 0 };
+	char *tok = NULL;
+	struct file *filp = NULL;
+	mm_segment_t oldfs = 0;
+	int ret = 0, pos = 0, i = 0;
+	long int disp_id = 0, test_case = 0;
 	bool is_end = false, is_test_pass = false;
-	struct layer_config *input_config;
+	struct layer_config *input_config = NULL;
 
 	pos = 0;
 	test_case = -1;
@@ -1984,7 +2005,8 @@ static int load_hrt_test_data(struct disp_layer_info *disp_info)
 			if (!tok)
 				goto end;
 			tok = parse_hrt_data_value(tok, &disp_id);
-
+			if (!tok)
+				DISPWARN("can not parse disp_id\n");
 			if (disp_id > HRT_SECONDARY)
 				goto end;
 
@@ -2002,19 +2024,30 @@ static int load_hrt_test_data(struct disp_layer_info *disp_info)
 				return 0;
 			}
 		} else if (strncmp(line_buf, "[set_layer]", 11) == 0) {
-			unsigned long int tmp_info;
+			unsigned long int tmp_info = 0;
 
 			tok = strchr(line_buf, ']');
 			if (!tok)
 				goto end;
 			tok = parse_hrt_data_value(tok, &disp_id);
+			if (!tok){
+				DISPWARN("can not parse disp_id\n");
+				goto end;
+			}
 			for (i = 0 ; i < HRT_LAYER_DATA_NUM ; i++) {
 				tok = parse_hrt_data_value(tok, &tmp_info);
+				if (!tok){
+					DISPWARN("can not parse 0\n");
+					if (i< (HRT_LAYER_DATA_NUM -1))
+						break;
+				}
 				debug_set_layer_data(disp_info, disp_id,
 					i, tmp_info);
 			}
 		} else if (strncmp(line_buf, "[test_start]", 12) == 0) {
 			tok = parse_hrt_data_value(line_buf, &test_case);
+			if (!tok)
+				DISPWARN("can not parse test_case\n");
 			layering_rule_start(disp_info, 1);
 			is_test_pass = true;
 		} else if (strncmp(line_buf, "[test_end]", 10) == 0) {
@@ -2027,7 +2060,7 @@ static int load_hrt_test_data(struct disp_layer_info *disp_info)
 			DISPWARN("Test case %d is %s\n",
 				(int)test_case, is_test_pass?"Pass":"Fail");
 		} else if (strncmp(line_buf, "[layer_result]", 14) == 0) {
-			long int layer_result = 0, layer_id;
+			long int layer_result = 0, layer_id = 0;
 
 			tok = strchr(line_buf, ']');
 			if (!tok)
@@ -2039,6 +2072,8 @@ static int load_hrt_test_data(struct disp_layer_info *disp_info)
 			if (!tok)
 				goto end;
 			tok = parse_hrt_data_value(tok, &layer_result);
+			if (!tok)
+				DISPWARN("can not parse lay_result\n");
 			input_config =
 				&disp_info->input_config[disp_id][layer_id];
 			if (layer_result !=	input_config->ovl_id) {
@@ -2051,6 +2086,8 @@ static int load_hrt_test_data(struct disp_layer_info *disp_info)
 			if (!tok)
 				goto end;
 			tok = parse_hrt_data_value(tok, &layer_result);
+			if (!tok)
+				DISPWARN("can not parse layer_result\n");
 			if (layer_result != input_config->ext_sel_layer) {
 				DISPWARN(
 					"case:%d,ext_sel_layer wrong,%d/%d\n",
@@ -2081,6 +2118,8 @@ static int load_hrt_test_data(struct disp_layer_info *disp_info)
 			if (!tok)
 				goto end;
 			tok = parse_hrt_data_value(tok, &gles_num);
+			if (!tok)
+				DISPWARN("can not parse gles_num\n");
 			if (gles_num != disp_info->gles_tail[disp_id]) {
 				DISPWARN(
 					"case:%d,gles tail err,%d/%d\n",
@@ -2118,6 +2157,8 @@ static int load_hrt_test_data(struct disp_layer_info *disp_info)
 			if (!tok)
 				goto end;
 			tok = parse_hrt_data_value(tok, &hrt_num);
+			if (!tok)
+				DISPWARN("can not parse hrt_num\n");
 			if (hrt_num !=
 				HRT_GET_SCALE_SCENARIO(disp_info->hrt_num)) {
 				DISPWARN(
@@ -2137,17 +2178,23 @@ static int load_hrt_test_data(struct disp_layer_info *disp_info)
 			if (!tok)
 				goto end;
 			tok = parse_hrt_data_value(tok, &disp_id);
+			if (!tok)
+				DISPWARN("can not parse disp_id\n");
 			disp_info->layer_num[disp_id] = layer_num;
 		} else if (strncmp(line_buf,
 				"[force_dual_pipe_off]", 21) == 0) {
 			unsigned long int force_off = 0;
 
 			tok = parse_hrt_data_value(line_buf, &force_off);
+			if (!tok)
+				DISPWARN("can not parse force_off\n");
 			set_hrt_state(DISP_HRT_FORCE_DUAL_OFF, force_off);
 		} else if (strncmp(line_buf, "[resolution_level]", 18) == 0) {
 			unsigned long int resolution_level = 0;
 
 			tok = parse_hrt_data_value(line_buf, &resolution_level);
+			if (!tok)
+				DISPWARN("can not parse resolution\n");
 			debug_resolution_level = resolution_level;
 		} else if (strncmp(line_buf, "[set_gles]", 10) == 0) {
 			long int gles_num = 0;
@@ -2164,6 +2211,8 @@ static int load_hrt_test_data(struct disp_layer_info *disp_info)
 			if (!tok)
 				goto end;
 			tok = parse_hrt_data_value(tok, &gles_num);
+			if (!tok)
+				DISPWARN("can not parse gles_num\n");
 			disp_info->gles_tail[disp_id] = gles_num;
 		} else if (strncmp(line_buf, "[disp_mode]", 11) == 0) {
 			unsigned long int disp_mode = 0;
@@ -2172,6 +2221,8 @@ static int load_hrt_test_data(struct disp_layer_info *disp_info)
 			if (!tok)
 				goto end;
 			tok = parse_hrt_data_value(tok, &disp_id);
+			if (!tok)
+				DISPWARN("can not parse disp_id\n");
 			disp_info->disp_mode[disp_id] = disp_mode;
 		}
 
@@ -2209,6 +2260,11 @@ int gen_hrt_pattern(void)
 	disp_info.gles_tail[0] = 5;
 	disp_info.input_config[0] =
 		kzalloc(sizeof(struct layer_config) * 5, GFP_KERNEL);
+
+	if(!disp_info.input_config[0])
+		DISPERR("(%s)Alloc disp_info.input_config[0] fail !!\n",
+			__func__);
+
 	layer_info = disp_info.input_config[0];
 	for (i = 0 ; i < disp_info.layer_num[0] ; i++)
 		layer_info[i].src_fmt = DISP_FORMAT_ARGB8888;

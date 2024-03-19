@@ -22,7 +22,7 @@ struct frame_queue_head_t {
 	struct list_head queue;
 	struct mutex lock;
 	struct task_struct *worker;
-	int session_id;
+	unsigned int session_id;
 	wait_queue_head_t wq;
 	int inited;
 };

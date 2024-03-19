@@ -215,6 +215,12 @@ struct mrdump_rsvmem_block {
 	(MRDUMP_MINI_NR_SECTION * MRDUMP_MINI_SECTION_SIZE)
 #define MRDUMP_MINI_BUF_SIZE (MRDUMP_MINI_HEADER_SIZE + MRDUMP_MINI_DATA_SIZE)
 
+#ifdef CONFIG_MTK_RAM_CONSOLE_DRAM_ADDR
+#define MRDUMP_MINI_BUF_PADDR (CONFIG_MTK_RAM_CONSOLE_DRAM_ADDR + 0xf0000)
+#else
+#define MRDUMP_MINI_BUF_PADDR 0
+#endif
+
 int mrdump_init(void);
 void __mrdump_create_oops_dump(enum AEE_REBOOT_MODE reboot_mode,
 		struct pt_regs *regs, const char *msg, ...);
@@ -232,7 +238,15 @@ static inline void mrdump_rsvmem(void)
 }
 #endif
 
-__weak void dis_D_inner_flush_all(void)
+#if defined(CONFIG_MTK_AEE_IPANIC)
+void mrdump_mini_reserve_memory(void);
+#else
+
+static inline void mrdump_mini_reserve_memory(void)
+{
+}
+#endif
+__weak void dis_D_inner_fL1L2(void)
 {
 	pr_notice("%s:weak function.\n", __func__);
 }

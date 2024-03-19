@@ -99,7 +99,7 @@ int situation_data_report(int handle, uint32_t one_sample_data)
 	memset(&event, 0, sizeof(struct sensor_event));
 	index = handle_to_index(handle);
 	if (index < 0) {
-		pr_err_ratelimited("[%s] invalid index\n", __func__);
+		pr_err("[%s] invalid index\n", __func__);
 		return -1;
 	}
 
@@ -422,15 +422,15 @@ static int situation_real_driver_init(void)
 {
 	int err = -1, i = 0;
 
-	pr_debug(" situation_real_driver_init +\n");
+	pr_err(" situation_real_driver_init +\n");
 
 	for (i = 0; i < max_situation_support; i++) {
 		if (situation_init_list[i] != NULL) {
-			pr_debug(" situ try to init driver %s\n",
+			pr_err(" situ try to init driver %s\n",
 				situation_init_list[i]->name);
 			err = situation_init_list[i]->init();
 			if (err == 0)
-				pr_debug(" situ real driver %s probe ok\n",
+				pr_err(" situ real driver %s probe ok\n",
 				situation_init_list[i]->name);
 		} else
 			continue;

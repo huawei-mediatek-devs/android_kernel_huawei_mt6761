@@ -716,7 +716,6 @@ static signed int P2_Support_BurstQNum = 2;
 	(_MAX_SUPPORT_P2_FRAME_NUM_ / _MAX_SUPPORT_P2_BURSTQ_NUM_)
 #define P2_EDBUF_MLIST_TAG 1
 #define P2_EDBUF_RLIST_TAG 2
-
 struct ISP_EDBUF_STRUCT {
 	unsigned int processID; /* caller process ID */
 	unsigned int callerID;  /* caller thread     ID */
@@ -725,7 +724,6 @@ struct ISP_EDBUF_STRUCT {
 	enum ISP_ED_BUF_STATE_ENUM bufSts; /* buffer status */
 	signed int p2Scenario;
 };
-
 static signed int P2_EDBUF_RList_FirstBufIdx;
 static signed int P2_EDBUF_RList_CurBufIdx;
 static signed int P2_EDBUF_RList_LastBufIdx;
@@ -940,6 +938,16 @@ enum eChannel {
 		} else {                                                       \
 		}                                                              \
 	} while (0)
+
+/* basically , should separate into     p1/p1_d/p2/camsv/camsv_d, */
+/* currently, only use camsv/camsv_d/others     */
+enum eISPIrq {
+	_IRQ = 0,
+	_IRQ_D = 1,
+	_CAMSV_IRQ = 2,
+	_CAMSV_D_IRQ = 3,
+	_IRQ_MAX = 4,
+};
 
 enum eLOG_TYPE {
 	_LOG_DBG = 0,
@@ -3019,12 +3027,6 @@ static signed int ISP_DumpReg(void)
 		(unsigned int)ISP_RD32(ISP_ADDR + 0xd10));
 	log_err("0x%08X	%08X", (unsigned int)(ISP_ADDR + 0xd20),
 		(unsigned int)ISP_RD32(ISP_ADDR + 0xd20));
-
-	ISP_WR32(ISP_IMGSYS_BASE + 0x4160, 0x3014);
-	log_err("0x%08X	%08X (0x15004160=0x3014)",
-		(unsigned int)(ISP_TPIPE_ADDR + 0x4164),
-		(unsigned int)ISP_RD32(ISP_IMGSYS_BASE + 0x4164));
-
 	/* cq */
 	log_err("CQ	Related");
 	ISP_WR32(ISP_IMGSYS_BASE + 0x4160, 0x6000);
@@ -3996,7 +3998,7 @@ static signed int ISP_WriteReg(struct ISP_REG_IO_STRUCT *pRegIo)
 	/* log_dbg("Data(0x%08X), Count(%d)", (unsigned int)(pRegIo->pData),
 	 * (unsigned int)(pRegIo->Count));
 	 */
-		log_dbg("Data(0x%p), Count(%d)", (pRegIo->pData),
+		log_dbg("Data(0x%pK), Count(%d)", (pRegIo->pData),
 			(pRegIo->Count));
 	}
 	/*      */
@@ -4298,7 +4300,6 @@ static unsigned int prv_tstamp_us[_rt_dma_max_] = {0};
 static unsigned int sof_count[_ChannelMax] = {0, 0, 0, 0};
 static unsigned int start_time[_ChannelMax] = {0, 0, 0, 0};
 static unsigned int avg_frame_time[_ChannelMax] = {0, 0, 0, 0};
-static int vsync_cnt[2] = {0, 0};
 
 /* record lost p1_done or not, 1 for lost p1_done. 0 for normal , 2 for last
  * working buffer.
@@ -5285,7 +5286,7 @@ static long ISP_Buf_CTRL_FUNC(unsigned long Param)
 				kfree(deque_buf);
 				return -EFAULT;
 			}
-			log_dbg("[rtbc]replace2]dma(%d),old(%d) PA(0x%x) VA(0x%llx)",
+			log_dbg("[rtbc]replace2]dma(%d),old(%d) PA(0x%x) VA(0x%x)",
 				rt_dma,
 				i,
 				pstRTBuf->ring_buf[rt_dma]
@@ -6370,7 +6371,7 @@ LOG_BYPASS:
 		case _imgo_d_:
 		case _rrzo_d_:
 			irqT = _IRQ_D;
-			irqT_Lock = _IRQ_D;
+			irqT_Lock = _IRQ;
 			break;
 		case _camsv_imgo_:
 			irqT_Lock = _CAMSV_IRQ;
@@ -6634,8 +6635,6 @@ LOG_BYPASS:
 
 			if (ii == _rt_dma_max_)
 				pstRTBuf->state = 0;
-
-			vsync_cnt[0] = vsync_cnt[1] = 0;
 		}
 
 #ifdef _MAGIC_NUM_ERR_HANDLING_
@@ -7474,7 +7473,7 @@ static signed int ISP_CAMSV_SOF_Buf_Get(unsigned int dma,
 		}
 		pstRTBuf->ring_buf[dma].data[camsv_imgo_idx].timeStampS = sec;
 		pstRTBuf->ring_buf[dma].data[camsv_imgo_idx].timeStampUs = usec;
-		/* camsv support no inner address, these information are truely
+		/* camsv support no inner address, these information are truly
 		 * untrustful, but
 		 * because of no resize in camsv, so these r also ok.
 		 */
@@ -8467,7 +8466,6 @@ static signed int ISP_ED_BufQue_CTRL_FUNC(struct ISP_ED_BUFQUE_STRUCT param)
 		if (param.p2burstQIdx == 0) {
 			if (P2_EDBUF_MList_FirstBufIdx ==
 				    P2_EDBUF_MList_LastBufIdx &&
-			    P2_EDBUF_MList_FirstBufIdx != -1 &&
 			    P2_EDBUF_MgrList[P2_EDBUF_MList_FirstBufIdx]
 					    .p2dupCQIdx == -1) {
 				/* all managed buffer node is empty */
@@ -10869,7 +10867,6 @@ IrqStatus[ISP_IRQ_TYPE_INT_SENINF4] =
 /*      */
 #endif
 #endif
-		vsync_cnt[0]++;
 	}
 
 	/* switch pass1 WDMA buffer     */
@@ -11160,7 +11157,6 @@ if (bSlowMotion == MFALSE) {
 			pstRTBuf->ring_buf[_rrzo_d_].data[1].bFilled,
 			pstRTBuf->ring_buf[_rrzo_d_].data[2].bFilled);
 		}
-		vsync_cnt[1]++;
 #ifdef _rtbc_buf_que_2_0_
 
 		sec = cpu_clock(0);	  /* ns */
@@ -11243,7 +11239,7 @@ if (bSlowMotion == MFALSE) {
 		} else {
 			sof_pass1done[1] = 0;
 			if (p1_fbc[_dmaport].Bits.FB_NUM ==
-			    (p1_fbc[_dmaport].Bits.FBC_CNT + 1)) {
+			    (p1_fbc[_dmaport].Bits.FBC_CNT - 1)) {
 				sof_pass1done[1] = 2;
 			}
 		}
@@ -11388,8 +11384,6 @@ if (bSlowMotion == MFALSE) {
 		}
 	}
 #endif
-//	log_inf("vsync_cnt[0]= %d, vsync_cnt[1] = %d\n",
-//	vsync_cnt[0], vsync_cnt[1]);
 	/* make sure isr sequence are all done after this status switch */
 	/* don't update CAMSV/CAMSV2 status */
 	for (j = 0; j < ISP_IRQ_TYPE_ISP_AMOUNT; j++) {
@@ -12035,7 +12029,7 @@ static long ISP_ioctl(struct file *pFile, unsigned int Cmd, unsigned long Param)
 		break;
 	case ISP_GET_ISPCLK:
 		{
-			uint64_t freq_steps[ISP_CLK_LEVEL_CNT] = {0};
+			uint64_t freq_steps[ISP_CLK_LEVEL_CNT];
 			unsigned int lv = 0;
 			int result = 0;
 			struct ISP_GET_SUPPORTED_ISP_CLK Ispclks;
@@ -12391,34 +12385,7 @@ static long ISP_ioctl(struct file *pFile, unsigned int Cmd, unsigned long Param)
 		}
 		break;
 #endif
-	case ISP_GET_VSYNC_CNT:
-		if (copy_from_user(&DebugFlag[0], (void *)Param,
-			sizeof(unsigned int)) != 0) {
-			log_err("get cur sof from user fail");
-			Ret = -EFAULT;
-		} else {
-			switch (DebugFlag[0]) {
-			case _IRQ:
-				DebugFlag[1] = vsync_cnt[0];
-				break;
-			case _IRQ_D:
-				DebugFlag[1] = vsync_cnt[1];
-				break;
-			default:
-				log_err("err P1 path(0x%x)\n", DebugFlag[0]);
-				Ret = -EFAULT;
-				break;
-			}
-		}
-		if (copy_to_user((void *)Param, &DebugFlag[1],
-			sizeof(unsigned int)) != 0) {
-			log_err("copy to user fail");
-			Ret = -EFAULT;
-		}
-		break;
-	case ISP_RESET_VSYNC_CNT:
-		vsync_cnt[0] = vsync_cnt[1] = 0;
-		break;
+
 	default:
 		log_err("Unknown Cmd(%d)", Cmd);
 		Ret = -EPERM;
@@ -13032,8 +12999,6 @@ static long ISP_ioctl_compat(struct file *filp, unsigned int cmd,
 	case ISP_GET_ISPCLK:
 	case ISP_DUMP_ISR_LOG:
 	case ISP_WAKELOCK_CTRL:
-	case ISP_GET_VSYNC_CNT:
-	case ISP_RESET_VSYNC_CNT:
 		return filp->f_op->unlocked_ioctl(filp, cmd, arg);
 	default:
 		return -ENOIOCTLCMD;

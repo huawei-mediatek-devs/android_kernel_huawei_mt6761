@@ -1361,6 +1361,12 @@ static void eem_init_det(struct eem_det *det, struct eem_devinfo *devinfo)
 		break;
 	}
 
+	memset(det->volt_tbl, 0, sizeof(det->volt_tbl));
+	memset(det->volt_tbl_pmic, 0, sizeof(det->volt_tbl_pmic));
+	memset(det->volt_offset_drcc, 0, sizeof(det->volt_offset_drcc));
+	memset(det->freq_tbl, 0, sizeof(det->freq_tbl));
+	memset(record_tbl_locked, 0, sizeof(record_tbl_locked));
+
 	/* get DVFS frequency table */
 	if (det->ops->get_freq_table)
 		det->ops->get_freq_table(det);
@@ -1569,7 +1575,6 @@ i, det->volt_tbl_pmic[i], det->ops->pmic_2_volt(det, det->volt_tbl_pmic[i]));
 		}
 #endif
 	}
-	dsb(sy);
 
 #if UPDATE_TO_UPOWER
 #if ENABLE_LOO
@@ -2775,12 +2780,9 @@ int mt_eem_status(enum eem_det_id id)
 
 	FUNC_ENTER(FUNC_LV_API);
 
-	if (det == NULL)
-		return 0;
-	else if (det->ops == NULL)
-		return 0;
-	else if (det->ops->get_status == NULL)
-		return 0;
+	WARN_ON(!det); /*BUG_ON(!det);*/
+	WARN_ON(!det->ops); /*BUG_ON(!det->ops);*/
+	WARN_ON(!det->ops->get_status); /* BUG_ON(!det->ops->get_status);*/
 
 	FUNC_EXIT(FUNC_LV_API);
 
@@ -3333,7 +3335,7 @@ det->name, det_entries[i].name);
 }
 #endif /* CONFIG_PROC_FS */
 
-void eem_set_pi_efuse(enum eem_det_id id, unsigned int pi_efuse)
+void eem_set_pi_efuse(enum eem_ctrl_id id, unsigned int pi_efuse)
 {
 	struct eem_det *det = id_to_eem_det(id);
 

@@ -23,6 +23,10 @@
 #include <linux/pr.h>
 #include <linux/vmalloc.h>
 
+#ifdef CONFIG_HUAWEI_IO_TRACING
+#include <iotrace/iotrace.h>
+DEFINE_TRACE(block_dm_request);
+#endif
 #define DM_MSG_PREFIX "core"
 
 #ifdef CONFIG_PRINTK

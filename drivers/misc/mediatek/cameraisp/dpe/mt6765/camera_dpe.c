@@ -1215,6 +1215,9 @@ static bool ConfigWMFEFrameByReqIdx(signed int ReqIdx)
 	unsigned int j;
 	unsigned long flags; /* old: MUINT32 flags; */
 
+	if ((ReqIdx > _SUPPORT_MAX_DPE_REQUEST_RING_SIZE_  - 1 )|| ReqIdx < 0)
+		return MFALSE;;
+
 
 	spin_lock_irqsave
 		(&(DPEInfo.SpinLockIrq[DPE_IRQ_TYPE_INT_DPE_ST]), flags);
@@ -1299,6 +1302,8 @@ static signed int ConfigDVEHW(struct DPE_DVEConfig *pDveConfig)
 		struct cmdqRecStruct *handle;
 		uint64_t engineFlag = (uint64_t)(1LL << CMDQ_ENG_DPE);
 #endif
+
+	int ret = 0;
 
 	if (DPE_DBG_DBGLOG == (DPE_DBG_DBGLOG & DPEInfo.DebugMask)) {
 		log_dbg("ConfigDVEHW Start!\n");
@@ -1390,7 +1395,9 @@ static signed int ConfigDVEHW(struct DPE_DVEConfig *pDveConfig)
 #endif
 
 
-	cmdqRecCreate(CMDQ_SCENARIO_KERNEL_CONFIG_GENERAL, &handle);
+	ret = cmdqRecCreate(CMDQ_SCENARIO_KERNEL_CONFIG_GENERAL, &handle);
+	if (ret != 0)
+		log_dbg("cmdqRecCreate fail!\n");
 	/* CMDQ driver dispatches CMDQ HW thread */
 	/* and HW thread's priority according to scenario */
 
@@ -1787,6 +1794,7 @@ static signed int ConfigWMFEHW(struct DPE_WMFEConfig *pWmfeCfg)
 		uint64_t engineFlag = (uint64_t)(1LL << CMDQ_ENG_DPE);
 #endif
 	unsigned int i = 0;
+	int ret = 0;
 	/* unsigned int wmfe_mask_value = 0; */
 	/* unsigned int wmfe_mask_mode = 0; */
 
@@ -1830,7 +1838,9 @@ static signed int ConfigWMFEHW(struct DPE_WMFEConfig *pWmfeCfg)
 	mt_kernel_trace_begin("ConfigWMFEHW");
 #endif
 
-	cmdqRecCreate(CMDQ_SCENARIO_KERNEL_CONFIG_GENERAL, &handle);
+	ret = cmdqRecCreate(CMDQ_SCENARIO_KERNEL_CONFIG_GENERAL, &handle);
+	if (ret != 0)
+		log_dbg("cmdqRecCreate fail!\n");
 	/* CMDQ driver dispatches CMDQ HW thread */
 	/* and HW thread's priority according to scenario */
 
@@ -2706,9 +2716,8 @@ LOG_INF("No Such Stats can be waited!!irq Type/User/Sts/Pid(0x%x/%d/0x%x/%d)\n",
 
 	Ret = -ERESTARTSYS;	/* actually it should be -ERESTARTSYS */
 	goto EXIT;
-	}
+	} else if (Timeout == 0) {
 	/* timeout */
-	if (Timeout == 0) {
 	/* Store irqinfo status in here to redeuce time of spin_lock_irqsave */
 		spin_lock_irqsave(&(DPEInfo.SpinLockIrq[WaitIrq->Type]), flags);
 		irqStatus = DPEInfo.IrqInfo.Status[WaitIrq->Type];
@@ -4176,6 +4185,9 @@ static signed int DPE_remove(struct platform_device *pDev)
 	/* Release IRQ */
 	disable_irq(DPEInfo.IrqNum);
 	IrqNum = platform_get_irq(pDev, 0);
+	if (IrqNum == 0)
+		log_dbg("Irq Number is 0\n");
+
 	free_irq(IrqNum, NULL);
 
 	/* kill tasklet */

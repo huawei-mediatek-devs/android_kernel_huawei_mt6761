@@ -17,9 +17,6 @@
 #ifndef __MT6360_PMU_CHG_H
 #define __MT6360_PMU_CHG_H
 
-/* Define this macro if DCD timeout is supported */
-#define CONFIG_MT6360_DCDTOUT_SUPPORT
-
 struct mt6360_chg_platform_data {
 	u32 ichg;
 	u32 aicr;
@@ -32,15 +29,12 @@ struct mt6360_chg_platform_data {
 	u32 en_te;
 	u32 en_wdt;
 	u32 aicc_once;
-	u32 post_aicc;
 	const char *chg_name;
 };
 
 /* MT6360_PMU_CHG_CTRL1 : 0x11 */
 #define MT6360_MASK_FORCE_SLEEP	BIT(3)
 #define MT6360_SHFT_FORCE_SLEEP	(3)
-#define MT6360_MASK_HZ_EN	BIT(2)
-#define MT6360_SHFT_HZ_EN	(2)
 #define MT6360_MASK_OPA_MODE	BIT(0)
 #define MT6360_SHFT_OPA_MODE	(0)
 
@@ -75,6 +69,9 @@ struct mt6360_chg_platform_data {
 #define MT6360_SHFT_ICHG	(2)
 #define MT6360_ICHG_MAXVAL	(0x31)
 
+/* MT6360_PMU_CHG_CTRL8 : 0x18 */
+#define MT6360_BAT_COMP_MAXVAL	(0x07)
+
 /* MT6360_PMU_CHG_CTRL9 : 0x19 */
 #define MT6360_MASK_IEOC	(0xF0)
 #define MT6360_SHFT_IEOC	(4)
@@ -97,14 +94,11 @@ struct mt6360_chg_platform_data {
 #define MT6360_MASK_CHG_WDT_EN	BIT(7)
 
 /* MT6360_PMU_CHG_CTRL14 : 0x1E */
-#define MT6360_MASK_RG_EN_AICC		BIT(7)
-#define MT6360_MASK_RG_AICC_ONCE	BIT(2)
+#define MT6360_MASK_RG_EN_AICC	BIT(7)
 
 /* MT6360_PMU_DEVICE_TYPE : 0x22 */
 #define MT6360_MASK_USBCHGEN	BIT(7)
 #define MT6360_SHFT_USBCHGEN	(7)
-#define MT6360_MASK_DCDTOUTEN	BIT(6)
-#define MT6360_SHFT_DCDTOUTEN	6
 
 /* MT6360_PMU_USB_STATUS1 : 0x27 */
 #define MT6360_MASK_USB_STATUS	(0x70)
@@ -142,7 +136,6 @@ struct mt6360_chg_platform_data {
 /* MT6360_PMU_CHG_STAT : 0x4A */
 #define MT6360_MASK_CHG_STAT	(0xC0)
 #define MT6360_SHFT_CHG_STAT	(6)
-#define MT6360_MASK_CHG_BATSYSUV	BIT(1)
 
 /* MT6360_PMU_ADC_CONFIG : 0x56 */
 #define MT6360_MASK_ZCV_EN	BIT(6)
@@ -155,19 +148,16 @@ struct mt6360_chg_platform_data {
 /* MT6360_PMU_FOD_CTRL : 0x65 */
 #define MT6360_MASK_FOD_SWEN	BIT(7)
 
-/* MT6360_PMU_CHG_CTRL20 : 0x66 */
-#define MT6360_MASK_EN_SDI	BIT(1)
+/* MT6360_PMU_CHG_STAT5 : 0xE5 */
+#define MT6360_MASK_TYPEC_OTP	BIT(2)
 
-/* MT6360_PMU_USBID_CTRL1 : 0x6D */
-#define MT6360_MASK_USBID_EN	BIT(7)
-#define MT6360_SHFT_ID_RPULSEL	5
-#define MT6360_MASK_ID_RPULSEL	0x60
-#define MT6360_MASK_ISTDET	0x1C
-#define MT6360_SHFT_ISTDET	2
-
-/* MT6360_PMU_USBID_CTRL2 : 0x6E */
-#define MT6360_MASK_IDTD	0xE0
-#define MT6360_MASK_USBID_FLOAT	BIT(1)
+/* MT6360_PMU_FOD_STAT : 0xE7 */
+#define MT6360_MASK_FOD_ALL_STAT	0xE3
+#define MT6360_MASK_FOD_DISCHG_FAIL	BIT(7)
+#define MT6360_MASK_FOD_HR		BIT(6)
+#define	MT6360_MASK_FOD_LR		BIT(5)
+#define MT6360_MASK_FOD_OV		BIT(1)
+#define MT6360_MASK_FOD_DONE		BIT(0)
 
 /* MT6360_PMU_FLED_EN : 0x7E */
 #define MT6360_MASK_STROBE_EN	BIT(2)
@@ -179,8 +169,5 @@ struct mt6360_chg_platform_data {
 #define MT6360_SHFT_MIVR_EVT	(6)
 #define MT6360_MASK_CHG_TREG	BIT(4)
 #define MT6360_SHFT_CHG_TREG	(4)
-
-/* MT6360_PMU_CHG_STAT4 : 0xE3 */
-#define MT6360_MASK_CHG_TMRI	BIT(3)
 
 #endif /* __MT6360_PMU_CHG_H */

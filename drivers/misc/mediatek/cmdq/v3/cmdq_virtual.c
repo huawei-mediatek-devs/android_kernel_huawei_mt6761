@@ -21,6 +21,7 @@
 #endif
 #ifdef CONFIG_MTK_SMI_EXT
 #include "smi_public.h"
+#include "smi_debug.h"
 #endif
 
 static struct cmdqCoreFuncStruct gFunctionPointer;
@@ -168,6 +169,66 @@ const char *cmdq_virtual_parse_module_from_reg_addr_legacy(u32 reg_addr)
 	 * with 16-bit mask.
 	 */
 	return cmdq_core_parse_subsys_from_reg_addr(reg_addr);
+}
+
+u64 cmdq_virtual_flag_from_scenario_legacy(enum CMDQ_SCENARIO_ENUM scn)
+{
+	u64 flag = 0;
+
+	switch (scn) {
+	case CMDQ_SCENARIO_PRIMARY_DISP:
+		flag = (1LL << CMDQ_ENG_DISP_OVL0) |
+		    (1LL << CMDQ_ENG_DISP_COLOR0) |
+		    (1LL << CMDQ_ENG_DISP_AAL) |
+		    (1LL << CMDQ_ENG_DISP_RDMA0) |
+		    (1LL << CMDQ_ENG_DISP_UFOE) |
+		    (1LL << CMDQ_ENG_DISP_DSI0_CMD);
+		break;
+	case CMDQ_SCENARIO_PRIMARY_MEMOUT:
+		flag = ((1LL << CMDQ_ENG_DISP_OVL0) |
+			(1LL << CMDQ_ENG_DISP_WDMA0));
+		break;
+	case CMDQ_SCENARIO_PRIMARY_ALL:
+		flag = ((1LL << CMDQ_ENG_DISP_OVL0) |
+			(1LL << CMDQ_ENG_DISP_WDMA0) |
+			(1LL << CMDQ_ENG_DISP_COLOR0) |
+			(1LL << CMDQ_ENG_DISP_AAL) |
+			(1LL << CMDQ_ENG_DISP_RDMA0) |
+			(1LL << CMDQ_ENG_DISP_UFOE) |
+			(1LL << CMDQ_ENG_DISP_DSI0_CMD));
+		break;
+	case CMDQ_SCENARIO_SUB_DISP:
+		flag = ((1LL << CMDQ_ENG_DISP_OVL1) |
+			(1LL << CMDQ_ENG_DISP_GAMMA) |
+			(1LL << CMDQ_ENG_DISP_RDMA1) |
+			(1LL << CMDQ_ENG_DISP_DSI1_CMD));
+		break;
+	case CMDQ_SCENARIO_SUB_ALL:
+		flag = ((1LL << CMDQ_ENG_DISP_OVL1) |
+			(1LL << CMDQ_ENG_DISP_WDMA1) |
+			(1LL << CMDQ_ENG_DISP_GAMMA) |
+			(1LL << CMDQ_ENG_DISP_RDMA1) |
+			(1LL << CMDQ_ENG_DISP_DSI1_CMD));
+		break;
+	case CMDQ_SCENARIO_MHL_DISP:
+		flag = ((1LL << CMDQ_ENG_DISP_OVL1) |
+			(1LL << CMDQ_ENG_DISP_GAMMA) |
+			(1LL << CMDQ_ENG_DISP_RDMA1));
+		break;
+	case CMDQ_SCENARIO_RDMA0_DISP:
+		flag = ((1LL << CMDQ_ENG_DISP_RDMA0) |
+			(1LL << CMDQ_ENG_DISP_UFOE) |
+			(1LL << CMDQ_ENG_DISP_DSI0_CMD));
+		break;
+	case CMDQ_SCENARIO_RDMA2_DISP:
+		flag = (1LL << CMDQ_ENG_DISP_RDMA2);
+		break;
+	default:
+		flag = 0LL;
+		break;
+	}
+
+	return flag;
 }
 
 /*
@@ -385,8 +446,6 @@ int cmdq_virtual_get_thread_index(enum CMDQ_SCENARIO_ENUM scenario,
 		 * secure thread is enough
 		 */
 		return CMDQ_THREAD_SEC_MDP;
-	case CMDQ_SCENARIO_ISP_FDVT:
-		return CMDQ_THREAD_SEC_ISP;
 	default:
 		CMDQ_ERR("no dedicated secure thread for senario:%d\n",
 			scenario);
@@ -604,33 +663,11 @@ const char *cmdq_virtual_module_from_event_id(const s32 event,
 		break;
 
 	case CMDQ_EVENT_DPE_EOF:
-		module = "DPE";
-		group = CMDQ_GROUP_ISP;
-		break;
-
 	case CMDQ_EVENT_RSC_EOF:
-		module = "RSC";
-		group = CMDQ_GROUP_ISP;
-		break;
-
-	case CMDQ_EVENT_WPE_A_EOF:
-		module = "WPE";
-		group = CMDQ_GROUP_ISP;
-		break;
-
-	case CMDQ_EVENT_MFB_DONE:
-		module = "MFB";
-		group = CMDQ_GROUP_ISP;
-		break;
-
-	case CMDQ_EVENT_FDVT_DONE:
-		module = "FDVT";
-		group = CMDQ_GROUP_ISP;
-		break;
-
 	case CMDQ_EVENT_GEPF_EOF:
 	case CMDQ_EVENT_GEPF_TEMP_EOF:
 	case CMDQ_EVENT_GEPF_BYPASS_EOF:
+	case CMDQ_EVENT_WPE_A_EOF:
 	case CMDQ_EVENT_EAF_EOF:
 		module = "DIP";
 		group = CMDQ_GROUP_ISP;
@@ -896,7 +933,8 @@ u64 cmdq_virtual_flag_from_scenario(enum CMDQ_SCENARIO_ENUM scn)
 		    (1LL << CMDQ_ENG_DISP_AAL) |
 		    (1LL << CMDQ_ENG_DISP_GAMMA) |
 		    (1LL << CMDQ_ENG_DISP_RDMA0) |
-		    (1LL << CMDQ_ENG_DISP_DSI0);
+		    (1LL << CMDQ_ENG_DISP_UFOE) |
+		    (1LL << CMDQ_ENG_DISP_DSI0_CMD);
 		break;
 	case CMDQ_SCENARIO_PRIMARY_MEMOUT:
 		flag = 0LL;
@@ -908,7 +946,8 @@ u64 cmdq_virtual_flag_from_scenario(enum CMDQ_SCENARIO_ENUM scn)
 			(1LL << CMDQ_ENG_DISP_AAL) |
 			(1LL << CMDQ_ENG_DISP_GAMMA) |
 			(1LL << CMDQ_ENG_DISP_RDMA0) |
-			(1LL << CMDQ_ENG_DISP_DSI0));
+			(1LL << CMDQ_ENG_DISP_UFOE) |
+			(1LL << CMDQ_ENG_DISP_DSI0_CMD));
 		break;
 	case CMDQ_SCENARIO_SUB_DISP:
 		flag = ((1LL << CMDQ_ENG_DISP_OVL1) |
@@ -921,14 +960,15 @@ u64 cmdq_virtual_flag_from_scenario(enum CMDQ_SCENARIO_ENUM scn)
 		break;
 	case CMDQ_SCENARIO_RDMA0_DISP:
 		flag = ((1LL << CMDQ_ENG_DISP_RDMA0) |
-			(1LL << CMDQ_ENG_DISP_DSI0));
+			(1LL << CMDQ_ENG_DISP_DSI0_CMD));
 		break;
 	case CMDQ_SCENARIO_RDMA0_COLOR0_DISP:
 		flag = ((1LL << CMDQ_ENG_DISP_RDMA0) |
 			(1LL << CMDQ_ENG_DISP_COLOR0) |
 			(1LL << CMDQ_ENG_DISP_AAL) |
 			(1LL << CMDQ_ENG_DISP_GAMMA) |
-			(1LL << CMDQ_ENG_DISP_DSI0));
+			(1LL << CMDQ_ENG_DISP_UFOE) |
+			(1LL << CMDQ_ENG_DISP_DSI0_CMD));
 		break;
 	case CMDQ_SCENARIO_MHL_DISP:
 	case CMDQ_SCENARIO_RDMA1_DISP:

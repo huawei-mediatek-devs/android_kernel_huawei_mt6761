@@ -241,6 +241,22 @@ static int get_devinfo(void)
 		}
 	}
 
+	if (eem_checkEfuse == 0) {
+		/* for verification */
+		val[0] = DEVINFO_0;
+		val[1] = DEVINFO_1;
+		val[2] = DEVINFO_2;
+		val[3] = DEVINFO_3;
+		val[4] = DEVINFO_4;
+		val[5] = DEVINFO_5;
+		val[6] = DEVINFO_6;
+		val[7] = DEVINFO_7;
+		val[8] = DEVINFO_8;
+		val[9] = DEVINFO_9;
+		val[10] = DEVINFO_10;
+		val[11] = DEVINFO_11;
+	}
+
 #if EEM_FAKE_EFUSE
 	/* for verification */
 	val[0] = DEVINFO_0;
@@ -278,6 +294,9 @@ static int get_devinfo(void)
 	/* Update MTDES/BDES/MDES if they are modified by PICACHU. */
 	for (i = 0; i < n; i++) {
 		det = id_to_eem_det(pi_eem_ctrl_id[i]);
+
+		if (det == NULL)
+			break;
 
 		idx = i % det->pi_efuse_count;
 
@@ -1034,6 +1053,9 @@ static int eem_volt_thread_handler(void *data)
 
 	FUNC_ENTER(FUNC_LV_HELP);
 
+	if ((ctrl == NULL) || (det == NULL))
+		return 0;
+
 	do {
 		wait_event_interruptible(ctrl->wq, ctrl->volt_update);
 
@@ -1068,7 +1090,7 @@ static int eem_volt_thread_handler(void *data)
 
 			default:
 				eem_error
-("eem_volt_thread_handler : incorrect det id %d\n", det->ctrl_id);
+				("incorrect det id %d\n", det->ctrl_id);
 				break;
 			}
 #endif
@@ -1140,8 +1162,7 @@ static int eem_init1stress_thread_handler(void *data)
 			mt_ptp_unlock(&flag);
 
 			if (testCnt++ % 200 == 0)
-				eem_error
-("eem_init1stress_thread_handler, test counter:%d\n", testCnt);
+				eem_error("test counter:%d\n", testCnt);
 
 			for_each_det_ctrl(det, ctrl) {
 				if (HAS_FEATURE(det, FEA_INIT01)) {
@@ -1438,31 +1459,45 @@ static void eem_set_eem_volt(struct eem_det *det)
 #if SET_PMIC_VOLT
 	unsigned int i;
 	int low_temp_offset = 0;
-	struct eem_ctrl *ctrl = id_to_eem_ctrl(det->ctrl_id);
+	struct eem_ctrl *ctrl = NULL;
 #if ENABLE_LOO
-	struct eem_det *org_det = det;
+	struct eem_det *org_det = NULL;
 	unsigned int init2chk = 0;
 #endif
 
 	FUNC_ENTER(FUNC_LV_HELP);
 
+	if (det == NULL)
+		return;
+	ctrl = id_to_eem_ctrl(det->ctrl_id);
 #if ENABLE_LOO
+	org_det = det;
+
 	/* remap to L/B bank for update dvfs table,
 	 * also copy high opp volt table
 	 */
 	/* Band HIGHL will update its volt table (opp0~7) to bank L */
 	if (det->ctrl_id == EEM_CTRL_L_HI) {
 		det = id_to_eem_det(EEM_DET_L);
-		memcpy(det->volt_tbl, org_det->volt_tbl,
-			sizeof(det->volt_tbl)/2);
-		ctrl = id_to_eem_ctrl(det->ctrl_id);
+		if (det != NULL) {
+			memcpy(det->volt_tbl,
+				org_det->volt_tbl,
+				sizeof(det->volt_tbl)/2);
+			ctrl = id_to_eem_ctrl(det->ctrl_id);
+		}
 	} else if (det->ctrl_id == EEM_CTRL_2L_HI) {
 		det = id_to_eem_det(EEM_DET_2L);
-		memcpy(det->volt_tbl, org_det->volt_tbl,
-			sizeof(det->volt_tbl)/2);
-		ctrl = id_to_eem_ctrl(det->ctrl_id);
+		if (det != NULL) {
+			memcpy(det->volt_tbl,
+				org_det->volt_tbl,
+				sizeof(det->volt_tbl)/2);
+			ctrl = id_to_eem_ctrl(det->ctrl_id);
+		}
 	}
 #endif
+	if ((ctrl == NULL) || (det == NULL))
+		return;
+
 	det->temp = det->ops->get_temp(det);
 
 #if UPDATE_TO_UPOWER
@@ -1472,7 +1507,7 @@ static void eem_set_eem_volt(struct eem_det *det)
 
 #ifdef CONFIG_THERMAL
 #if 0
-	eem_debug("eem_set_eem_volt cur_temp = %d, valid = %d\n",
+	eem_debug("cur_temp = %d, valid = %d\n",
 		det->temp, tscpu_is_temp_valid());
 #endif
 	/* 6250 * 10uV = 62.5mv */
@@ -1553,7 +1588,7 @@ static void eem_set_eem_volt(struct eem_det *det)
 			break;
 
 		default:
-			eem_error("[eem_set_eem_volt] incorrect det :%s!!",
+			eem_error("[set_eem_volt] incorrect det :%s!!",
 				det->name);
 			break;
 		}
@@ -1638,6 +1673,9 @@ static void eem_restore_eem_volt(struct eem_det *det)
 {
 #if SET_PMIC_VOLT
 	struct eem_ctrl *ctrl = id_to_eem_ctrl(det->ctrl_id);
+
+	if (ctrl == NULL)
+		return;
 
 	ctrl->volt_update |= EEM_VOLT_RESTORE;
 	wake_up_interruptible(&ctrl->wq);
@@ -1837,7 +1875,7 @@ static void read_volt_from_VOP(struct eem_det *det)
 	/* eem_debug("read(EEM_VOP30) = 0x%08X\n", temp); */
 	/* EEM_VOP30=>pmic value */
 	det->volt_tbl[0] = (temp & 0xff);
-	det->volt_tbl[1 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 8)	& 0xff;
+	det->volt_tbl[1 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 8)  & 0xff;
 	det->volt_tbl[2 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 16) & 0xff;
 	det->volt_tbl[3 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 24) & 0xff;
 
@@ -1845,7 +1883,7 @@ static void read_volt_from_VOP(struct eem_det *det)
 	/* eem_debug("read(EEM_VOP74) = 0x%08X\n", temp); */
 	/* EEM_VOP74=>pmic value */
 	det->volt_tbl[4 * ((det->num_freq_tbl + 7) / 8)] = (temp & 0xff);
-	det->volt_tbl[5 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 8)	& 0xff;
+	det->volt_tbl[5 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 8)  & 0xff;
 	det->volt_tbl[6 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 16) & 0xff;
 	det->volt_tbl[7 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 24) & 0xff;
 
@@ -2558,7 +2596,7 @@ void eem_init02(const char *str)
 	struct eem_ctrl *ctrl;
 
 	FUNC_ENTER(FUNC_LV_LOCAL);
-	eem_debug("eem_init02 called by [%s]\n", str);
+	eem_debug("init02 called by [%s]\n", str);
 
 	for_each_det_ctrl(det, ctrl) {
 		if (HAS_FEATURE(det, FEA_INIT02)) {
@@ -2776,7 +2814,7 @@ static int eem_probe(struct platform_device *pdev)
 			PTR_ERR(threadStress));
 #endif
 
-	eem_debug("eem_probe ok\n");
+	eem_debug("eem probe ok\n");
 	FUNC_EXIT(FUNC_LV_MODULE);
 
 	return 0;
@@ -2840,6 +2878,9 @@ int mt_eem_opp_num(enum eem_det_id id)
 	struct eem_det *det = id_to_eem_det(id);
 
 	FUNC_ENTER(FUNC_LV_API);
+	if (det == NULL)
+		return 0;
+
 	FUNC_EXIT(FUNC_LV_API);
 
 	return det->num_freq_tbl;
@@ -2852,6 +2893,9 @@ void mt_eem_opp_freq(enum eem_det_id id, unsigned int *freq)
 	int i = 0;
 
 	FUNC_ENTER(FUNC_LV_API);
+
+	if (det == NULL)
+		return;
 
 	for (i = 0; i < det->num_freq_tbl; i++)
 		freq[i] = det->freq_tbl[i];
@@ -2887,6 +2931,9 @@ void mt_eem_opp_status(enum eem_det_id id, unsigned int *temp,
 	*temp = 0;
 #endif
 
+	if (det == NULL)
+		return;
+
 	for (i = 0; i < det->num_freq_tbl; i++)
 		volt[i] = det->ops->pmic_2_volt(det, det->volt_tbl_pmic[i]);
 
@@ -2902,12 +2949,10 @@ int mt_eem_status(enum eem_det_id id)
 	struct eem_det *det = id_to_eem_det(id);
 
 	FUNC_ENTER(FUNC_LV_API);
-	if (det == NULL)
-		return 0;
-	else if (det->ops == NULL)
-		return 0;
-	else if (det->ops->get_status == NULL)
-		return 0;
+
+	WARN_ON(!det); /*BUG_ON(!det);*/
+	WARN_ON(!det->ops); /*BUG_ON(!det->ops);*/
+	WARN_ON(!det->ops->get_status); /* BUG_ON(!det->ops->get_status);*/
 
 	FUNC_EXIT(FUNC_LV_API);
 
@@ -3473,7 +3518,8 @@ void eem_set_pi_efuse(enum eem_det_id id, unsigned int pi_efuse)
 {
 	struct eem_det *det = id_to_eem_det(id);
 
-	if (det->pi_efuse_count >= NR_PI_SHARED_CTRL)
+	if ((det == NULL) ||
+		(det->pi_efuse_count >= NR_PI_SHARED_CTRL))
 		return;
 
 	det->pi_efuse[det->pi_efuse_count++] = pi_efuse;

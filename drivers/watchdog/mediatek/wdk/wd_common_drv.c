@@ -42,7 +42,6 @@
  *************************************************************************/
 #define __ENABLE_WDT_SYSFS__
 #define __ENABLE_WDT_AT_INIT__
-#define KWDT_KICK_TIME_ALIGN
 
 /* ------------------------------------------------------------------------ */
 #define PFX "wdk: "
@@ -59,7 +58,6 @@
 #define WK_MAX_MSG_SIZE (128)
 #define MIN_KICK_INTERVAL	 1
 #define MAX_KICK_INTERVAL	30
-#define SOFT_KICK_RANGE     (100*1000) // 100ms
 #define	MRDUMP_SYSRESETB	0
 #define	MRDUMP_EINTRST		1
 #define PROC_WK "wdk"
@@ -71,10 +69,6 @@ __weak void mtk_wdt_cpu_callback(struct task_struct *wk_tsk,
 }
 
 __weak void mtk_timer_clkevt_aee_dump(void)
-{
-}
-
-__weak void timer_list_aee_dump(int exclude_cpus)
 {
 }
 
@@ -101,15 +95,12 @@ static int g_kinterval = -1;
 static int g_timeout = -1;
 static int g_need_config;
 static int wdt_start;
-static int g_enable = 1;
+int g_enable = 1;
 static struct work_struct wdk_work;
 static struct workqueue_struct *wdk_workqueue;
 static unsigned int lasthpg_act;
 static unsigned int lasthpg_cpu;
 static unsigned long long lasthpg_t;
-#ifdef KWDT_KICK_TIME_ALIGN
-static unsigned long g_nxtKickTime;
-#endif
 
 static char cmd_buf[256];
 
@@ -371,7 +362,6 @@ void dump_wdk_bind_info(void)
 #endif
 	mtk_timer_clkevt_aee_dump();
 	tick_broadcast_mtk_aee_dump();
-	timer_list_aee_dump(kick_bit);
 }
 
 void kicker_cpu_bind(int cpu)
@@ -488,8 +478,7 @@ static void kwdt_print_utc(char *msg_buf, int msg_buf_size)
 		tm_android.tm_min, tm_android.tm_sec,
 		(unsigned int)tv_android.tv_usec);
 }
-static void kwdt_process_kick(int local_bit, int cpu,
-				unsigned long curInterval, char msg_buf[])
+static void kwdt_process_kick(int local_bit, int cpu, char msg_buf[])
 {
 	local_bit = kick_bit;
 	if ((local_bit & (1 << cpu)) == 0) {
@@ -503,9 +492,9 @@ static void kwdt_process_kick(int local_bit, int cpu,
 	 *  avoid bulk of delayed printk happens here
 	 */
 	snprintf(msg_buf, WK_MAX_MSG_SIZE,
-		"[wdk-c] cpu=%d,lbit=0x%x,cbit=0x%x,%d,%d,%lld,[%lld,%ld,%ld]\n",
+		"[wdk-c] cpu=%d,lbit=0x%x,cbit=0x%x,%d,%d,%lld,[%lld]\n",
 		cpu, local_bit, wk_check_kick_bit(), lasthpg_cpu, lasthpg_act,
-		lasthpg_t, sched_clock(), curInterval, g_nxtKickTime);
+		lasthpg_t, sched_clock());
 
 	if (local_bit == wk_check_kick_bit()) {
 		msg_buf[5] = 'k';
@@ -539,7 +528,6 @@ static int kwdt_thread(void *arg)
 	struct sched_param param = {.sched_priority = 99 };
 	int cpu = 0;
 	int local_bit = 0, loc_need_config = 0, loc_timeout = 0;
-	unsigned long curInterval = 0;
 	struct wd_api *loc_wk_wdt = NULL;
 	char msg_buf[WK_MAX_MSG_SIZE];
 
@@ -565,7 +553,7 @@ static int kwdt_thread(void *arg)
 		 * pr_debug("[wdk] loc_wk_wdt(%x),loc_wk_wdt->ready(%d)\n",
 		 * loc_wk_wdt ,loc_wk_wdt->ready);
 		 */
-		curInterval = g_kinterval*1000*1000;
+
 		if (loc_wk_wdt && loc_wk_wdt->ready && g_enable) {
 			if (loc_need_config) {
 				/* daul  mode */
@@ -594,33 +582,10 @@ static int kwdt_thread(void *arg)
 				 * if thread-x is on cpu-x
 				 */
 				if (wk_tsk[cpu]->pid == current->pid) {
-#ifdef KWDT_KICK_TIME_ALIGN
-					if (kick_bit == 0) {
-						g_nxtKickTime =
-							ktime_to_us(ktime_get())
-							+ g_kinterval*1000*1000;
-						curInterval =
-							g_kinterval*1000*1000;
-					} else {
-						curInterval =	g_nxtKickTime
-						- ktime_to_us(ktime_get());
-					}
-					/* to avoid interval too long */
-					if (curInterval > g_kinterval*1000*1000)
-						curInterval =
-							g_kinterval*1000*1000;
-#endif
 					kwdt_process_kick(local_bit, cpu,
-						curInterval, msg_buf);
-				} else {
-					snprintf(msg_buf, WK_MAX_MSG_SIZE,
-						"[wdk-s] cpu=%d,%d,%d,%lld,[%lld,%ld]\n",
-						cpu, lasthpg_cpu, lasthpg_act,
-						lasthpg_t, sched_clock(),
-						curInterval);
+						msg_buf);
+				} else
 					spin_unlock(&lock);
-					pr_info("%s", msg_buf);
-				}
 			} else
 				spin_unlock(&lock);
 		} else if (g_enable == 0) {
@@ -657,12 +622,7 @@ static int kwdt_thread(void *arg)
 			}
 		}
 
-#ifdef KWDT_KICK_TIME_ALIGN
-		usleep_range(curInterval, curInterval + SOFT_KICK_RANGE);
-#else
-		usleep_range(g_kinterval*1000*1000,
-			g_kinterval*1000*1000 + SOFT_KICK_RANGE);
-#endif
+		msleep_interruptible((g_kinterval) * 1000);
 
 #ifdef CONFIG_MTK_AEE_POWERKEY_HANG_DETECT
 		if ((cpu == 0) && (wk_tsk[cpu]->pid == current->pid)) {

@@ -57,11 +57,6 @@ static struct mtk_chip_config mtk_test_chip_info = {
 	.tx_mlsb = 0,
 	.cs_pol = 0,
 	.sample_sel = 0,
-
-	.cs_setuptime = 0,
-	.cs_holdtime = 0,
-	.cs_idletime = 0,
-	.deassert_mode = 0,
 };
 
 #define SPI_CFG1_REG                      0x0004
@@ -100,7 +95,7 @@ static struct mc_session_handle secspi_session = { 0 };
 
 static u32 secspi_session_ref;
 static u32 secspi_devid = MC_DEVICE_ID_DEFAULT;
-static struct tciSpiMessage_t *secspi_tci;
+static tciSpiMessage_t *secspi_tci;
 
 static DEFINE_MUTEX(secspi_lock);
 
@@ -136,8 +131,7 @@ int secspi_session_open(u32 spinum)
 
 		/* allocating WSM for DCI */
 		mc_ret = mc_malloc_wsm(secspi_devid, 0,
-			sizeof(struct tciSpiMessage_t),
-			(uint8_t **) &secspi_tci, 0);
+			sizeof(tciSpiMessage_t), (uint8_t **) &secspi_tci, 0);
 		if (mc_ret != MC_DRV_OK) {
 			pr_notice("%s() mc_malloc_wsm failed: %d\n", __func__,
 				mc_ret);
@@ -149,7 +143,7 @@ int secspi_session_open(u32 spinum)
 		secspi_session.device_id = secspi_devid;
 		mc_ret = mc_open_session(&secspi_session,
 			(struct mc_uuid_t *)&spi_uuid[spinum][0],
-			(uint8_t *)secspi_tci, sizeof(struct tciSpiMessage_t));
+			(uint8_t *)secspi_tci, sizeof(tciSpiMessage_t));
 		if (mc_ret != MC_DRV_OK) {
 			pr_notice("%s() mc_open_session fail: %d\n", __func__,
 				mc_ret);
@@ -248,7 +242,7 @@ void secspi_enable_clk(struct spi_device *spidev)
 	ret = clk_prepare_enable(ms->spi_clk);
 }
 
-int secspi_execute(u32 cmd, struct tciSpiMessage_t *param)
+int secspi_execute(u32 cmd, tciSpiMessage_t *param)
 {
 	enum mc_result mc_ret;
 

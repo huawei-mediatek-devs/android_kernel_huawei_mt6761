@@ -182,6 +182,11 @@ static ssize_t vibr_duration_store(struct device *dev,
 		return ret;
 	}
 
+	// if the duration is small 5ms, set duration
+	// to 20ms for avoid the weak tremble.
+	if (duration < 5)
+		duration = 20;
+
 	atomic_set(&g_mt_vib->vibr_dur, duration);
 	ret = size;
 	return ret;
@@ -294,7 +299,6 @@ static void vib_shutdown(struct platform_device *pdev)
 		atomic_set(&vibr->vibr_state, 0);
 		spin_unlock_irqrestore(&vibr->vibr_lock, flags);
 		vibr_Disable();
-		return;
 	}
 	spin_unlock_irqrestore(&vibr->vibr_lock, flags);
 }

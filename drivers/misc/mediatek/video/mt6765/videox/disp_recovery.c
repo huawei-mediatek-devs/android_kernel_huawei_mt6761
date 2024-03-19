@@ -67,8 +67,11 @@
 #include "disp_recovery.h"
 #include "disp_partial.h"
 #include "ddp_dsi.h"
-#include "ddp_reg_dsi.h"
-
+#if defined (CONFIG_HUAWEI_DSM) && defined (CONFIG_LCD_KIT_DRIVER)
+#include <dsm/dsm_pub.h>
+extern struct dsm_client *lcd_dclient;
+extern struct dsm_lcd_record lcd_record;
+#endif
 
 /* For abnormal check */
 static struct task_struct *primary_display_check_task;
@@ -377,7 +380,7 @@ int do_esd_check_dsi_te(void)
 int do_esd_check_read(void)
 {
 	int ret = 0;
-	struct cmdqRecStruct *qhandle;
+	struct cmdqRecStruct *qhandle = NULL;
 	disp_path_handle phandle = primary_get_dpmgr_handle();
 
 	/* 0.create esd check cmdq */
@@ -433,40 +436,13 @@ int do_lcm_vdo_lp_read(struct dsi_cmd_desc *cmd_tab, unsigned int count)
 {
 	int ret = 0;
 	int i = 0;
-	int h = 0;
-	struct cmdqRecStruct *handle;
-	/*static cmdqBackupSlotHandle read_Slot;*/
-	cmdqBackupSlotHandle hSlot[4] = {0, 0, 0, 0};
-	struct DSI_RX_DATA_REG read_data0 = {0, 0, 0, 0};
-	struct DSI_RX_DATA_REG read_data1 = {0, 0, 0, 0};
-	struct DSI_RX_DATA_REG read_data2 = {0, 0, 0, 0};
-	struct DSI_RX_DATA_REG read_data3 = {0, 0, 0, 0};
-	unsigned char packet_type;
-	unsigned int recv_data_cnt = 0;
+	struct cmdqRecStruct *handle = NULL;
+	static cmdqBackupSlotHandle read_Slot;
 
 	primary_display_manual_lock();
 
 	if (primary_get_state() == DISP_SLEPT) {
 		DISPERR("primary display path is slept?? -- skip read\n");
-
-		for (i = 0; i < count; i++) {
-			if ((cmd_tab + i) != NULL)
-				cmd_tab[i].dlen = 0;
-		}
-
-		primary_display_manual_unlock();
-		return -1;
-	}
-
-	if (!primary_display_is_video_mode()) {
-
-		DISPERR("Not support cmd mode\n");
-
-		for (i = 0; i < count; i++) {
-			if ((cmd_tab + i) != NULL)
-				cmd_tab[i].dlen = 0;
-		}
-
 		primary_display_manual_unlock();
 		return -1;
 	}
@@ -478,15 +454,12 @@ int do_lcm_vdo_lp_read(struct dsi_cmd_desc *cmd_tab, unsigned int count)
 			__func__, __LINE__, ret);
 		return -1;
 	}
-	/*cmdqBackupAllocateSlot(&read_Slot, count);*/
-	/*allocate 4 slot memory for each cmd */
-	for (h = 0; h < 4; h++) {
-		cmdqBackupAllocateSlot(&hSlot[h], count);
-		for (i = 0; i < count; i++)
-			cmdqBackupWriteSlot(hSlot[h], i, 0xff00ff00);
-	}
+	cmdqBackupAllocateSlot(&read_Slot, count);
+	for (i = 0; i < count; i++)
+		cmdqBackupWriteSlot(read_Slot, i, 0xff00ff00);
 
 	/* 1.use cmdq to read from lcm */
+	if (primary_display_is_video_mode()) {
 
 	/* 1.reset */
 	cmdqRecReset(handle);
@@ -500,7 +473,7 @@ int do_lcm_vdo_lp_read(struct dsi_cmd_desc *cmd_tab, unsigned int count)
 		handle, CMDQ_STOP_VDO_MODE, 0);
 
 	/* 3.read from lcm */
-	ddp_dsi_read_lcm_cmdq(DISP_MODULE_DSI0, hSlot, handle, cmd_tab, count);
+	ddp_dsi_read_lcm_cmdq(DISP_MODULE_DSI0, &read_Slot, handle, cmd_tab, count);
 
 	/* 4.start dsi vdo mode */
 	dpmgr_path_build_cmdq(primary_get_dpmgr_handle(),
@@ -519,6 +492,9 @@ int do_lcm_vdo_lp_read(struct dsi_cmd_desc *cmd_tab, unsigned int count)
 	/* 6.flush instruction */
 	ret = cmdqRecFlush(handle);
 
+	} else {
+		DISPERR("Not support cmd mode\n");
+	}
 
 	if (ret == 1) {	/* cmdq fail */
 		if (need_wait_esd_eof()) {
@@ -529,386 +505,23 @@ int do_lcm_vdo_lp_read(struct dsi_cmd_desc *cmd_tab, unsigned int count)
 		/* do dsi reset */
 		dpmgr_path_build_cmdq(primary_get_dpmgr_handle(), handle,
 			 CMDQ_DSI_RESET, 0);
-
-		for (i = 0; i < count; i++) {
-			if ((cmd_tab + i) != NULL)
-				cmd_tab[i].dlen = 0;
-		}
 		goto DISPTORY;
 	}
 
-	/*parse packet and return payload data*/
-	for (i = 0; i < count; i++) {
-		if (cmd_tab[i].dtype == 0)
-			continue;
-
-		if (cmd_tab[i].payload == 0) {
-			DISPERR("cmd_tab[%d].payload is NULL\n", i);
-			continue;
-		}
-
-		/* read data */
-		if (hSlot[0] && hSlot[1] && hSlot[2] && hSlot[3]) {
-			/* read from slot */
-			cmdqBackupReadSlot(hSlot[0], i,
-				(uint32_t *)&read_data0);
-			cmdqBackupReadSlot(hSlot[1], i,
-				(uint32_t *)&read_data1);
-			cmdqBackupReadSlot(hSlot[2], i,
-				(uint32_t *)&read_data2);
-			cmdqBackupReadSlot(hSlot[3], i,
-				(uint32_t *)&read_data3);
-		}
-		DISPDBG("%s: read_data0 byte0~1=0x%x~0x%x\n",
-				__func__, read_data0.byte0, read_data0.byte1);
-		DISPDBG("%s: read_data0 byte2~3=0x%x~0x%x\n",
-			__func__, read_data0.byte2, read_data0.byte3);
-		DISPDBG("%s: read_data1 byte0~1=0x%x~0x%x\n",
-			__func__, read_data1.byte0, read_data1.byte1);
-		DISPDBG("%s: read_data1 byte2~3=0x%x~0x%x\n",
-			__func__, read_data1.byte2, read_data1.byte3);
-		DISPDBG("%s: read_data2 byte0~1=0x%x~0x%x\n",
-			__func__, read_data2.byte0, read_data2.byte1);
-		DISPDBG("%s: read_data2 byte2~3=0x%x~0x%x\n",
-			__func__, read_data2.byte2, read_data2.byte3);
-		DISPDBG("%s: read_data3 byte0~1=0x%x~0x%x\n",
-			__func__, read_data3.byte0, read_data3.byte1);
-		DISPDBG("%s: read_data3 byte2~3=0x%x~0x%x\n",
-			__func__, read_data3.byte2, read_data3.byte3);
-
-		/*parse packet*/
-		packet_type = read_data0.byte0;
-		/* 0x02: acknowledge & error report */
-		/* 0x11: generic short read response(1 byte return) */
-		/* 0x12: generic short read response(2 byte return) */
-		/* 0x1a: generic long read response */
-		/* 0x1c: dcs long read response */
-		/* 0x21: dcs short read response(1 byte return) */
-		/* 0x22: dcs short read response(2 byte return) */
-		if (packet_type == 0x1A || packet_type == 0x1C) {
-			recv_data_cnt = read_data0.byte1
-				+ read_data0.byte2 * 16;
-
-			if (recv_data_cnt > RT_MAX_NUM) {
-				DISPDBG
-		("DSI read long packet data exceeds 10 bytes\n");
-				recv_data_cnt = RT_MAX_NUM;
-			}
-			if (recv_data_cnt > cmd_tab[i].dlen)
-				recv_data_cnt = cmd_tab[i].dlen;
-
-			DISPCHECK("DSI read long packet size: %d\n",
-				recv_data_cnt);
-			if (recv_data_cnt <= 4) {
-				memcpy((void *)cmd_tab[i].payload,
-				(void *)&read_data1, recv_data_cnt);
-			} else if (recv_data_cnt <= 8) {
-				memcpy((void *)cmd_tab[i].payload,
-				(void *)&read_data1, 4);
-				memcpy((void *)(cmd_tab[i].payload + 4),
-				(void *)&read_data2, recv_data_cnt - 4);
-			} else {
-				memcpy((void *)cmd_tab[i].payload,
-					(void *)&read_data1, 4);
-				memcpy((void *)(cmd_tab[i].payload + 4),
-					(void *)&read_data2, 4);
-				memcpy((void *)(cmd_tab[i].payload + 8),
-				(void *)&read_data3, recv_data_cnt - 8);
-			}
-
-		} else if (packet_type == 0x11 || packet_type == 0x21) {
-			recv_data_cnt = 1;
-			memcpy((void *)cmd_tab[i].payload,
-			(void *)&read_data0.byte1, recv_data_cnt);
-
-		} else if (packet_type == 0x12 || packet_type == 0x22) {
-			recv_data_cnt = 2;
-			if (recv_data_cnt > cmd_tab[i].dlen)
-				recv_data_cnt = cmd_tab[i].dlen;
-
-			memcpy((void *)cmd_tab[i].payload,
-			(void *)&read_data0.byte1, recv_data_cnt);
-
-		} else if (packet_type == 0x02) {
-			DISPCHECK
-				("read return type is 0x02, re-read\n");
-		} else {
-			DISPCHECK
-		("read return type is non-recognite, type = 0x%x\n",
-				packet_type);
-		}
-		cmd_tab[i].dlen = recv_data_cnt;
-		DISPDBG("[DSI]packet_type~recv_data_cnt = 0x%x~0x%x\n",
-			packet_type, recv_data_cnt);
-
-	}
+	for (i = 0; i < count; i++)
+		cmdqBackupReadSlot(read_Slot, i,
+		(uint32_t *)cmd_tab[i].payload);
 
 DISPTORY:
-
-	for (h = 0; h < 4; h++) {
-		if (hSlot[h]) {
-			cmdqBackupFreeSlot(hSlot[h]);
-			hSlot[h] = 0;
-		}
+	if (read_Slot) {
+		cmdqBackupFreeSlot(read_Slot);
+		read_Slot = 0;
 	}
 
 	/* 7.destroy esd config thread */
 	cmdqRecDestroy(handle);
 	primary_display_manual_unlock();
 
-	return ret;
-}
-
-int do_lcm_vdo_lp_read_v1(struct dsi_cmd_desc *cmd_tab)
-{
-	int ret = 0;
-	int h = 0;
-	struct cmdqRecStruct *handle;
-	/*static cmdqBackupSlotHandle read_Slot;*/
-	cmdqBackupSlotHandle hSlot[4] = {0, 0, 0, 0};
-	struct DSI_RX_DATA_REG read_data0 = {0, 0, 0, 0};
-	struct DSI_RX_DATA_REG read_data1 = {0, 0, 0, 0};
-	struct DSI_RX_DATA_REG read_data2 = {0, 0, 0, 0};
-	struct DSI_RX_DATA_REG read_data3 = {0, 0, 0, 0};
-	unsigned char packet_type;
-	unsigned int recv_data_cnt = 0;
-
-	DISPMSG("%s start +\n", __func__);
-
-	primary_display_manual_lock();
-
-	if (primary_get_state() == DISP_SLEPT) {
-		DISPERR("primary display path is slept -- skip read\n");
-		primary_display_manual_unlock();
-		return -1;
-	}
-
-	if (!primary_display_is_video_mode()) {
-
-		DISPERR("Not support cmd mode\n");
-		primary_display_manual_unlock();
-		return -1;
-	}
-
-	if (cmd_tab->payload == 0 || cmd_tab->dlen == 0
-		|| cmd_tab->cmd == 0) {
-
-		DISPERR("%s: payload is %s, dlen is %d, cmd is %d\n",
-			__func__, cmd_tab->payload,
-			cmd_tab->dlen, cmd_tab->cmd);
-		primary_display_manual_unlock();
-		return -1;
-	}
-
-	if (cmd_tab->cmd != 0x06 && cmd_tab->cmd != 0x14) {
-		DISPERR(" %s: cmd is 0x%x", __func__,  cmd_tab->cmd);
-		primary_display_manual_unlock();
-		return -1;
-	}
-
-	if (cmd_tab->dlen > RT_MAX_NUM) {
-		DISPMSG("%s: only supprt read 10 bytes params\n", __func__);
-		cmd_tab->dlen = RT_MAX_NUM;
-	}
-
-	/* 0.create esd check cmdq */
-	ret = cmdqRecCreate(CMDQ_SCENARIO_DISP_ESD_CHECK, &handle);
-	if (ret) {
-		DISPERR("%s:%d, create cmdq handle fail!ret=%d\n",
-			__func__, __LINE__, ret);
-		return -1;
-	}
-
-	/*cmdqBackupAllocateSlot(&read_Slot, count);*/
-	/*allocate 4 slot memory for each cmd */
-	for (h = 0; h < 4; h++) {
-		cmdqBackupAllocateSlot(&hSlot[h], 1);
-		cmdqBackupWriteSlot(hSlot[h], 0, 0xff00ff00);
-	}
-
-	if (!hSlot[0] || !hSlot[1] || !hSlot[2] || !hSlot[3]) {
-		DISPERR("[DSI]alloc cmdq slot fail\n");
-		ret = -1;
-		goto DISPTORY;
-	}
-	/* 1.use cmdq to read from lcm */
-
-	/* 1.reset */
-	cmdqRecReset(handle);
-
-	/* wait stream eof first */
-	/*cmdqRecWait(handle, CMDQ_EVENT_DISP_RDMA0_EOF);*/
-	cmdqRecWait(handle, CMDQ_EVENT_MUTEX0_STREAM_EOF);
-
-	/* 2.stop dsi vdo mode */
-	ret = dpmgr_path_build_cmdq(primary_get_dpmgr_handle(),
-		handle, CMDQ_STOP_VDO_MODE, 0);
-	if (ret) {
-		DISPERR("%s:%d, fail!ret=%d\n",
-			__func__, __LINE__, ret);
-		return -1;
-	}
-
-	/* 3.read from lcm */
-	ret = ddp_dsi_read_lcm_cmdq_v1(DISP_MODULE_DSI0,
-		hSlot, handle, cmd_tab);
-	if (ret) {
-		DISPERR("%s:%d, fail!ret=%d\n",
-			__func__, __LINE__, ret);
-		return -1;
-	}
-
-	/* 4.start dsi vdo mode */
-	ret = dpmgr_path_build_cmdq(primary_get_dpmgr_handle(),
-		handle, CMDQ_START_VDO_MODE, 0);
-	if (ret) {
-		DISPERR("%s:%d, fail!ret=%d\n",
-			__func__, __LINE__, ret);
-		return -1;
-	}
-
-	cmdqRecClearEventToken(handle, CMDQ_EVENT_MUTEX0_STREAM_EOF);
-
-	/* 5. trigger path */
-	ret = dpmgr_path_trigger(primary_get_dpmgr_handle(),
-		handle, CMDQ_ENABLE);
-	if (ret) {
-		DISPERR("%s:%d, fail!ret=%d\n",
-			__func__, __LINE__, ret);
-		return -1;
-	}
-
-	/*	mutex sof wait*/
-	ret = ddp_mutex_set_sof_wait(
-		dpmgr_path_get_mutex(primary_get_dpmgr_handle()),
-		handle, 0);
-	if (ret) {
-		DISPERR("%s:%d, fail!ret=%d\n",
-			__func__, __LINE__, ret);
-		return -1;
-	}
-
-
-	/* 6.flush instruction */
-	ret = cmdqRecFlush(handle);
-	if (ret == 1) {/* cmdq fail */
-		if (need_wait_esd_eof()) {
-			/* Need set esd check eof */
-			/*synctoken to let trigger loop go. */
-			cmdqCoreSetEvent(CMDQ_SYNC_TOKEN_ESD_EOF);
-		}
-		/* do dsi reset */
-		dpmgr_path_build_cmdq(primary_get_dpmgr_handle(), handle,
-			 CMDQ_DSI_RESET, 0);
-
-		ret = -1;
-		goto DISPTORY;
-	}
-
-	/* read data */
-	if (hSlot[0] && hSlot[1] && hSlot[2] && hSlot[3]) {
-		/* read from slot */
-		cmdqBackupReadSlot(hSlot[0], 0,
-			(uint32_t *)&read_data0);
-		cmdqBackupReadSlot(hSlot[1], 0,
-			(uint32_t *)&read_data1);
-		cmdqBackupReadSlot(hSlot[2], 0,
-			(uint32_t *)&read_data2);
-		cmdqBackupReadSlot(hSlot[3], 0,
-			(uint32_t *)&read_data3);
-	}
-	DISPDBG("%s: read_data0 byte0~1=0x%x~0x%x\n",
-		__func__, read_data0.byte0, read_data0.byte1);
-	DISPDBG("%s: read_data0 byte2~3=0x%x~0x%x\n",
-		__func__, read_data0.byte2, read_data0.byte3);
-	DISPDBG("%s: read_data1 byte0~1=0x%x~0x%x\n",
-		__func__, read_data1.byte0, read_data1.byte1);
-	DISPDBG("%s: read_data1 byte2~3=0x%x~0x%x\n",
-		__func__, read_data1.byte2, read_data1.byte3);
-	DISPDBG("%s: read_data2 byte0~1=0x%x~0x%x\n",
-		__func__, read_data2.byte0, read_data2.byte1);
-	DISPDBG("%s: read_data2 byte2~3=0x%x~0x%x\n",
-		__func__, read_data2.byte2, read_data2.byte3);
-	DISPDBG("%s: read_data3 byte0~1=0x%x~0x%x\n",
-		__func__, read_data3.byte0, read_data3.byte1);
-	DISPDBG("%s: read_data3 byte2~3=0x%x~0x%x\n",
-		__func__, read_data3.byte2, read_data3.byte3);
-
-	/*parse packet*/
-	packet_type = read_data0.byte0;
-		/* 0x02: acknowledge & error report */
-		/* 0x11: generic short read response(1 byte return) */
-		/* 0x12: generic short read response(2 byte return) */
-		/* 0x1a: generic long read response */
-		/* 0x1c: dcs long read response */
-		/* 0x21: dcs short read response(1 byte return) */
-		/* 0x22: dcs short read response(2 byte return) */
-	if (packet_type == 0x1A || packet_type == 0x1C) {
-		recv_data_cnt = read_data0.byte1
-				+ read_data0.byte2 * 16;
-
-		if (recv_data_cnt > RT_MAX_NUM) {
-			DISPDBG("DSI read long packet data exceeds 10 bytes\n");
-				recv_data_cnt = RT_MAX_NUM;
-		}
-		if (recv_data_cnt > cmd_tab->dlen)
-			recv_data_cnt = cmd_tab->dlen;
-
-		DISPCHECK("DSI read long packet size: %d\n",
-			recv_data_cnt);
-		if (recv_data_cnt <= 4) {
-			memcpy((void *)cmd_tab->payload,
-				(void *)&read_data1, recv_data_cnt);
-		} else if (recv_data_cnt <= 8) {
-			memcpy((void *)cmd_tab->payload,
-				(void *)&read_data1, 4);
-			memcpy((void *)(cmd_tab->payload + 4),
-				(void *)&read_data2, recv_data_cnt - 4);
-		} else {
-			memcpy((void *)cmd_tab->payload,
-					(void *)&read_data1, 4);
-			memcpy((void *)(cmd_tab->payload + 4),
-					(void *)&read_data2, 4);
-			memcpy((void *)(cmd_tab->payload + 8),
-				(void *)&read_data3, recv_data_cnt - 8);
-		}
-
-	} else if (packet_type == 0x11 || packet_type == 0x21) {
-		recv_data_cnt = 1;
-		memcpy((void *)cmd_tab->payload,
-			(void *)&read_data0.byte1, recv_data_cnt);
-
-	} else if (packet_type == 0x12 || packet_type == 0x22) {
-		recv_data_cnt = 2;
-		if (recv_data_cnt > cmd_tab->dlen)
-			recv_data_cnt = cmd_tab->dlen;
-
-		memcpy((void *)cmd_tab->payload,
-			(void *)&read_data0.byte1, recv_data_cnt);
-
-	} else if (packet_type == 0x02) {
-		DISPCHECK("read return type is 0x02, re-read\n");
-	} else {
-		DISPCHECK("read return type is non-recognite, type = 0x%x\n",
-				packet_type);
-	}
-	cmd_tab->dlen = recv_data_cnt;
-	DISPDBG("[DSI]packet_type~recv_data_cnt = 0x%x~0x%x\n",
-			packet_type, recv_data_cnt);
-
-DISPTORY:
-
-	for (h = 0; h < 4; h++) {
-		if (hSlot[h]) {
-			cmdqBackupFreeSlot(hSlot[h]);
-			hSlot[h] = 0;
-		}
-	}
-
-	/* 7.destroy esd config thread */
-	cmdqRecDestroy(handle);
-	primary_display_manual_unlock();
-	DISPMSG("%s end -\n", __func__);
 	return ret;
 }
 
@@ -937,44 +550,45 @@ int do_lcm_vdo_lp_write(struct dsi_cmd_desc *write_table,
 
 	/* 1.use cmdq to read from lcm */
 	if (primary_display_is_video_mode()) {
-		/* 1.reset */
-		cmdqRecReset(handle);
 
-		/* wait stream eof first */
-		cmdqRecWait(handle, CMDQ_EVENT_MUTEX0_STREAM_EOF);
+	/* 1.reset */
+	cmdqRecReset(handle);
 
-		/* 2.stop dsi vdo mode */
-		dpmgr_path_build_cmdq(primary_get_dpmgr_handle(),
-					handle, CMDQ_STOP_VDO_MODE, 0);
+	/* wait stream eof first */
+	cmdqRecWait(handle, CMDQ_EVENT_MUTEX0_STREAM_EOF);
 
-		/* 3.write instruction */
-		for (i = 0; i < count; i++) {
-			ret = ddp_dsi_write_lcm_cmdq(DISP_MODULE_DSI0,
-				handle, write_table[i].dtype,
-				write_table[i].dlen,
-				write_table[i].payload);
-			if (ret)
-				break;
-		}
+	/* 2.stop dsi vdo mode */
+	dpmgr_path_build_cmdq(primary_get_dpmgr_handle(),
+				handle, CMDQ_STOP_VDO_MODE, 0);
 
-		/* 4.start dsi vdo mode */
-		dpmgr_path_build_cmdq(primary_get_dpmgr_handle(),
-			handle, CMDQ_START_VDO_MODE, 0);
+	/* 3.write instruction */
+	for (i = 0; i < count; i++) {
+		ret = ddp_dsi_write_lcm_cmdq(DISP_MODULE_DSI0,
+			handle, write_table[i].dtype,
+			write_table[i].dlen,
+			write_table[i].payload);
 
-		cmdqRecClearEventToken(handle,
-			CMDQ_EVENT_MUTEX0_STREAM_EOF);
+		if (ret)
+			break;
+	}
 
-		/* 5. trigger path */
-		dpmgr_path_trigger(primary_get_dpmgr_handle(),
-			handle, CMDQ_ENABLE);
+	/* 4.start dsi vdo mode */
+	dpmgr_path_build_cmdq(primary_get_dpmgr_handle(),
+		handle, CMDQ_START_VDO_MODE, 0);
 
-		/*	mutex sof wait*/
-		ddp_mutex_set_sof_wait(dpmgr_path_get_mutex(
-			primary_get_dpmgr_handle()), handle, 0);
+	cmdqRecClearEventToken(handle, CMDQ_EVENT_MUTEX0_STREAM_EOF);
+
+	/* 5. trigger path */
+	dpmgr_path_trigger(primary_get_dpmgr_handle(), handle, CMDQ_ENABLE);
+
+	/*	mutex sof wait*/
+	ddp_mutex_set_sof_wait(dpmgr_path_get_mutex(
+		primary_get_dpmgr_handle()), handle, 0);
 
 
-		/* 6.flush instruction */
-		ret = cmdqRecFlush(handle);
+	/* 6.flush instruction */
+	ret = cmdqRecFlush(handle);
+
 	} else {
 		DISPERR("Not support cmd mode\n");
 	}
@@ -1007,11 +621,11 @@ DISPTORY:
 int primary_display_esd_check(void)
 {
 	int ret = 0;
-	unsigned int mode;
+	unsigned int mode = 0;
 	mmp_event mmp_te = ddp_mmp_get_events()->esd_extte;
 	mmp_event mmp_rd = ddp_mmp_get_events()->esd_rdlcm;
 	mmp_event mmp_chk = ddp_mmp_get_events()->esd_check_t;
-	struct LCM_PARAMS *params;
+	struct LCM_PARAMS *params = NULL;
 
 	dprec_logger_start(DPREC_LOGGER_ESD_CHECK, 0, 0);
 	mmprofile_log_ex(mmp_chk, MMPROFILE_FLAG_START, 0, 0);
@@ -1302,6 +916,15 @@ done:
 	DISPCHECK("[ESD]ESD recovery end\n");
 	mmprofile_log_ex(mmp_r, MMPROFILE_FLAG_END, 0, 0);
 	dprec_logger_done(DPREC_LOGGER_ESD_RECOVERY, 0, 0);
+#if defined (CONFIG_HUAWEI_DSM) && defined (CONFIG_LCD_KIT_DRIVER)
+	if (lcd_dclient && !dsm_client_ocuppy(lcd_dclient)) {
+		dsm_client_record(lcd_dclient, "lcd esd recovery, read value:0x%x, 0x%x, 0x%x!\n"
+			,lcd_record.esd_read_value[0]
+			,lcd_record.esd_read_value[1]
+			,lcd_record.esd_read_value[2]);
+		dsm_client_notify(lcd_dclient, DSM_LCD_ESD_STATUS_ERROR_NO);
+	}
+#endif
 	return ret;
 }
 
@@ -1318,7 +941,7 @@ void primary_display_check_recovery_init(void)
 		if (_need_do_esd_check()) {
 			/* esd check init */
 			init_waitqueue_head(&esd_ext_te_wq);
-			set_esd_check_mode(GPIO_EINT_MODE);
+			set_esd_check_mode(GPIO_DSI_MODE);
 			primary_display_esd_check_enable(1);
 		} else {
 			atomic_set(&_check_task_wakeup, 1);

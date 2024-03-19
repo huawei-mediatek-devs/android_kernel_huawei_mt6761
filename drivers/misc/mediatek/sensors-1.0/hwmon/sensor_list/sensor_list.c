@@ -128,7 +128,6 @@ static void sensorlist_get_deviceinfo(struct work_struct *work)
 		sensor = handle_to_sensor(handle);
 		if (sensor < 0)
 			continue;
-		memset(&devinfo, 0, sizeof(struct sensorInfo_t));
 		err = sensor_set_cmd_to_hub(sensor,
 			CUST_ACTION_GET_SENSOR_INFO, &devinfo);
 		if (err < 0) {
@@ -163,7 +162,7 @@ static struct scp_power_monitor scp_ready_notifier = {
 };
 #else
 int sensorlist_register_deviceinfo(int sensor,
-		struct sensorInfo_NonHub_t *devinfo)
+		struct sensorInfo_t *devinfo)
 {
 	int handle = -1;
 
@@ -188,8 +187,6 @@ static ssize_t
 sensorlist_read(struct file *file, char __user *buf,
 	size_t count, loff_t *ptr)
 {
-	struct sensorlist_info_t temp[maxhandle];
-
 	if (!atomic_read(&first_ready_after_boot))
 		return -EINVAL;
 	if (count == 0)
@@ -199,12 +196,12 @@ sensorlist_read(struct file *file, char __user *buf,
 	if (count > maxhandle * sizeof(struct sensorlist_info_t))
 		count = maxhandle * sizeof(struct sensorlist_info_t);
 
-	memset(temp, 0, sizeof(temp));
 	spin_lock(&sensorlist_info_lock);
-	memcpy(temp, sensorlist_info, sizeof(temp));
-	spin_unlock(&sensorlist_info_lock);
-	if (copy_to_user(buf, temp, count))
+	if (copy_to_user(buf, sensorlist_info, count)) {
+		spin_unlock(&sensorlist_info_lock);
 		return -EFAULT;
+	}
+	spin_unlock(&sensorlist_info_lock);
 	return count;
 }
 

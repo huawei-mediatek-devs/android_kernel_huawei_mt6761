@@ -26,7 +26,6 @@
 #include "aed.h"
 #include <mt-plat/mrdump.h>
 #include <mrdump_private.h>
-#include <log_store_kernel.h>
 
 #if defined(CONFIG_ARM_PSCI) || defined(CONFIG_ARM64)
 #include <mt-plat/mtk_secure_api.h>
@@ -34,6 +33,7 @@
 
 #ifndef PARTIAL_BUILD
 
+#ifndef CONFIG_FINAL_RELEASE
 #define BUFSIZE 128
 static int test_case;
 static int test_cpu;
@@ -375,16 +375,6 @@ static ssize_t proc_generate_oops_write(struct file *file,
 		pr_notice("%s: error\n", __func__);
 		return -EFAULT;
 	}
-
-	if (strncmp(msg, "aee1", 4) == 0) {
-		set_emmc_config(KEDUMP_CTL, KEDUMP_ENABLE);
-		pr_info("kedump enabled\n");
-		return size;
-	} else if (strncmp(msg, "aee0", 4) == 0) {
-		set_emmc_config(KEDUMP_CTL, KEDUMP_DISABLE);
-		pr_info("kedump disabled\n");
-		return size;
-	}
 	test_case = (unsigned int)msg[0] - '0';
 	test_subcase = (unsigned int)msg[2] - '0';
 	test_cpu = (unsigned int)msg[4] - '0';
@@ -660,15 +650,15 @@ static ssize_t proc_generate_kernel_notify_write(struct file *file,
 
 	switch (msg[0]) {
 	case 'R':
-		aee_kernel_reminding(&msg[2], "Hello World[Error]");
+		aee_kernel_reminding(&msg[2], colon_ptr + 1);
 		break;
 
 	case 'W':
-		aee_kernel_warning(&msg[2], "Hello World[Error]");
+		aee_kernel_warning(&msg[2], colon_ptr + 1);
 		break;
 
 	case 'E':
-		aee_kernel_exception(&msg[2], "Hello World[Error]");
+		aee_kernel_exception(&msg[2], colon_ptr + 1);
 		break;
 
 	default:
@@ -741,6 +731,17 @@ int aed_proc_debug_done(struct proc_dir_entry *aed_proc_dir)
 	remove_proc_entry("generate-dal", aed_proc_dir);
 	return 0;
 }
+#else
+int aed_proc_debug_init(struct proc_dir_entry *aed_proc_dir)
+{
+    return 0;
+}
+
+int aed_proc_debug_done(struct proc_dir_entry *aed_proc_dir)
+{
+    return 0;
+}
+#endif
 
 #else
 

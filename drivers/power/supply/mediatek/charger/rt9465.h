@@ -144,9 +144,4 @@ enum rt9465_reg_addr {
 #define RT9465_MASK_CHG_STAT	0xC0
 #define RT9465_MASK_VERSION	0x0E
 
-/* ========== STATC 0x30 ============ */
-#define RT9465_SHIFT_CHG_MIVR	6
-
-#define RT9465_MASK_CHG_MIVR	(1 << RT9465_SHIFT_CHG_MIVR)
-
 #endif /* __RT9465_CHARGER_H */

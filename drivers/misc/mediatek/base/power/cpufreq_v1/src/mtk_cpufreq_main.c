@@ -684,11 +684,6 @@ static int _cpufreq_set_locked(struct cpufreq_policy *policy,
 	pcci_p = id_to_pll_ctrl(p_cci->Pll_id);
 	new_opp_idx =
 	_search_available_freq_idx(p, target_khz, CPUFREQ_RELATION_L);
-	if (new_opp_idx == -1) {
-		tag_pr_info("%s cant find freq idx new_opp_idx = %d\n",
-				__func__, new_opp_idx);
-		goto out;
-	}
 	new_cci_opp_idx =
 	_calc_new_cci_opp_idx(p, new_opp_idx, &target_cci_volt);
 	cur_cci_khz = pcci_p->pll_ops->get_cur_freq(pcci_p);
@@ -1139,11 +1134,12 @@ static struct notifier_block __refdata _mt_cpufreq_cpu_notifier = {
 
 static int _sync_opp_tbl_idx(struct mt_cpu_dvfs *p)
 {
-	unsigned int freq;
+	unsigned int freq = 0;
 	int i;
 	struct pll_ctrl_t *pll_p = id_to_pll_ctrl(p->Pll_id);
 
-	freq = pll_p->pll_ops->get_cur_freq(pll_p);
+	if (pll_p)
+		freq = pll_p->pll_ops->get_cur_freq(pll_p);
 
 	for (i = p->nr_opp_tbl - 1; i >= 0; i--) {
 		if (freq <= cpu_dvfs_get_freq_by_idx(p, i))
@@ -1166,11 +1162,11 @@ static int _mt_cpufreq_sync_opp_tbl_idx(struct mt_cpu_dvfs *p)
 
 	FUNC_ENTER(FUNC_LV_LOCAL);
 
-	if (cpu_dvfs_is_available(p)) {
+	if (cpu_dvfs_is_available(p))
 		ret = _sync_opp_tbl_idx(p);
-		cpufreq_ver("%s freq = %d\n", cpu_dvfs_get_name(p),
-			cpu_dvfs_get_cur_freq(p));
-	}
+
+	cpufreq_ver("%s freq = %d\n", cpu_dvfs_get_name(p),
+					cpu_dvfs_get_cur_freq(p));
 
 	FUNC_EXIT(FUNC_LV_LOCAL);
 
@@ -1202,8 +1198,9 @@ static int _mt_cpufreq_setup_freqs_table(struct cpufreq_policy *policy,
 	FUNC_ENTER(FUNC_LV_LOCAL);
 
 	p = id_to_cpu_dvfs(_get_cpu_dvfs_id(policy->cpu));
-
-	ret = cpufreq_frequency_table_cpuinfo(policy, p->freq_tbl_for_cpufreq);
+	if (p)
+		ret = cpufreq_frequency_table_cpuinfo
+			(policy, p->freq_tbl_for_cpufreq);
 
 	if (!ret)
 		policy->freq_table = p->freq_tbl_for_cpufreq;

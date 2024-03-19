@@ -294,25 +294,6 @@ int gauge_dev_get_zcv(
 	return ret;
 }
 
-int gauge_dev_notify_event(
-	struct gauge_device *gauge_dev, enum gauge_event evt, int value)
-{
-	int ret = -ENOTSUPP;
-
-	if (gauge_dev == NULL)
-		return ret;
-
-	gauge_lock(gauge_dev);
-	if (gauge_dev != NULL && gauge_dev->ops != NULL &&
-		gauge_dev->ops->gauge_notify_event)
-		ret =
-			gauge_dev->ops->gauge_notify_event(
-				gauge_dev, evt, value);
-	gauge_unlock(gauge_dev);
-
-	return ret;
-}
-
 int gauge_dev_is_gauge_initialized(
 	struct gauge_device *gauge_dev, int *init)
 {
@@ -855,8 +836,7 @@ int gauge_dev_set_reset_status(
 }
 
 int gauge_dev_dump(
-	struct gauge_device *gauge_dev, struct seq_file *m,
-	int type)
+	struct gauge_device *gauge_dev, struct seq_file *m)
 {
 	int ret = -ENOTSUPP;
 
@@ -866,8 +846,7 @@ int gauge_dev_dump(
 	gauge_lock(gauge_dev);
 	if (gauge_dev != NULL && gauge_dev->ops != NULL &&
 		gauge_dev->ops->gauge_dump)
-		ret = gauge_dev->ops->gauge_dump(
-			gauge_dev, m, type);
+		ret = gauge_dev->ops->gauge_dump(gauge_dev, m);
 	gauge_unlock(gauge_dev);
 
 	return ret;
@@ -968,8 +947,7 @@ struct gauge_device *gauge_device_register(const char *name,
 	struct gauge_device *gauge_dev;
 	int rc;
 
-	pr_debug("%s: name=%s\n",
-		__func__, name);
+	pr_debug("gauge_device_register: name=%s\n", name);
 	gauge_dev = kzalloc(sizeof(*gauge_dev), GFP_KERNEL);
 	if (!gauge_dev)
 		return ERR_PTR(-ENOMEM);

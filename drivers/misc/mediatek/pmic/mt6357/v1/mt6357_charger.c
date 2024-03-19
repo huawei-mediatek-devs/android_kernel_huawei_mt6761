@@ -330,8 +330,20 @@ static int mt6357_dump_register(struct charger_device *chg_dev)
 	bool chg_en = false;
 
 	ret = mt6357_get_ichg(chg_dev, &ichg);
+	if (ret < 0) {
+		chr_err("%s: get_ichg failed\n", __func__);
+		return ret;
+	}
 	ret = mt6357_get_cv(chg_dev, &cv);
+	if (ret < 0) {
+		chr_err("%s: get_cv failed\n", __func__);
+		return ret;
+	}
 	ret = mt6357_is_charging_enabled(chg_dev, &chg_en);
+	if (ret < 0) {
+		chr_err("%s: get_is_charging failed\n", __func__);
+		return ret;
+	}
 
 	for (i = MT6357_CHR_TOP_CON0; i <= MT6357_PCHR_ELR1; i += 2)
 		chr_debug("[0x%x]=0x%x\t", i, upmu_get_reg_value(i));

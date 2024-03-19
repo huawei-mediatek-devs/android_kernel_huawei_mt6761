@@ -111,10 +111,6 @@ typedef int (*clk_switch_cb)(
 typedef int (*vdec_ctrl_cb)(void);
 typedef int (*mmdvfs_state_change_cb)(struct mmdvfs_state_change_event *event);
 typedef int (*mmdvfs_prepare_cb)(struct mmdvfs_prepare_event *event);
-/* MMDVFS V2 only APIs */
-extern int mmdvfs_register_mmclk_switch_cb(clk_switch_cb notify_cb,
-	int mmdvfs_client_id);
-extern int mmdvfs_raise_mmsys_by_mux(void);
 
 /* Extern from other module */
 extern enum MTK_SMI_BWC_SCEN smi_get_current_profile(void);
@@ -133,8 +129,6 @@ extern int get_mmdvfs_clk_mux_mask(void);
 #define MMDVFS_PROFILE_CER (2)
 #define MMDVFS_PROFILE_MER (3)
 #define MMDVFS_PROFILE_EIG (4)
-#define MMDVFS_PROFILE_LAF (5)
-#define MMDVFS_PROFILE_BIA (6)
 
 /* Macro used to resovling step setting ioctl command */
 #define MMDVFS_CMD_STEP_LEN (8)

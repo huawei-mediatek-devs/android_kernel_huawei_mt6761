@@ -958,12 +958,6 @@ static int rdma_config(enum DISP_MODULE_ENUM module, enum RDMA_MODE mode,
 			offset + DISP_REG_RDMA_SIZE_CON_0, 1);
 		DISP_REG_SET_FIELD(handle, SIZE_CON_0_FLD_MATRIX_INT_MTX_SEL,
 			offset + DISP_REG_RDMA_SIZE_CON_0, color_matrix);
-	} else if (input_is_yuv == 0 && output_is_yuv == 1) {
-		color_matrix = 0x2; /* 0x0010, RGB_TO_BT601 */
-		DISP_REG_SET_FIELD(handle, SIZE_CON_0_FLD_MATRIX_ENABLE,
-			offset + DISP_REG_RDMA_SIZE_CON_0, 1);
-		DISP_REG_SET_FIELD(handle, SIZE_CON_0_FLD_MATRIX_INT_MTX_SEL,
-			offset + DISP_REG_RDMA_SIZE_CON_0, color_matrix);
 	} else {
 		DISP_REG_SET_FIELD(handle, SIZE_CON_0_FLD_MATRIX_ENABLE,
 			offset + DISP_REG_RDMA_SIZE_CON_0, 0);
@@ -1335,7 +1329,7 @@ int rdma_switch_to_nonsec(enum DISP_MODULE_ENUM module,
 	cmdq_engine = rdma_to_cmdq_engine(module);
 	if (rdma_is_sec[rdma_idx] == 1) {
 		/* rdma is in sec stat, we need to switch it to nonsec */
-		struct cmdqRecStruct *nonsec_switch_handle;
+		struct cmdqRecStruct *nonsec_switch_handle = { 0 };
 		int ret;
 
 		ret = cmdqRecCreate(
@@ -1493,8 +1487,8 @@ static int _rdma_partial_update(enum DISP_MODULE_ENUM module, void *arg,
 	void *handle)
 {
 	struct disp_rect *roi = (struct disp_rect *)arg;
-	int width = roi->width;
-	int height = roi->height;
+	unsigned int width =(unsigned int)roi->width;
+	unsigned int height =(unsigned int)roi->height;
 	unsigned int idx = rdma_index(module);
 	unsigned int offset = DISP_RDMA_INDEX_OFFSET * idx;
 
@@ -1506,10 +1500,10 @@ static int _rdma_partial_update(enum DISP_MODULE_ENUM module, void *arg,
 }
 
 int rdma_ioctl(enum DISP_MODULE_ENUM module, void *cmdq_handle,
-	enum DDP_IOCTL_NAME ioctl_cmd, void *params)
+	unsigned int ioctl_cmd, unsigned long *params)
 {
 	int ret = 0;
-	enum DDP_IOCTL_NAME ioctl = ioctl_cmd;
+	enum DDP_IOCTL_NAME ioctl = (enum DDP_IOCTL_NAME)ioctl_cmd;
 	unsigned int idx = rdma_index(module);
 
 	switch (ioctl) {

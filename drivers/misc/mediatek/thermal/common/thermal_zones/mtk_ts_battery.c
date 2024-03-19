@@ -38,6 +38,10 @@
 #include <tmp_battery.h>
 #endif
 
+
+extern int product_version;
+#define DOUBLE_85  1
+
 /* ************************************ */
 /* Function prototype*/
 /* ************************************ */
@@ -466,7 +470,8 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		BUG();
+		if(product_version != DOUBLE_85)
+			BUG();
 	}
 	return 0;
 }

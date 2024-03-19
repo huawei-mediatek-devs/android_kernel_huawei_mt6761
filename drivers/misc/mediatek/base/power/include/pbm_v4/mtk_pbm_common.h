@@ -18,7 +18,6 @@ struct pbm {
 	u8 feature_en;
 	u8 pbm_drv_done;
 	u32 hpf_en;
-	u32 manual_mode;
 };
 
 struct hpf {

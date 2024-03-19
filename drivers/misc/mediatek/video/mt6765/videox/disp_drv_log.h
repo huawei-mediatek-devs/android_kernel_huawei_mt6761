@@ -27,19 +27,19 @@
 	do {								\
 		dprec_logger_pr(DPREC_LOGGER_DEBUG, string, ##args);	\
 		if (g_mobilelog) \
-			pr_debug("[DISP]"string, ##args);		\
+			pr_info("[DISP]"string, ##args);		\
 	} while (0)
 
 #define DISPMSG(string, args...)					\
 	do {								\
 		dprec_logger_pr(DPREC_LOGGER_DEBUG, string, ##args);	\
-		pr_debug("[DISP]"string, ##args);		\
+		pr_info("[DISP]"string, ##args);		\
 	} while (0)
 
 #define DISPCHECK(string, args...)					\
 	do {								\
 		dprec_logger_pr(DPREC_LOGGER_DEBUG, string, ##args);	\
-		pr_debug("[DISP]"string, ##args);		\
+		pr_info("[DISP]"string, ##args);		\
 	} while (0)
 
 #define DISPWARN(string, args...)					\
@@ -83,7 +83,7 @@
 
 #ifdef CONFIG_MTK_AEE_FEATURE
 #define disp_aee_print(string, args...) do {	\
-	char disp_name[100];						\
+	char disp_name[100] = {0};						\
 	snprintf(disp_name, 100, "[DISP]"string, ##args); \
 	aee_kernel_warning_api(__FILE__, __LINE__, \
 		DB_OPT_DEFAULT | DB_OPT_MMPROFILE_BUFFER | \
@@ -93,7 +93,7 @@
 } while (0)
 #else
 #define disp_aee_print(string, args...) do {				\
-	char disp_name[100];						\
+	char disp_name[100] = {0};						\
 	snprintf(disp_name, 100, "[DISP]"string, ##args);		\
 	pr_info("DISP error: "string, ##args);				\
 } while (0)

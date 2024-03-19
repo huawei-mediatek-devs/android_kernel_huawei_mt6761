@@ -60,8 +60,6 @@ long int gro_flush_timer __read_mostly = 1000000L;
 long int gro_flush_timer;
 #endif
 
-#define APP_VIP_MARK		0x80000000
-
 /********************internal function*********************/
 static void ccmni_make_etherframe(int md_id, struct net_device *dev,
 	void *_eth_hdr, unsigned char *mac_addr, unsigned int packet_type)
@@ -377,10 +375,7 @@ static u16 ccmni_select_queue(struct net_device *dev, struct sk_buff *skb,
 	struct ccmni_ctl_block *ctlb = ccmni_ctl_blk[ccmni->md_id];
 
 	if (ctlb->ccci_ops->md_ability & MODEM_CAP_DATA_ACK_DVD) {
-		if (skb->mark == APP_VIP_MARK)
-			return CCMNI_TXQ_FAST;
-
-		if (ccmni->ack_prio_en && is_ack_skb(ccmni->md_id, skb))
+		if (ccmni->ch.multiq && is_ack_skb(ccmni->md_id, skb))
 			return CCMNI_TXQ_FAST;
 		else
 			return CCMNI_TXQ_NORMAL;
@@ -545,13 +540,8 @@ static int ccmni_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		}
 	}
 
-	if (ctlb->ccci_ops->md_ability & MODEM_CAP_DATA_ACK_DVD) {
-		iph = (struct iphdr *)skb_network_header(skb);
-		if (skb->mark == APP_VIP_MARK)
-			is_ack = 1;
-		else if (ccmni->ack_prio_en)
-			is_ack = is_ack_skb(ccmni->md_id, skb);
-	}
+	if (ctlb->ccci_ops->md_ability & MODEM_CAP_DATA_ACK_DVD)
+		is_ack = is_ack_skb(ccmni->md_id, skb);
 
 	ret = ctlb->ccci_ops->send_pkt(ccmni->md_id, ccmni->index, skb, is_ack);
 	if (ret == CCMNI_ERR_MD_NO_READY || ret == CCMNI_ERR_TX_INVAL) {
@@ -884,27 +874,6 @@ static int ccmni_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		}
 		break;
 
-	case SIOCACKPRIO:
-		/* ifru_ivalue[3~0]: enable/disable ack prio feature  */
-		ctlb = ccmni_ctl_blk[ccmni->md_id];
-		if ((ifr->ifr_ifru.ifru_ivalue & 0xF) == 0) {
-			for (i = 0; i < ctlb->ccci_ops->ccmni_num; i++) {
-				ccmni_tmp = ctlb->ccmni_inst[i];
-				ccmni_tmp->ack_prio_en = 0;
-			}
-		} else {
-			for (i = 0; i < ctlb->ccci_ops->ccmni_num; i++) {
-				ccmni_tmp = ctlb->ccmni_inst[i];
-				if (ccmni_tmp->ch.multiq)
-					ccmni_tmp->ack_prio_en = 1;
-			}
-		}
-		CCMNI_INF_MSG(ccmni->md_id,
-			"SIOCACKPRIO: ack_prio_en=%d, ccmni0_ack_en=%d\n",
-			ifr->ifr_ifru.ifru_ivalue,
-			ctlb->ccmni_inst[i]->ack_prio_en);
-		break;
-
 	default:
 		CCMNI_DBG_MSG(ccmni->md_id,
 			"%s: unknown ioctl cmd=%x\n", dev->name, cmd);
@@ -974,7 +943,6 @@ static inline int ccmni_inst_init(int md_id, struct ccmni_instance *ccmni,
 	ccmni->napi = kzalloc(sizeof(struct napi_struct), GFP_KERNEL);
 	ccmni->timer = kzalloc(sizeof(struct timer_list), GFP_KERNEL);
 	ccmni->spinlock = kzalloc(sizeof(spinlock_t), GFP_KERNEL);
-	ccmni->ack_prio_en = ccmni->ch.multiq ? 1 : 0;
 
 	/* register napi device */
 	if (dev && (ctlb->ccci_ops->md_ability & MODEM_CAP_NAPI)) {
@@ -1097,9 +1065,7 @@ static int ccmni_init(int md_id, struct ccmni_ccci_ops *ccci_info)
 
 			/* init net device */
 			ccmni_dev_init(md_id, dev);
-
-			/* used to support auto add ipv6 mroute */
-			dev->type = ARPHRD_PUREIP;
+			dev->type = ARPHRD_PPP;
 
 			sprintf(dev->name, "%s%d", ctlb->ccci_ops->name, i);
 
@@ -1287,6 +1253,7 @@ static int ccmni_rx_callback(int md_id, int ccmni_idx, struct sk_buff *skb,
 	char tag_name[32] = { '\0' };
 	unsigned int tag_id = 0;
 #endif
+
 
 	if (unlikely(ctlb == NULL || ctlb->ccci_ops == NULL)) {
 		CCMNI_PR_DBG(md_id,

@@ -306,7 +306,8 @@ static int fgauge_initial(struct gauge_device *gauge_dev)
 	get_mtk_battery()->hw_status.pl_charger_status = is_charger_exist;
 
 	if (is_charger_exist == 1) {
-		is_bat_plugout = 1;
+		is_bat_plugout = 0;
+		bm_err("%s: boot up with charger in, force is_bat_plugout = 0 \n",__func__);
 		fgauge_set_info(gauge_dev, GAUGE_2SEC_REBOOT, 0);
 	} else {
 		if (bat_flag == 0)
@@ -454,7 +455,6 @@ static int fgauge_get_coulomb(struct gauge_device *gauge_dev, int *data)
 	int m = 0;
 	unsigned long long Temp_Value = 0;
 	unsigned int ret = 0;
-	int reset = 0;
 
 /*
  * HW Init
@@ -470,14 +470,8 @@ static int fgauge_get_coulomb(struct gauge_device *gauge_dev, int *data)
 
 	/*fg_dump_register();*/
 
-	if (reset == 0)
-		ret = pmic_config_interface(
-			MT6357_FGADC_CON1, 0x0001, 0x1F05, 0x0);
-	else {
-		ret = pmic_config_interface(
-			MT6357_FGADC_CON1, 0x0705, 0x1F05, 0x0);
-		bm_err("[fgauge_read_columb_internal] reset fgadc 0x0705\n");
-	}
+	ret = pmic_config_interface(
+		MT6357_FGADC_CON1, 0x0001, 0x1F05, 0x0);
 
 	/*(2)    Keep i2c read when status = 1 (0x06) */
 	m = 0;
@@ -911,7 +905,6 @@ int fgauge_set_coulomb_interrupt1_ht(
 	unsigned int uvalue32_CAR_MSB = 0;
 	signed int upperbound = 0;
 	signed int upperbound_31_16 = 0, upperbound_15_00 = 0;
-	int reset = 0;
 	signed short m;
 	unsigned int ret = 0;
 	signed int value32_CAR;
@@ -933,14 +926,8 @@ int fgauge_set_coulomb_interrupt1_ht(
  *Read HW Raw Data
  *(1)    Set READ command
  */
-	if (reset == 0) {
-		ret = pmic_config_interface(
-				MT6357_FGADC_CON1, 0x0001, 0x1F0F, 0x0);
-	} else {
-		ret = pmic_config_interface(
-				MT6357_FGADC_CON1, 0x1F05, 0xFF0F, 0x0);
-		bm_err("[fgauge_set_coulomb_interrupt1_ht] reset fgadc 0x1F05\n");
-	}
+	ret = pmic_config_interface(
+			MT6357_FGADC_CON1, 0x0001, 0x1F0F, 0x0);
 
 	/*(2)    Keep i2c read when status = 1 (0x06) */
 	m = 0;
@@ -1050,7 +1037,6 @@ int fgauge_set_coulomb_interrupt1_lt(
 	unsigned int uvalue32_CAR_MSB = 0;
 	signed int lowbound = 0;
 	signed int lowbound_31_16 = 0, lowbound_15_00 = 0;
-	int reset = 0;
 	signed short m;
 	unsigned int ret = 0;
 	signed int value32_CAR;
@@ -1072,16 +1058,8 @@ int fgauge_set_coulomb_interrupt1_lt(
  *Read HW Raw Data
  *(1)    Set READ command
  */
-	if (reset == 0) {
-		ret =
-			pmic_config_interface(
-				MT6357_FGADC_CON1, 0x0001, 0x1F0F, 0x0);
-	} else {
-		ret =
-			pmic_config_interface(
-				MT6357_FGADC_CON1, 0x1F05, 0xFF0F, 0x0);
-		bm_err("[fgauge_set_coulomb_interrupt1_lt] reset fgadc 0x1F05\n");
-	}
+	ret = pmic_config_interface(
+			MT6357_FGADC_CON1, 0x0001, 0x1F0F, 0x0);
 
 	/*(2)    Keep i2c read when status = 1 (0x06) */
 	m = 0;
@@ -1554,17 +1532,8 @@ static void fgauge_set_zcv_intr_internal(
 
 static int fgauge_enable_zcv_interrupt(struct gauge_device *gauge_dev, int en)
 {
-	if (en == 0) {
-		pmic_enable_interrupt(FG_ZCV_NO, en, "GM30");
-		pmic_set_register_value(PMIC_FG_ZCV_DET_EN, en);
-		mdelay(10);
-	}
-
-	if (en == 1) {
-		pmic_enable_interrupt(FG_ZCV_NO, en, "GM30");
-		pmic_set_register_value(PMIC_FG_ZCV_DET_EN, en);
-	}
-
+	pmic_set_register_value(PMIC_FG_ZCV_DET_EN, en);
+	pmic_enable_interrupt(FG_ZCV_NO, en, "GM30");
 	return 0;
 }
 
@@ -1644,7 +1613,7 @@ static int fgauge_get_nag_vbat(struct gauge_device *gauge_dev, int *vbat)
 	vbat_val = nag_vbat_reg & 0x7fff;
 	nag_vbat_mv = REG_to_MV_value(vbat_val);
 	*vbat = nag_vbat_mv;
-
+	battery_dump_nag();
 	return 0;
 }
 
@@ -2098,7 +2067,7 @@ int fgauge_set_reset_status(struct gauge_device *gauge_dev, int reset)
 	spare3_reg = get_rtc_spare_fg_value();
 
 	/* set spare3 0x7f */
-	set_rtc_spare_fg_value(spare3_reg | 0x80);
+	set_rtc_spare_fg_value((unsigned int)spare3_reg | 0x80);
 
 	/* read spare3 again */
 	after_rst_spare3_reg = get_rtc_spare_fg_value();
@@ -2110,7 +2079,7 @@ int fgauge_set_reset_status(struct gauge_device *gauge_dev, int reset)
 
 }
 
-static void fgauge_dump_type0(struct seq_file *m)
+static int fgauge_dump(struct gauge_device *gauge_dev, struct seq_file *m)
 {
 	if (m != NULL) {
 		seq_puts(m, "fgauge dump\n");
@@ -2192,19 +2161,6 @@ static void fgauge_dump_type0(struct seq_file *m)
 		charger_zcv, pmic_rdy,
 		pmic_zcv, pmic_in_zcv,
 		swocv, zcv_from, zcv_tmp);
-
-}
-
-
-static int fgauge_dump(
-	struct gauge_device *gauge_dev, struct seq_file *m, int type)
-{
-	if (type == 0)
-		fgauge_dump_type0(m);
-	else if (type == 1)
-		battery_dump_nag();
-
-
 	return 0;
 }
 

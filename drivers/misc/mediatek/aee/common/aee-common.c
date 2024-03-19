@@ -138,6 +138,7 @@ EXPORT_SYMBOL(aee_oops_create);
 
 void aee_oops_free(struct aee_oops *oops)
 {
+#ifndef CONFIG_FINAL_RELEASE
 	kfree(oops->console);
 	kfree(oops->android_main);
 	kfree(oops->android_radio);
@@ -145,6 +146,7 @@ void aee_oops_free(struct aee_oops *oops)
 	kfree(oops->userspace_info);
 	kfree(oops->mmprofile);
 	kfree(oops->mini_rdump);
+#endif
 	vfree(oops->userthread_stack.Userthread_Stack);
 	vfree(oops->userthread_maps.Userthread_maps);
 	kfree(oops);

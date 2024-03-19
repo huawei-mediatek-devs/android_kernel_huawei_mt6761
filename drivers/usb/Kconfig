@@ -160,6 +160,12 @@ source "drivers/usb/phy/Kconfig"
 
 source "drivers/usb/gadget/Kconfig"
 
+config HUAWEI_USB
+	bool "Use Huawei usb code"
+	default n
+	---help---
+	  use Huawei usb feature
+
 config USB_LED_TRIG
 	bool "USB LED Triggers"
 	depends on LEDS_CLASS && LEDS_TRIGGERS

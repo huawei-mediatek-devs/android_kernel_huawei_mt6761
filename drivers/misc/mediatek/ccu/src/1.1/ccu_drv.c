@@ -889,12 +889,12 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 		}
 	case CCU_IOCTL_GET_SENSOR_I2C_SLAVE_ADDR:
 		{
-			int32_t sensorI2cSlaveAddr[4];
+			int32_t sensorI2cSlaveAddr[3];
 
 			ccu_get_sensor_i2c_slave_addr(&sensorI2cSlaveAddr[0]);
 
 			ret = copy_to_user((void *)arg, &sensorI2cSlaveAddr,
-				sizeof(int32_t) * 4);
+				sizeof(int32_t) * 3);
 
 			break;
 		}
@@ -903,7 +903,7 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 		{
 			#define SENSOR_NAME_MAX_LEN 32
 
-			char *sensor_names[4];
+			char *sensor_names[3];
 
 			ccu_get_sensor_name(sensor_names);
 
@@ -936,18 +936,6 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 					strlen(sensor_names[2])+1);
 				if (ret != 0) {
 					LOG_ERR("%s 3 failed: %d\n",
-						"copy_to_user", ret);
-					break;
-				}
-			}
-
-			if (sensor_names[3] != NULL) {
-				ret = copy_to_user(
-					((char *)arg+SENSOR_NAME_MAX_LEN*3),
-					sensor_names[3],
-					strlen(sensor_names[3])+1);
-				if (ret != 0) {
-					LOG_ERR("%s 4 failed: %d\n",
 						"copy_to_user", ret);
 					break;
 				}
@@ -1001,13 +989,13 @@ static int ccu_release(struct inode *inode, struct file *flip)
 static int ccu_mmap(struct file *flip, struct vm_area_struct *vma)
 {
 	unsigned long length = 0;
-	unsigned long pfn = 0x0;
+	unsigned int pfn = 0x0;
 
 	length = (vma->vm_end - vma->vm_start);
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 	pfn = vma->vm_pgoff << PAGE_SHIFT;
 
-	LOG_DBG("CCU_mmap: vm_pgoff(0x%lx),pfn(0x%lx),phy(0x%lx), ",
+	LOG_DBG("CCU_mmap: vm_pgoff(0x%lx),pfn(0x%x),phy(0x%lx), ",
 		vma->vm_pgoff, pfn, vma->vm_pgoff << PAGE_SHIFT);
 	LOG_DBG("vm_start(0x%lx),vm_end(0x%lx),length(0x%lx)\n",
 		vma->vm_start, vma->vm_end, length);
@@ -1016,7 +1004,7 @@ static int ccu_mmap(struct file *flip, struct vm_area_struct *vma)
 
 		if (pfn == (ccu_hw_base - CCU_HW_OFFSET)) {
 			if (length > PAGE_SIZE) {
-				LOG_ERR("mmap range error :module(0x%lx), ",
+				LOG_ERR("mmap range error :module(0x%x), ",
 					pfn);
 				LOG_ERR
 				    ("length(0x%lx), CCU_HW_BASE(0x%x)!\n",
@@ -1025,7 +1013,7 @@ static int ccu_mmap(struct file *flip, struct vm_area_struct *vma)
 			}
 		} else if (pfn == CCU_CAMSYS_BASE) {
 			if (length > CCU_CAMSYS_SIZE) {
-				LOG_ERR("mmap range error :module(0x%lx), ",
+				LOG_ERR("mmap range error :module(0x%x), ",
 					pfn);
 				LOG_ERR
 				    ("length(0x%lx), %s(0x%x)!\n",
@@ -1034,7 +1022,7 @@ static int ccu_mmap(struct file *flip, struct vm_area_struct *vma)
 			}
 		} else if (pfn == CCU_PMEM_BASE) {
 			if (length > CCU_PMEM_SIZE) {
-				LOG_ERR("mmap range error :module(0x%lx), ",
+				LOG_ERR("mmap range error :module(0x%x), ",
 					pfn);
 				LOG_ERR
 				    ("length(0x%lx), CCU_PMEM_BASE_HW(0x%x)!\n",
@@ -1043,7 +1031,7 @@ static int ccu_mmap(struct file *flip, struct vm_area_struct *vma)
 			}
 		} else if (pfn == CCU_DMEM_BASE) {
 			if (length > CCU_DMEM_SIZE) {
-				LOG_ERR("mmap range error :module(0x%lx), ",
+				LOG_ERR("mmap range error :module(0x%x), ",
 					pfn);
 				LOG_ERR
 				    ("length(0x%lx), CCU_PMEM_BASE_HW(0x%x)!\n",

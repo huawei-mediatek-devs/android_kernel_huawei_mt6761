@@ -19,7 +19,6 @@
 #include <linux/ratelimit.h>
 #include <linux/timekeeping.h>
 #include <linux/math64.h>
-#include <linux/kthread.h>
 
 #include <linux/iio/consumer.h>
 
@@ -100,18 +99,6 @@ struct pmic_adc_dbg_st {
 };
 static unsigned int adc_dbg_addr[DBG_REG_SIZE];
 
-static void wk_auxadc_reset(void)
-{
-	pmic_set_register_value(PMIC_RG_AUXADC_RST, 1);
-	pmic_set_register_value(PMIC_RG_AUXADC_RST, 0);
-	pmic_set_register_value(PMIC_BANK_AUXADC_SWRST, 1);
-	pmic_set_register_value(PMIC_BANK_AUXADC_SWRST, 0);
-	/* avoid GPS can't receive AUXADC ready after reset, request again */
-	pmic_set_register_value(PMIC_AUXADC_RQST_CH7, 1);
-	pmic_set_register_value(PMIC_AUXADC_RQST_DCXO_BY_GPS, 1);
-	pr_notice("reset AUXADC done\n");
-}
-
 static void wk_auxadc_dbg_dump(void)
 {
 	unsigned char reg_log[861] = "", reg_str[21] = "";
@@ -181,17 +168,15 @@ static int wk_bat_temp_dbg(int bat_temp_prev, int bat_temp)
 {
 	int vbif28, bat_temp_new = bat_temp;
 	int arr_bat_temp[5];
-	int bat = 0, bat_cur = 0;
+	int bat = 0, bat_cur = 0, is_charging = 0;
 	unsigned short i;
-#if (CONFIG_MTK_GAUGE_VERSION == 30)
-	int is_charging = 0;
-#endif
 
 	vbif28 = auxadc_priv_read_channel(AUXADC_VBIF);
 	pr_notice("BAT_TEMP_PREV:%d,BAT_TEMP:%d,VBIF28:%d\n",
 		bat_temp_prev, bat_temp, vbif28);
 	if (bat_temp < 200 || abs(bat_temp_prev - bat_temp) > 100) {
-		wk_auxadc_dbg_dump();
+		if (bat_temp < 180)
+			wk_auxadc_dbg_dump();
 		for (i = 0; i < 5; i++) {
 			arr_bat_temp[i] =
 				auxadc_priv_read_channel(AUXADC_BAT_TEMP);
@@ -202,7 +187,10 @@ static int wk_bat_temp_dbg(int bat_temp_prev, int bat_temp)
 			arr_bat_temp[3], arr_bat_temp[4], bat_temp_new);
 
 		/* Reset AuxADC to observe VBAT/IBAT/BAT_TEMP */
-		wk_auxadc_reset();
+		pmic_set_register_value(PMIC_RG_AUXADC_RST, 1);
+		pmic_set_register_value(PMIC_RG_AUXADC_RST, 0);
+		pmic_set_register_value(PMIC_BANK_AUXADC_SWRST, 1);
+		pmic_set_register_value(PMIC_BANK_AUXADC_SWRST, 0);
 		for (i = 0; i < 5; i++) {
 			bat = auxadc_priv_read_channel(AUXADC_BATADC);
 #if (CONFIG_MTK_GAUGE_VERSION == 30)
@@ -264,7 +252,7 @@ void wake_up_mdrt_thread(void)
 /* dump MDRT related register */
 static void mdrt_reg_dump(void)
 {
-#if defined(CONFIG_MTK_PMIC_WRAP_HAL) && !defined(CONFIG_FPGA_EARLY_PORTING)
+#ifdef CONFIG_MTK_PMIC_WRAP_HAL
 	pwrap_dump_all_register();
 #endif
 	pr_notice("AUXADC_ADC16 = 0x%x\n"
@@ -385,7 +373,8 @@ static int mdrt_kthread(void *x)
 			if (polling_cnt == 156) { /* 156 * 32ms ~= 5s*/
 				pr_notice("[MDRT_ADC] (%d) reset AUXADC\n",
 					polling_cnt);
-				wk_auxadc_reset();
+				pmic_set_register_value(PMIC_RG_AUXADC_RST, 1);
+				pmic_set_register_value(PMIC_RG_AUXADC_RST, 0);
 			}
 			if (polling_cnt >= 312) { /* 312 * 32ms ~= 10s*/
 				mdrt_reg_dump();
@@ -401,9 +390,6 @@ static int mdrt_kthread(void *x)
 
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
-		/* Fix Cove.Scan, should not happened */
-		if (polling_cnt >= 0x1000)
-			break;
 	}
 	return 0;
 }
@@ -465,10 +451,8 @@ static void legacy_auxadc_init(struct device *dev)
 
 int pmic_get_auxadc_value(int list)
 {
-	int value = 0, ret = 0;
-#if (CONFIG_MTK_GAUGE_VERSION == 30)
 	int bat_cur = 0, is_charging = 0;
-#endif
+	int value = 0, ret = 0;
 
 	if (list < AUXADC_LIST_START || list > AUXADC_LIST_END) {
 		pr_notice("[%s] Invalid channel list(%d)\n", __func__, list);
@@ -479,14 +463,14 @@ int pmic_get_auxadc_value(int list)
 			__func__, legacy_auxadc[list].channel_name);
 		return PTR_ERR(legacy_auxadc[list].chan);
 	}
-#if (CONFIG_MTK_GAUGE_VERSION == 30)
 	if (list == AUXADC_LIST_BATTEMP) {
+#if (CONFIG_MTK_GAUGE_VERSION == 30)
 		is_charging = gauge_get_current(&bat_cur);
+#endif
 		if (is_charging == 0)
 			bat_cur = 0 - bat_cur;
 		pr_notice("[CH3_DBG] bat_cur = %d\n", bat_cur);
 	}
-#endif
 	if (list == AUXADC_LIST_HPOFS_CAL) {
 		ret = iio_read_channel_raw(
 			legacy_auxadc[list].chan, &value);

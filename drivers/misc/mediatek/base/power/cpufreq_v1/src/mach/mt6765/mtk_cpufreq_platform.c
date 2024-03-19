@@ -216,13 +216,15 @@ void prepare_pll_addr(enum mt_cpu_dvfs_pll_id pll_id)
 {
 	struct pll_ctrl_t *pll_p = id_to_pll_ctrl(pll_id);
 
-	pll_p->armpll_addr =
-	(unsigned int *)(pll_id == PLL_L_CLUSTER ? ARMPLL_L_CON1 :
-	pll_id == PLL_LL_CLUSTER ? ARMPLL_LL_CON1 : CCIPLL_CON1);
+	if (pll_p) {
+		pll_p->armpll_addr =
+		(unsigned int *)(pll_id == PLL_L_CLUSTER ? ARMPLL_L_CON1 :
+		pll_id == PLL_LL_CLUSTER ? ARMPLL_LL_CON1 : CCIPLL_CON1);
 
-	pll_p->armpll_div_addr =
-	(unsigned int *)(pll_id == PLL_L_CLUSTER ? CKDIV1_L_CFG :
-	pll_id == PLL_LL_CLUSTER ? CKDIV1_LL_CFG : CKDIV1_CCI_CFG);
+		pll_p->armpll_div_addr =
+		(unsigned int *)(pll_id == PLL_L_CLUSTER ? CKDIV1_L_CFG :
+		pll_id == PLL_LL_CLUSTER ? CKDIV1_LL_CFG : CKDIV1_CCI_CFG);
+	}
 }
 
 unsigned int _cpu_dds_calc(unsigned int khz)
@@ -568,26 +570,19 @@ unsigned int _mt_cpufreq_get_cpu_level(void)
 		lv = CPU_LEVEL_2;
 	else if ((val == 0x4) || (val == 0x3))
 		lv = CPU_LEVEL_3;
-	else if ((val == 0x1) || (val == 0x7) || (val == 0x19))
+	else if ((val == 0x1) || (val == 0x7))
 		lv = CPU_LEVEL_4;
-	else if ((val == 0x8) || (val == 0x9) || (val == 0xF))
+	else if ((val == 0x8) || (val == 0xF))
 		lv = CPU_LEVEL_4;
-	else if (val == 0x14)
-		lv = CPU_LEVEL_6;
-	else if (val == 0x20)
-		lv = CPU_LEVEL_7;
 	else
 		lv = CPU_LEVEL_3;
 
-	if (val_ly == 0x1) {
-		if (val == 0x20)
-			lv = CPU_LEVEL_8;
-		else
-			lv = CPU_LEVEL_5;
-	}
+	if (val_ly == 0x1)
+		lv = CPU_LEVEL_5;
 #else
 	lv = CPU_LEVEL_3;
 #endif
+
 	turbo_flag = 0;
 	tag_pr_info("%d,%d,%d,%d,%d,%d,%d,%d\n",
 		lv, turbo_flag, val, val_ly,

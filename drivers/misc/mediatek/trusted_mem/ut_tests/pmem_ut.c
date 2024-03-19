@@ -91,12 +91,6 @@ static enum UT_RET_STATE pmem_alloc_saturation_test(struct ut_params *params)
 
 	BEGIN_UT_TEST;
 
-	/* Make sure region online/offline is okay for single item tests */
-	ASSERT_EQ(0, tmem_core_regmgr_online(TRUSTED_MEM_PROT),
-		  "regmgr region online");
-	ASSERT_EQ(0, tmem_core_regmgr_offline(TRUSTED_MEM_PROT),
-		  "regmgr region offline");
-
 	ASSERT_EQ(0, mem_handle_list_init(TRUSTED_MEM_PROT),
 		  "pmem alloc handle list check");
 	ret = mem_alloc_saturation_test(TRUSTED_MEM_PROT, PMEM_UT_OWNER,
@@ -158,39 +152,8 @@ static enum UT_RET_STATE pmem_alloc_multithread_test(struct ut_params *params)
 
 	BEGIN_UT_TEST;
 
-	/* Make sure region online/offline is okay for single item tests */
-	ASSERT_EQ(0, tmem_core_regmgr_online(TRUSTED_MEM_PROT),
-		  "regmgr region online");
-	ASSERT_EQ(0, tmem_core_regmgr_offline(TRUSTED_MEM_PROT),
-		  "regmgr region offline");
-
 	ASSERT_EQ(0, mem_alloc_multithread_test(TRUSTED_MEM_PROT),
 		  "pmem alloc multithread test");
-
-	END_UT_TEST;
-}
-
-static enum UT_RET_STATE pmem_alloc_mixed_size(struct ut_params *params)
-{
-	int ret;
-	int reg_final_state = params->param1;
-
-	UNUSED(reg_final_state);
-
-	BEGIN_UT_TEST;
-
-	/* Make sure region online/offline is okay for single item tests */
-	ASSERT_EQ(0, tmem_core_regmgr_online(TRUSTED_MEM_PROT),
-		  "regmgr region online");
-	ASSERT_EQ(0, tmem_core_regmgr_offline(TRUSTED_MEM_PROT),
-		  "regmgr region offline");
-
-	ASSERT_EQ(0, mem_handle_list_init(TRUSTED_MEM_PROT),
-		  "alloc handle list check");
-	ret = mem_alloc_mixed_size_test(TRUSTED_MEM_PROT, NULL,
-					reg_final_state);
-	mem_handle_list_deinit();
-	ASSERT_EQ(0, ret, "pmem alloc mixed size test");
 
 	END_UT_TEST;
 }
@@ -272,8 +235,6 @@ DEFINE_TEST_CASE_PARAM2(PMEM_UT_PROC_REGION_STRESS,
 			MEM_REGION_ON_OFF_STREE_ROUND)
 DEFINE_TEST_CASE_PARAM1(PMEM_UT_PROC_ALLOC_MULTITHREAD,
 			pmem_alloc_multithread_test,
-			REGMGR_REGION_FINAL_STATE_OFF)
-DEFINE_TEST_CASE_PARAM1(PMEM_UT_PROC_ALLOC_MIXED_SIZE, pmem_alloc_mixed_size,
 			REGMGR_REGION_FINAL_STATE_OFF)
 DEFINE_TEST_CASE_PARAM1(PMEM_UT_PROC_ALL, pmem_regmgr_run_all,
 			REGMGR_REGION_FINAL_STATE_OFF)

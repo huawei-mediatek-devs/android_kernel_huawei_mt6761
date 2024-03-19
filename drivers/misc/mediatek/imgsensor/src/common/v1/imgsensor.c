@@ -54,7 +54,9 @@
 #include "imgsensor_proc.h"
 #include "imgsensor_clk.h"
 #include "imgsensor.h"
+#include "imgsensor_dt_util.h"
 
+#include "cust_imgsensor_dsm.h"
 #define PDAF_DATA_SIZE 4096
 
 #ifdef CONFIG_MTK_SMI_EXT
@@ -68,6 +70,9 @@ static int current_mmsys_clk = MMSYS_CLK_MEDIUM;
 static void cam_temperature_report_wq_routine(struct work_struct *);
 	struct delayed_work cam_temperature_wq;
 #endif
+int eeprom_read_data(unsigned int sensorID);
+MUINT8 eeprom_read_module_id(unsigned int sensorID);
+MUINT8 get_eeprom_byte_info_by_offset(unsigned int offset,unsigned int sensorID);
 
 #define FEATURE_CONTROL_MAX_DATA_SIZE 128000
 
@@ -85,7 +90,9 @@ struct IMGSENSOR *pgimgsensor = &gimgsensor;
 
 
 DEFINE_MUTEX(pinctrl_mutex);
-
+#define DUMP_REG_TIMES (3)
+//100ms
+#define HW_READ_PACKET_NUM_TIME (100)
 /************************************************************************
  * Profiling
  ************************************************************************/
@@ -112,6 +119,67 @@ void IMGSENSOR_PROFILE(struct timeval *ptv, char *tag)
 void IMGSENSOR_PROFILE_INIT(struct timeval *ptv) {}
 void IMGSENSOR_PROFILE(struct timeval *ptv, char *tag) {}
 #endif
+
+#ifdef CONFIG_HUAWEI_DSM
+static struct dsm_client *g_imgsensor_dmd_client = NULL;
+
+void imgsensor_report_dsm_err( int err_code,const char* err_msg)
+{
+    pr_info("camera_DSM %s: entry!\n", __func__);
+
+    if( NULL == g_imgsensor_dmd_client )
+    {
+        pr_err("camera_DSM %s: there is no g_imgsensor_dmd_client!\n", __func__);
+        return;
+    }
+    if( NULL == err_msg )
+    {
+        pr_err("err_msg = NULL!\n");
+        return;
+    }
+    /* try to get permission to use the buffer */
+    if(dsm_client_ocuppy(g_imgsensor_dmd_client))
+    {
+        /* buffer is busy */
+        pr_err("camera_DSM %s: buffer is busy!\n", __func__);
+        return;
+    }
+
+    dsm_client_record(g_imgsensor_dmd_client, err_msg);
+    dsm_client_notify(g_imgsensor_dmd_client, err_code);
+    return;
+}
+#endif
+
+MUINT32 imgsensor_convert_sensor_id(MUINT32 imgsensor_sensor_id,MUINT32 sensor_chip_id,
+                                        MUINT32 vendor_id_addr, MUINT32 product_id)
+{
+	/*
+	 * sensor id:0x0AAAABBC
+	 * AAAA:sensor chip id, read from sensor.
+	 * BB:  vendor id read from otp, default is 0.
+	 * C:   product id,default is 0.
+	 */
+	MUINT8 vendor_id = 0;
+	MUINT32 sensor_id = 0;
+	MUINT32 imgsensor_id = 0;
+
+	imgsensor_id = (imgsensor_sensor_id >> 12) & 0xffff;
+
+	if (sensor_chip_id != imgsensor_id){
+		return sensor_chip_id;
+	}
+
+	if (0 != vendor_id_addr){
+		vendor_id = get_eeprom_byte_info_by_offset(vendor_id_addr, imgsensor_sensor_id);
+	}
+
+	sensor_id = ((sensor_chip_id << 12) & 0x0ffff000) | \
+		((vendor_id << 4) & 0x0ff0) | \
+		(product_id & 0x0f);
+
+	return sensor_id;
+}
 
 /************************************************************************
  * sensor function adapter
@@ -170,7 +238,6 @@ imgsensor_sensor_open(struct IMGSENSOR_SENSOR *psensor)
 #ifdef CONFIG_MTK_CCU
 	struct ccu_sensor_info ccuSensorInfo;
 	enum IMGSENSOR_SENSOR_IDX sensor_idx = psensor->inst.sensor_idx;
-	struct i2c_client *pi2c_client = NULL;
 #endif
 
 	IMGSENSOR_FUNCTION_ENTRY();
@@ -219,14 +286,6 @@ imgsensor_sensor_open(struct IMGSENSOR_SENSOR *psensor)
 
 			ccuSensorInfo.sensor_name_string =
 			    (char *)(psensor_inst->psensor_name);
-
-			pi2c_client = psensor_inst->i2c_cfg.pinst->pi2c_client;
-			if (pi2c_client)
-				ccuSensorInfo.i2c_id =
-					(((struct mt_i2c *) i2c_get_adapdata(
-						pi2c_client->adapter))->id);
-			else
-				ccuSensorInfo.i2c_id = -1;
 
 			ccu_set_sensor_info(sensor_idx, &ccuSensorInfo);
 #endif
@@ -382,9 +441,14 @@ imgsensor_sensor_control(
 		    &image_window,
 		    &sensor_config_data);
 
-		if (ret != ERROR_NONE)
+		if (ret != ERROR_NONE) {
+#ifdef CONFIG_HUAWEI_DSM
+			char buf[DSM_BUFF_SIZE] = {0};
+			snprintf(buf, DSM_BUFF_SIZE,"imgsensor(%s) set Scenario(%d) fail\n",psensor->inst.psensor_name,ScenarioId);
+			imgsensor_report_dsm_err(DSM_CAMERA_SENSOR_SET_RESOLUTION_FAIL,buf);
+#endif
 			pr_err("[%s]\n", __func__);
-
+		}
 		imgsensor_mutex_unlock(psensor_inst);
 
 		IMGSENSOR_PROFILE(
@@ -462,6 +526,8 @@ static inline int imgsensor_check_is_alive(struct IMGSENSOR_SENSOR *psensor)
 		err = ERROR_SENSOR_CONNECT_FAIL;
 	} else {
 		pr_info(" Sensor found ID = 0x%x\n", sensorID);
+		(void)eeprom_read_data(sensorID);
+		psensor_inst->is_work_init = 0;
 		err = ERROR_NONE;
 	}
 
@@ -491,7 +557,7 @@ int imgsensor_set_driver(struct IMGSENSOR_SENSOR *psensor)
 #define TOSTRING(value)           #value
 #define STRINGIZE(stringizedName) TOSTRING(stringizedName)
 
-	char *psensor_list_config = NULL, *psensor_list = NULL;
+	char *psensor_list_config = NULL;
 	char *sensor_configs = STRINGIZE(CONFIG_CUSTOM_KERNEL_IMGSENSOR);
 
 	static int orderedSearchList[MAX_NUM_OF_SUPPORT_SENSOR] = {-1};
@@ -507,7 +573,7 @@ int imgsensor_set_driver(struct IMGSENSOR_SENSOR *psensor)
 	imgsensor_i2c_filter_msg(&psensor_inst->i2c_cfg, true);
 
 	if (get_search_list) {
-		psensor_list = psensor_list_config =
+		psensor_list_config =
 		    kmalloc(strlen(sensor_configs)-1, GFP_KERNEL);
 
 		if (psensor_list_config) {
@@ -541,7 +607,7 @@ int imgsensor_set_driver(struct IMGSENSOR_SENSOR *psensor)
 			}
 			get_search_list = false;
 		}
-		kfree(psensor_list);
+		kfree(psensor_list_config);
 	}
 
 
@@ -612,7 +678,64 @@ int imgsensor_set_driver(struct IMGSENSOR_SENSOR *psensor)
 
 	return ret;
 }
+static void dump_framecount_work_handler(struct work_struct *work)
+{
 
+	//read sensor send
+	struct IMGSENSOR_SENSOR_INST *imgsensor = NULL;
+	struct IMGSENSOR_SENSOR *psensor = NULL;
+	struct IMGSENSOR_SENSOR_INST *psensor_inst = NULL;
+	MUINT32 param = 0;
+	MUINT32 retLen = sizeof(MUINT32);
+
+	imgsensor = container_of(work, struct IMGSENSOR_SENSOR_INST,dump_frame_count_worker.work);
+	if (imgsensor == NULL) {
+		pr_err("ERROR:NULL imgsensor dump_framecount_work_handler\n");
+		return;
+	}
+
+	psensor = imgsensor_sensor_get_inst(imgsensor->sensor_idx);
+	if (psensor == NULL) {
+		pr_err("ERROR:can not get IMGSENSOR_SENSOR by sensor_idx(%d)\n",imgsensor->sensor_idx);
+		return;
+	}
+
+	psensor_inst = &psensor->inst;
+	if (psensor_inst == NULL) {
+		pr_err("ERROR:NULL psensor_inst \n");
+		return;
+	}
+	psensor_inst->dump_frame_count--;
+	if (psensor_inst->state != IMGSENSOR_STATE_CLOSE) {
+			if (0 > imgsensor_sensor_feature_control(psensor,SENSOR_HUAWEI_FEATURE_DUMP_REG,(MUINT8 *)&param,&retLen)) {
+				pr_err("ERROR:imgsensor_sensor_feature_control SENSOR_HUAWEI_FEATURE_DUMP_REG fail\n");
+			}
+	}
+	if (psensor_inst->dump_frame_count > 0) {
+		schedule_delayed_work(&imgsensor->dump_frame_count_worker,msecs_to_jiffies(HW_READ_PACKET_NUM_TIME));
+	}
+
+}
+MUINT32 Dump_Sensor_Reg( struct IMGSENSOR_SENSOR *psensor)
+{
+	MUINT32 ret = IMGSENSOR_RETURN_ERROR;
+	MUINT32 param = 0;
+	MUINT32 retLen = sizeof(MUINT32);
+	struct IMGSENSOR_SENSOR_INST *psensor_inst = NULL;
+	if (psensor == NULL) {
+		pr_err("ERROR:NULL psensor \n");
+		return ret;
+	}
+	psensor_inst = &psensor->inst;
+	if (psensor_inst == NULL) {
+		pr_err("ERROR:NULL psensor_inst \n");
+		return ret;
+	}
+	if (psensor_inst->state != IMGSENSOR_STATE_CLOSE) {
+			ret = imgsensor_sensor_feature_control(psensor,SENSOR_HUAWEI_FEATURE_DUMP_REG,(MUINT8 *)&param,&retLen);
+	}
+	return ret;
+}
 /************************************************************************
  * adopt_CAMERA_HW_GetInfo
  ************************************************************************/
@@ -1214,150 +1337,154 @@ static inline int adopt_CAMERA_HW_Control(void *pBuf)
 	return ret;
 } /* adopt_CAMERA_HW_Control */
 
-static inline int check_length_of_para(
-	enum ACDK_SENSOR_FEATURE_ENUM FeatureId, unsigned int length)
-{
-	int ret = 0;
-
-	switch (FeatureId) {
-	case SENSOR_FEATURE_OPEN:
-	case SENSOR_FEATURE_CLOSE:
-	case SENSOR_FEATURE_CHECK_IS_ALIVE:
-		break;
-	case SENSOR_FEATURE_SET_DRIVER:
-	case SENSOR_FEATURE_GET_LENS_DRIVER_ID:
-	case SENSOR_FEATURE_SET_FRAMERATE:
-	case SENSOR_FEATURE_SET_HDR:
-	case SENSOR_FEATURE_SET_PDAF:
-	{
-		if (length != 4)
-			ret = -EFAULT;
-	}
-		break;
-	case SENSOR_FEATURE_SET_ESHUTTER:
-	case SENSOR_FEATURE_SET_GAIN:
-	case SENSOR_FEATURE_SET_I2C_BUF_MODE_EN:
-	case SENSOR_FEATURE_SET_SHUTTER_BUF_MODE:
-	case SENSOR_FEATURE_SET_GAIN_BUF_MODE:
-	case SENSOR_FEATURE_SET_VIDEO_MODE:
-	case SENSOR_FEATURE_SET_AF_WINDOW:
-	case SENSOR_FEATURE_SET_AUTO_FLICKER_MODE:
-	case SENSOR_FEATURE_GET_EV_AWB_REF:
-	case SENSOR_FEATURE_GET_SHUTTER_GAIN_AWB_GAIN:
-	case SENSOR_FEATURE_GET_EXIF_INFO:
-	case SENSOR_FEATURE_GET_DELAY_INFO:
-	case SENSOR_FEATURE_SET_TEST_PATTERN:
-	case SENSOR_FEATURE_GET_TEST_PATTERN_CHECKSUM_VALUE:
-	case SENSOR_FEATURE_SET_OB_LOCK:
-	case SENSOR_FEATURE_SET_SENSOR_OTP_AWB_CMD:
-	case SENSOR_FEATURE_SET_SENSOR_OTP_LSC_CMD:
-	case SENSOR_FEATURE_GET_TEMPERATURE_VALUE:
-	case SENSOR_FEATURE_GET_AE_FLASHLIGHT_INFO:
-	case SENSOR_FEATURE_GET_TRIGGER_FLASHLIGHT_INFO:
-	case SENSOR_FEATURE_SET_YUV_3A_CMD:
-	case SENSOR_FEATURE_SET_STREAMING_SUSPEND:
-	case SENSOR_FEATURE_SET_STREAMING_RESUME:
-	case SENSOR_FEATURE_GET_PERIOD:
-	case SENSOR_FEATURE_GET_PIXEL_CLOCK_FREQ:
-	{
-		if (length != 8)
-			ret = -EFAULT;
-	}
-		break;
-	case SENSOR_FEATURE_SET_DUAL_GAIN:
-	case SENSOR_FEATURE_SET_YUV_CMD:
-	case SENSOR_FEATURE_GET_AE_AWB_LOCK_INFO:
-	case SENSOR_FEATURE_SET_MAX_FRAME_RATE_BY_SCENARIO:
-	case SENSOR_FEATURE_GET_DEFAULT_FRAME_RATE_BY_SCENARIO:
-	case SENSOR_FEATURE_GET_CROP_INFO:
-	case SENSOR_FEATURE_GET_VC_INFO:
-	case SENSOR_FEATURE_GET_PDAF_INFO:
-	case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
-	case SENSOR_FEATURE_GET_SENSOR_HDR_CAPACITY:
-	case SENSOR_FEATURE_SET_SHUTTER_FRAME_TIME:
-	case SENSOR_FEATURE_SET_PDFOCUS_AREA:
-	case SENSOR_FEATURE_GET_PDAF_REG_SETTING:
-	case SENSOR_FEATURE_SET_PDAF_REG_SETTING:
-	{
-		if (length != 16)
-			ret = -EFAULT;
-	}
-		break;
-	case SENSOR_FEATURE_SET_IHDR_SHUTTER_GAIN:
-	case SENSOR_FEATURE_SET_HDR_SHUTTER:
-	case SENSOR_FEATURE_GET_PDAF_DATA:
-	case SENSOR_FEATURE_GET_4CELL_DATA:
-	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
-	case SENSOR_FEATURE_GET_PIXEL_RATE:
-	{
-		if (length != 24)
-			ret = -EFAULT;
-	}
-		break;
-	case SENSOR_FEATURE_SET_SENSOR_SYNC:
-	case SENSOR_FEATURE_SET_ESHUTTER_GAIN:
-	{
-		if (length != 32)
-			ret = -EFAULT;
-	}
-		break;
-	case SENSOR_FEATURE_SET_CALIBRATION_DATA:
-	{
-		if (length !=
-			sizeof(struct SET_SENSOR_CALIBRATION_DATA_STRUCT))
-			ret = -EFAULT;
-	}
-		break;
-	case SENSOR_FEATURE_SET_AWB_GAIN:
-	{
-		if (length !=
-			sizeof(struct SET_SENSOR_AWB_GAIN))
-			ret = -EFAULT;
-	}
-		break;
-	case SENSOR_FEATURE_SET_REGISTER:
-	case SENSOR_FEATURE_GET_REGISTER:
-	{
-
-		if (length !=
-			sizeof(MSDK_SENSOR_REG_INFO_STRUCT))
-			ret = -EFAULT;
-	}
-		break;
-	/* begin of legacy feature control; Do nothing */
-	case SENSOR_FEATURE_SET_ISP_MASTER_CLOCK_FREQ:
-	case SENSOR_FEATURE_SET_CCT_REGISTER:
-	case SENSOR_FEATURE_SET_ENG_REGISTER:
-	case SENSOR_FEATURE_SET_ITEM_INFO:
-	case SENSOR_FEATURE_GET_ITEM_INFO:
-	case SENSOR_FEATURE_GET_ENG_INFO:
-	case SENSOR_FEATURE_MOVE_FOCUS_LENS:
-	case SENSOR_FEATURE_SET_AE_WINDOW:
-	case SENSOR_FEATURE_SET_MIN_MAX_FPS:
-	case SENSOR_FEATURE_GET_RESOLUTION:
-	case SENSOR_FEATURE_GET_REGISTER_DEFAULT:
-	case SENSOR_FEATURE_GET_CONFIG_PARA:
-	case SENSOR_FEATURE_GET_GROUP_COUNT:
-	case SENSOR_FEATURE_CAMERA_PARA_TO_SENSOR:
-	case SENSOR_FEATURE_SENSOR_TO_CAMERA_PARA:
-	case SENSOR_FEATURE_SINGLE_FOCUS_MODE:
-	case SENSOR_FEATURE_CANCEL_AF:
-	case SENSOR_FEATURE_CONSTANT_AF:
-	/* end of legacy feature control */
-	default:
-		break;
-	}
-	if (ret != 0)
-		pr_err(
-			"check length failed, feature ctrl id = %d, length = %d\n",
-			FeatureId,
-			length);
-	return ret;
-}
-
 /************************************************************************
  * adopt_CAMERA_HW_FeatureControl
  ************************************************************************/
+static inline int check_length_of_para(
+       enum ACDK_SENSOR_FEATURE_ENUM FeatureId, unsigned int length)
+{
+       int ret = 0;
+       switch (FeatureId) {
+       case SENSOR_FEATURE_OPEN:
+       case SENSOR_FEATURE_CLOSE:
+       case SENSOR_FEATURE_CHECK_IS_ALIVE:
+       case SENSOR_HUAWEI_FEATURE_DUMP_REG: //huawei add
+               break;
+       case SENSOR_FEATURE_CHECK_SENSOR_ID:
+       case SENSOR_FEATURE_SET_DRIVER:
+       case SENSOR_FEATURE_GET_LENS_DRIVER_ID:
+       case SENSOR_FEATURE_SET_FRAMERATE:
+       case SENSOR_FEATURE_SET_HDR:
+       case SENSOR_FEATURE_SET_PDAF:
+       {
+               if (length != 4)
+                       ret = -EFAULT;
+       }
+               break;
+       case SENSOR_FEATURE_SET_ESHUTTER:
+       case SENSOR_FEATURE_SET_GAIN:
+       case SENSOR_FEATURE_SET_I2C_BUF_MODE_EN:
+       case SENSOR_FEATURE_SET_SHUTTER_BUF_MODE:
+       case SENSOR_FEATURE_SET_GAIN_BUF_MODE:
+       case SENSOR_FEATURE_SET_VIDEO_MODE:
+       case SENSOR_FEATURE_SET_AF_WINDOW:
+       case SENSOR_FEATURE_SET_AUTO_FLICKER_MODE:
+       case SENSOR_FEATURE_GET_EV_AWB_REF:
+       case SENSOR_FEATURE_GET_SHUTTER_GAIN_AWB_GAIN:
+       case SENSOR_FEATURE_GET_EXIF_INFO:
+       case SENSOR_FEATURE_GET_DELAY_INFO:
+       case SENSOR_FEATURE_SET_TEST_PATTERN:
+       case SENSOR_FEATURE_GET_TEST_PATTERN_CHECKSUM_VALUE:
+       case SENSOR_FEATURE_SET_OB_LOCK:
+       case SENSOR_FEATURE_SET_SENSOR_OTP_AWB_CMD:
+       case SENSOR_FEATURE_SET_SENSOR_OTP_LSC_CMD:
+       case SENSOR_FEATURE_GET_TEMPERATURE_VALUE:
+       case SENSOR_FEATURE_GET_AE_FLASHLIGHT_INFO:
+       case SENSOR_FEATURE_GET_TRIGGER_FLASHLIGHT_INFO:
+       case SENSOR_FEATURE_SET_YUV_3A_CMD:
+       case SENSOR_FEATURE_SET_STREAMING_SUSPEND:
+       case SENSOR_FEATURE_SET_STREAMING_RESUME:
+       case SENSOR_FEATURE_GET_PERIOD:
+       case SENSOR_FEATURE_GET_PIXEL_CLOCK_FREQ:
+       case SENSOR_FEATURE_SET_AE_WINDOW:
+       {
+               if (length != 8)
+                       ret = -EFAULT;
+       }
+               break;
+       case SENSOR_FEATURE_SET_DUAL_GAIN:
+       case SENSOR_FEATURE_SET_YUV_CMD:
+       case SENSOR_FEATURE_GET_AE_AWB_LOCK_INFO:
+       case SENSOR_FEATURE_SET_MAX_FRAME_RATE_BY_SCENARIO:
+       case SENSOR_FEATURE_GET_DEFAULT_FRAME_RATE_BY_SCENARIO:
+       case SENSOR_FEATURE_GET_CROP_INFO:
+       case SENSOR_FEATURE_GET_VC_INFO:
+       case SENSOR_FEATURE_GET_PDAF_INFO:
+       case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
+       case SENSOR_FEATURE_GET_SENSOR_HDR_CAPACITY:
+       case SENSOR_FEATURE_SET_SHUTTER_FRAME_TIME:
+       case SENSOR_FEATURE_SET_PDFOCUS_AREA:
+       case SENSOR_FEATURE_GET_PDAF_REG_SETTING:
+       case SENSOR_FEATURE_SET_PDAF_REG_SETTING:
+       case SENSOR_FEATURE_AUTOTEST_CMD:
+       {
+               if (length != 16)
+                       ret = -EFAULT;
+       }
+               break;
+       case SENSOR_FEATURE_SET_IHDR_SHUTTER_GAIN:
+       case SENSOR_FEATURE_SET_HDR_SHUTTER:
+       case SENSOR_FEATURE_GET_PDAF_DATA:
+       case SENSOR_FEATURE_GET_4CELL_DATA:
+       case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
+       case SENSOR_FEATURE_GET_PIXEL_RATE:
+       case SENSOR_FEATURE_GET_MIPI_TRAIL_VAL:  //huawei add
+       {
+               if (length != 24)
+                       ret = -EFAULT;
+       }
+               break;
+       case SENSOR_FEATURE_SET_SENSOR_SYNC:
+       case SENSOR_FEATURE_SET_ESHUTTER_GAIN:
+       {
+               if (length != 32)
+                       ret = -EFAULT;
+       }
+               break;
+       case SENSOR_FEATURE_SET_CALIBRATION_DATA:
+       {
+               if (length !=
+                       sizeof(struct SET_SENSOR_CALIBRATION_DATA_STRUCT))
+                       ret = -EFAULT;
+       }
+               break;
+       case SENSOR_FEATURE_SET_AWB_GAIN:
+       {
+               if (length !=
+                       sizeof(struct SET_SENSOR_AWB_GAIN))
+                       ret = -EFAULT;
+       }
+               break;
+       case SENSOR_FEATURE_SET_REGISTER:
+       case SENSOR_FEATURE_GET_REGISTER:
+       {
+
+               if (length !=
+                       sizeof(MSDK_SENSOR_REG_INFO_STRUCT))
+                       ret = -EFAULT;
+       }
+               break;
+       /* begin of legacy feature control; Do nothing */
+       case SENSOR_FEATURE_SET_ISP_MASTER_CLOCK_FREQ:
+       case SENSOR_FEATURE_SET_CCT_REGISTER:
+       case SENSOR_FEATURE_SET_ENG_REGISTER:
+       case SENSOR_FEATURE_SET_ITEM_INFO:
+       case SENSOR_FEATURE_GET_ITEM_INFO:
+       case SENSOR_FEATURE_GET_ENG_INFO:
+       case SENSOR_FEATURE_MOVE_FOCUS_LENS:
+       case SENSOR_FEATURE_SET_MIN_MAX_FPS:
+       case SENSOR_FEATURE_GET_RESOLUTION:
+       case SENSOR_FEATURE_GET_REGISTER_DEFAULT:
+       case SENSOR_FEATURE_GET_CONFIG_PARA:
+       case SENSOR_FEATURE_GET_GROUP_COUNT:
+       case SENSOR_FEATURE_CAMERA_PARA_TO_SENSOR:
+       case SENSOR_FEATURE_SENSOR_TO_CAMERA_PARA:
+       case SENSOR_FEATURE_SINGLE_FOCUS_MODE:
+       case SENSOR_FEATURE_CANCEL_AF:
+       case SENSOR_FEATURE_CONSTANT_AF:
+       /* end of legacy feature control */
+       default:
+               break;
+       }
+       if (ret != 0)
+               pr_err(
+                       "check length failed, feature ctrl id = %d, length = %d\n",
+                       FeatureId,
+                       length);
+
+       return ret;
+}
+
 static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 {
 	struct ACDK_SENSOR_FEATURECONTROL_STRUCT *pFeatureCtrl;
@@ -1366,6 +1493,7 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	void *pFeaturePara = NULL;
 	struct ACDK_KD_SENSOR_SYNC_STRUCT *pSensorSyncInfo = NULL;
 	signed int ret = 0;
+	unsigned long long tempFeatureData = 0;
 
 	pFeatureCtrl = (struct ACDK_SENSOR_FEATURECONTROL_STRUCT *)pBuf;
 	if (pFeatureCtrl  == NULL) {
@@ -1400,24 +1528,35 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 		if (FeatureParaLen > FEATURE_CONTROL_MAX_DATA_SIZE ||
 			FeatureParaLen == 0)
 			return -EINVAL;
-		ret = check_length_of_para(pFeatureCtrl->FeatureId,
-							FeatureParaLen);
+		ret = check_length_of_para(pFeatureCtrl->FeatureId,FeatureParaLen);
 		if (ret != 0)
 			return ret;
-
 		pFeaturePara = kmalloc(FeatureParaLen, GFP_KERNEL);
 		if (pFeaturePara == NULL)
 			return -ENOMEM;
 
 		memset(pFeaturePara, 0x0, FeatureParaLen);
 	}
-
 	/* copy from user */
 	switch (pFeatureCtrl->FeatureId) {
 	case SENSOR_FEATURE_OPEN:
 		ret = imgsensor_sensor_open(psensor);
+		if (!ret) {
+			INIT_DELAYED_WORK(&psensor->inst.dump_frame_count_worker,dump_framecount_work_handler);
+			psensor->inst.is_work_init = TRUE;
+		}
+#ifdef CONFIG_HUAWEI_DSM
+		else {
+			char buf[DSM_BUFF_SIZE] = {0};
+			snprintf(buf, DSM_BUFF_SIZE,"imgsensor(%s) open fail,index(%d) state(%d)\n",psensor->inst.psensor_name,psensor->inst.sensor_idx,psensor->inst.state);
+			imgsensor_report_dsm_err(DSM_CAMERA_SENSOR_INIT_FAIL,buf);
+		}
+#endif
 		break;
 	case SENSOR_FEATURE_CLOSE:
+		if (psensor->inst.is_work_init) {
+			cancel_delayed_work_sync(&psensor->inst.dump_frame_count_worker);
+		}
 		ret = imgsensor_sensor_close(psensor);
 		/* reset the delay frame flag */
 		break;
@@ -1425,7 +1564,6 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_SET_DRIVER:
 	{
 		MINT32 drv_idx;
-
 		psensor->inst.sensor_idx = pFeatureCtrl->InvokeCamera;
 		drv_idx = imgsensor_set_driver(psensor);
 		memcpy(pFeaturePara, &drv_idx, FeatureParaLen);
@@ -1490,22 +1628,50 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
 	case SENSOR_FEATURE_GET_SENSOR_HDR_CAPACITY:
 	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
-	case SENSOR_FEATURE_GET_OFFSET_TO_START_OF_EXPOSURE:
 	case SENSOR_FEATURE_GET_PIXEL_RATE:
 	case SENSOR_FEATURE_SET_PDAF:
 	case SENSOR_FEATURE_SET_SHUTTER_FRAME_TIME:
 	case SENSOR_FEATURE_SET_PDFOCUS_AREA:
 	case SENSOR_FEATURE_GET_PDAF_REG_SETTING:
 	case SENSOR_FEATURE_SET_PDAF_REG_SETTING:
-	case SENSOR_FEATURE_SET_STREAMING_SUSPEND:
-	case SENSOR_FEATURE_SET_STREAMING_RESUME:
+	case SENSOR_FEATURE_GET_MIPI_TRAIL_VAL:
 		if (copy_from_user(
-		    (void *)pFeaturePara,
-		    (void *) pFeatureCtrl->pFeaturePara,
-		    FeatureParaLen)) {
+			(void *)pFeaturePara,
+			(void *) pFeatureCtrl->pFeaturePara,
+			FeatureParaLen)) {
 			kfree(pFeaturePara);
 			pr_err(
-			    "[CAMERA_HW][pFeaturePara] ioctl copy from user failed\n");
+				"[CAMERA_HW][pFeaturePara] ioctl copy from user failed\n");
+			return -EFAULT;
+		}
+		break;
+	case SENSOR_FEATURE_SET_STREAMING_SUSPEND:
+		if (psensor->inst.is_work_init) {
+			cancel_delayed_work_sync(&psensor->inst.dump_frame_count_worker);
+		}
+		if (copy_from_user(
+			(void *)pFeaturePara,
+			(void *) pFeatureCtrl->pFeaturePara,
+			FeatureParaLen)) {
+			kfree(pFeaturePara);
+			pr_err(
+				"[CAMERA_HW][pFeaturePara] ioctl copy from user failed\n");
+			return -EFAULT;
+		}
+		break;
+	case SENSOR_FEATURE_SET_STREAMING_RESUME:
+		if (psensor->inst.is_work_init) {
+			cancel_delayed_work_sync(&psensor->inst.dump_frame_count_worker);
+			psensor->inst.dump_frame_count = DUMP_REG_TIMES;
+			schedule_delayed_work(&psensor->inst.dump_frame_count_worker,msecs_to_jiffies(HW_READ_PACKET_NUM_TIME));
+		}
+		if (copy_from_user(
+			(void *)pFeaturePara,
+			(void *) pFeatureCtrl->pFeaturePara,
+			FeatureParaLen)) {
+			kfree(pFeaturePara);
+			pr_err(
+				"[CAMERA_HW][pFeaturePara] ioctl copy from user failed\n");
 			return -EFAULT;
 		}
 		break;
@@ -1525,18 +1691,19 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 		pSensorSyncInfo =
 		    (struct ACDK_KD_SENSOR_SYNC_STRUCT *)pFeaturePara;
 
-		FeatureParaLen = 2;
+		tempFeatureData = (unsigned long long)pSensorSyncInfo->u2SensorNewExpTime;
+		FeatureParaLen = sizeof(unsigned long long);
 
 		imgsensor_sensor_feature_control(
 		    psensor,
 		    SENSOR_FEATURE_SET_ESHUTTER,
-		    (unsigned char *)&pSensorSyncInfo->u2SensorNewExpTime,
+		    (unsigned char *)&tempFeatureData,
 		    (unsigned int *)&FeatureParaLen);
 
 		imgsensor_sensor_feature_control(
 		    psensor,
 		    SENSOR_FEATURE_SET_GAIN,
-		    (unsigned char *)&pSensorSyncInfo->u2SensorNewGain,
+		    (unsigned char *)&tempFeatureData,
 		    (unsigned int *) &FeatureParaLen);
 		break;
 
@@ -1554,8 +1721,10 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_SINGLE_FOCUS_MODE:
 	case SENSOR_FEATURE_CANCEL_AF:
 	case SENSOR_FEATURE_CONSTANT_AF:
-	case SENSOR_FEATURE_GET_AE_EFFECTIVE_FRAME_FOR_LE:
-	case SENSOR_FEATURE_GET_AE_FRAME_MODE_FOR_LE:
+		break;
+	case SENSOR_HUAWEI_FEATURE_DUMP_REG:
+		Dump_Sensor_Reg(psensor);
+		break;
 	default:
 		break;
 	}
@@ -1571,8 +1740,8 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
 	case SENSOR_FEATURE_GET_SENSOR_HDR_CAPACITY:
 	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
-	case SENSOR_FEATURE_GET_OFFSET_TO_START_OF_EXPOSURE:
 	case SENSOR_FEATURE_GET_PIXEL_RATE:
+	case SENSOR_FEATURE_GET_MIPI_TRAIL_VAL:
 	{
 		MUINT32 *pValue = NULL;
 		unsigned long long *pFeaturePara_64 =
@@ -1610,8 +1779,6 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_SENSOR_N3D_STREAM_TO_VSYNC_TIME:
 	case SENSOR_FEATURE_GET_PERIOD:
 	case SENSOR_FEATURE_GET_PIXEL_CLOCK_FREQ:
-	case SENSOR_FEATURE_GET_AE_EFFECTIVE_FRAME_FOR_LE:
-	case SENSOR_FEATURE_GET_AE_FRAME_MODE_FOR_LE:
 	{
 		ret = imgsensor_sensor_feature_control(
 		    psensor,
@@ -2194,14 +2361,12 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
 	case SENSOR_FEATURE_GET_SENSOR_HDR_CAPACITY:
 	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
-	case SENSOR_FEATURE_GET_OFFSET_TO_START_OF_EXPOSURE:
 	case SENSOR_FEATURE_GET_PIXEL_RATE:
 	case SENSOR_FEATURE_SET_ISO:
 	case SENSOR_FEATURE_SET_PDAF:
 	case SENSOR_FEATURE_SET_SHUTTER_FRAME_TIME:
 	case SENSOR_FEATURE_SET_PDFOCUS_AREA:
-	case SENSOR_FEATURE_GET_AE_EFFECTIVE_FRAME_FOR_LE:
-	case SENSOR_FEATURE_GET_AE_FRAME_MODE_FOR_LE:
+	case SENSOR_FEATURE_GET_MIPI_TRAIL_VAL:
 		if (copy_to_user(
 		    (void __user *) pFeatureCtrl->pFeaturePara,
 		    (void *)pFeaturePara,
@@ -2778,6 +2943,11 @@ static int imgsensor_probe(struct platform_device *pdev)
 
 	gpimgsensor_hw_platform_device = pdev;
 
+	if(imgsensor_dt_hw_config_init(imgsensor_custom_config,
+		IMGSENSOR_ARRAY_SIZE(imgsensor_custom_config))){
+		pr_err("%d: get pwr cfg from dt failed!\n", __LINE__);
+	}
+
 #ifndef CONFIG_FPGA_EARLY_PORTING
 	imgsensor_clk_init(&pgimgsensor->clk);
 #endif
@@ -2791,7 +2961,16 @@ static int imgsensor_probe(struct platform_device *pdev)
 	    mmsys_clk_change_cb,
 	    MMDVFS_CLIENT_ID_ISP);
 #endif
-
+#ifdef CONFIG_HUAWEI_DSM//imgsensor
+	if(!g_imgsensor_dmd_client) {
+		g_imgsensor_dmd_client = dsm_register_client(&dsm_camera);
+	}
+	if(!g_imgsensor_dmd_client) {
+		pr_err("camera_DSM dsm client register error\n");
+	} else {
+		pr_info("camera_DSM dsm client register success\n");
+	}
+#endif
 	return 0;
 }
 

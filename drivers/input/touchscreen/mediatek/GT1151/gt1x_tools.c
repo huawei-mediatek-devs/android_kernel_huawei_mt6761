@@ -79,7 +79,7 @@ static void set_tool_node_name(char *procname)
 	sprintf(procname, "gmnode%02d%02d%02d", v0, v1, v2);
 }
 
-int gt1x_init_tool_node(void)
+int mtk_gt1x_init_tool_node(void)
 {
 	memset(&cmd_head, 0, sizeof(cmd_head));
 	/*if the first operation is read, will return fail.*/
@@ -104,7 +104,7 @@ int gt1x_init_tool_node(void)
 	return 0;
 }
 
-void gt1x_deinit_tool_node(void)
+void mtk_gt1x_deinit_tool_node(void)
 {
 	remove_proc_entry(procname, NULL);
 	kfree(cmd_head.data);
@@ -115,7 +115,7 @@ static s32 tool_i2c_read(u8 *buf, u16 len)
 {
 	u16 addr = (buf[0] << 8) + buf[1];
 
-	if (!gt1x_i2c_read(addr, &buf[2], len))
+	if (!mtk_gt1x_i2c_read(addr, &buf[2], len))
 		return 1;
 	return -1;
 }
@@ -124,7 +124,7 @@ static s32 tool_i2c_write(u8 *buf, u16 len)
 {
 	u16 addr = (buf[0] << 8) + buf[1];
 
-	if (!gt1x_i2c_write(addr, &buf[2], len - 2))
+	if (!mtk_gt1x_i2c_write(addr, &buf[2], len - 2))
 		return 1;
 	return -1;
 }
@@ -355,7 +355,7 @@ static ssize_t gt1x_tool_write(struct file *filp, const char __user *buff,
 	} else if (cmd_head.wr == 11) {
 		gt1x_enter_update_mode();
 	} else if (cmd_head.wr == 13) {
-		gt1x_leave_update_mode();
+		mtk_gt1x_leave_update_mode();
 	} else if (cmd_head.wr == 15) {
 		memset(cmd_head.data, 0, cmd_head.data_len + 1);
 		ret = copy_from_user(cmd_head.data,
@@ -366,7 +366,7 @@ static ssize_t gt1x_tool_write(struct file *filp, const char __user *buff,
 			goto out;
 		}
 		GTP_DEBUG("update firmware, filename: %s", cmd_head.data);
-		ret = gt1x_update_firmware((void *)cmd_head.data);
+		ret = mtk_gt1x_update_firmware((void *)cmd_head.data);
 		if (ret) {
 			ret = -1;
 			goto out;
@@ -479,10 +479,10 @@ static ssize_t gt1x_tool_read(struct file *filp, char __user *buffer,
 	} else if (cmd_head.wr == 4) {
 		u8 val[4];
 
-		val[0] = update_info.progress >> 8;
-		val[1] = update_info.progress & 0xff;
-		val[2] = update_info.max_progress >> 8;
-		val[3] = update_info.max_progress & 0xff;
+		val[0] = mtk_update_info.progress >> 8;
+		val[1] = mtk_update_info.progress & 0xff;
+		val[2] = mtk_update_info.max_progress >> 8;
+		val[3] = mtk_update_info.max_progress & 0xff;
 		if (copy_to_user(buffer, val, sizeof(val))) {
 			GTP_ERROR("[READ]copy_to_user failed!");
 			ret = cmd_head.data_len;
@@ -497,13 +497,7 @@ static ssize_t gt1x_tool_read(struct file *filp, char __user *buffer,
 		goto out;
 	} else if (cmd_head.wr == 8) {	/*Read driver version*/
 		s32 tmp_len = strlen(GTP_DRIVER_VERSION) + 1;
-		char *drv_ver = NULL;
-
-		if (count < tmp_len) {
-			ret = -1;
-			goto out;
-		}
-		drv_ver = kzalloc(tmp_len, GFP_ATOMIC);
+		char *drv_ver = kzalloc(tmp_len, GFP_ATOMIC);
 
 		if (drv_ver == NULL) {
 			GTP_ERROR("Allocate %d buffer fail\n", tmp_len);
@@ -513,7 +507,7 @@ static ssize_t gt1x_tool_read(struct file *filp, char __user *buffer,
 		strncpy(drv_ver, GTP_DRIVER_VERSION,
 			strlen(GTP_DRIVER_VERSION));
 		drv_ver[strlen(GTP_DRIVER_VERSION)] = 0;
-		if (copy_to_user(buffer, drv_ver, tmp_len)) {
+		if (copy_to_user(&buffer, drv_ver, tmp_len)) {
 			GTP_ERROR("[READ]copy_to_user failed");
 			kfree(drv_ver);
 			ret = -1;

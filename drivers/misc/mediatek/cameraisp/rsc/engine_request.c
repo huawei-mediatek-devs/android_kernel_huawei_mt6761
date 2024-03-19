@@ -126,7 +126,7 @@ signed int init_request(struct request *req)
 signed int set_frame_data(struct frame *f, void *engine)
 {
 	if (f == NULL) {
-		LOG_ERR("NULL frame(%p)", (void *)f);
+		LOG_ERR("NULL frame(%pK)", (void *)f);
 		return -1;
 	}
 
@@ -173,7 +173,7 @@ signed int register_requests(struct engine_requests *eng, size_t size)
 		}
 	}
 
-	/*seqlock_init(&eng->seqlock);*/
+	seqlock_init(&eng->seqlock);
 	local_irq_disable();
 	write_seqlock(&eng->seqlock);
 	eng->req_running = false;
@@ -601,7 +601,7 @@ signed int request_dump(struct engine_requests *eng)
 		return -1;
 	}
 
-	LOG_ERR("req_ctl:wc:%d, gc:%d, ic:%d, rc:%d, data:%p\n",
+	LOG_ERR("req_ctl:wc:%d, gc:%d, ic:%d, rc:%d, data:%pK\n",
 				eng->req_ctl.wcnt,
 				eng->req_ctl.gcnt,
 				eng->req_ctl.icnt,

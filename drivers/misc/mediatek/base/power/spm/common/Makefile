@@ -33,11 +33,6 @@ ccflags-y += -I$(srctree)/sound/soc/mediatek/$(MTK_PLATFORM)/
 endif
 ccflags-y += -I$(srctree)/sound/soc/mediatek/common_int/
 endif
-# Include soc header mtk-sp-afe-external.h
-ifeq ($(CONFIG_SND_SOC_MTK_SMART_PHONE), y)
-ccflags-y += -I$(srctree)/sound/soc/mediatek/$(MTK_PLATFORM)/
-ccflags-y += -I$(srctree)/sound/soc/mediatek/common/
-endif
 # Include thermal header mtk_thermal.h
 ifeq ($(CONFIG_THERMAL), y)
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/thermal/$(MTK_PLATFORM)/inc/mach/
@@ -56,6 +51,3 @@ obj-y += mtk_sleep_init.o
 obj-y += mtk_vcore_dvfs.o
 obj-y += mtk_idle_sysfs.o
 obj-y += mtk_idle_sysfs_debugfs.o
-obj-y += mtk_lp_kernfs.o
-obj-y += mtk_lp_sysfs.o
-obj-y += mtk_lp_sysfs_debugfs.o

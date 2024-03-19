@@ -25,8 +25,6 @@ typedef struct _GED_BRIDGE_PACKAGE {
 	int32_t i32OutBufferSize;
 } GED_BRIDGE_PACKAGE;
 
-#define GPU_TUNER_BUF_NAME_LEN 128
-
 /*****************************************************************************
  *  IOCTL values.
  *****************************************************************************/
@@ -56,8 +54,6 @@ typedef enum {
 	GED_BRIDGE_COMMAND_WAIT_HW_VSYNC = 10,
 	GED_BRIDGE_COMMAND_QUERY_TARGET_FPS = 11,
 	GED_BRIDGE_COMMAND_VSYNC_WAIT = 12,
-	GED_BRIDGE_COMMAND_GPU_HINT_TO_CPU = 13,
-	GED_BRIDGE_COMMAND_HINT_FORCE_MDP = 14,
 
 	GED_BRIDGE_COMMAND_GE_ALLOC = 100,
 	GED_BRIDGE_COMMAND_GE_GET = 101,
@@ -65,7 +61,6 @@ typedef enum {
 	GED_BRIDGE_COMMAND_GPU_TIMESTAMP = 103,
 	GED_BRIDGE_COMMAND_TARGET_FPS = 104,
 	GED_BRIDGE_COMMAND_GE_INFO = 105,
-	GED_BRIDGE_COMMAND_GPU_TUNER_STATUS = 106,
 } GED_BRIDGE_COMMAND_ID;
 
 #define GED_BRIDGE_IO_LOG_BUF_GET           GED_IOWR(GED_BRIDGE_COMMAND_LOG_BUF_GET)
@@ -80,10 +75,6 @@ typedef enum {
 #define GED_BRIDGE_IO_EVENT_NOTIFY          GED_IOWR(GED_BRIDGE_COMMAND_EVENT_NOTIFY)
 #define GED_BRIDGE_IO_WAIT_HW_VSYNC         GED_IOWR(GED_BRIDGE_COMMAND_WAIT_HW_VSYNC)
 #define GED_BRIDGE_IO_VSYNC_WAIT        GED_IOWR(GED_BRIDGE_COMMAND_VSYNC_WAIT)
-#define GED_BRIDGE_IO_GPU_HINT_TO_CPU \
-	GED_IOWR(GED_BRIDGE_COMMAND_GPU_HINT_TO_CPU)
-#define GED_BRIDGE_IO_HINT_FORCE_MDP \
-	GED_IOWR(GED_BRIDGE_COMMAND_HINT_FORCE_MDP)
 
 #define GED_BRIDGE_IO_GE_ALLOC              GED_IOWR(GED_BRIDGE_COMMAND_GE_ALLOC)
 #define GED_BRIDGE_IO_GE_GET                GED_IOWR(GED_BRIDGE_COMMAND_GE_GET)
@@ -91,8 +82,6 @@ typedef enum {
 #define GED_BRIDGE_IO_QUERY_TARGET_FPS      GED_IOWR(GED_BRIDGE_COMMAND_QUERY_TARGET_FPS)
 #define GED_BRIDGE_IO_GPU_TIMESTAMP         GED_IOWR(GED_BRIDGE_COMMAND_GPU_TIMESTAMP)
 #define GED_BRIDGE_IO_GE_INFO               GED_IOWR(GED_BRIDGE_COMMAND_GE_INFO)
-#define GED_BRIDGE_IO_GPU_TUNER_STATUS \
-	GED_IOWR(GED_BRIDGE_COMMAND_GPU_TUNER_STATUS)
 
 /******************************************************************************
  *  LOG_BUF_GET
@@ -292,34 +281,6 @@ typedef struct GED_BRIDGE_OUT_QUERY_TARGET_FPS_TAG {
 	int fps;
 } GED_BRIDGE_OUT_QUERY_TARGET_FPS;
 
-/******************************************************************************
- *  BOOST GPU FREQ
- ******************************************************************************/
-struct GED_BRIDGE_IN_GPU_HINT_TO_CPU {
-	int32_t i32BridgeFD;
-	int32_t tid;
-	int32_t hint;
-};
-
-struct GED_BRIDGE_OUT_GPU_HINT_TO_CPU {
-	GED_ERROR eError;
-	int32_t boost_flag; // 1:boost 0:not_boost
-	int32_t boost_value;
-};
-
-/******************************************************************************
- *  HINT VIDEO CODEC FORCE MDP
- ******************************************************************************/
-struct GED_BRIDGE_IN_HINT_FORCE_MDP {
-	int32_t i32BridgeFD;
-	int32_t hint; /* 1: Do MDP, 0: No MDP, -1: No overwrite */
-};
-
-struct GED_BRIDGE_OUT_HINT_FORCE_MDP {
-	GED_ERROR eError;
-	int32_t mdp_flag; /* 1: Do MDP, 0: No MDP */
-};
-
 /*****************************************************************************
  *  GE - gralloc_extra functions
  *****************************************************************************/
@@ -380,15 +341,5 @@ typedef struct GED_BRIDGE_OUT_GE_INFO_TAG {
 	uint64_t unique_id;
 	GED_ERROR eError;
 } GED_BRIDGE_OUT_GE_INFO;
-
-/* Bridge in structure for GPU_TUNER_STATUS */
-struct GED_BRIDGE_IN_GPU_TUNER_STATUS {
-	char name[GPU_TUNER_BUF_NAME_LEN];
-};
-
-/* Bridge out structure for GPU_TUNER_STATUS */
-struct GED_BRIDGE_OUT_GPU_TUNER_STATUS {
-	int feature;
-};
 
 #endif

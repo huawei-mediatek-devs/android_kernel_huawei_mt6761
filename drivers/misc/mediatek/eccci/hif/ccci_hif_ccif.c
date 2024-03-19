@@ -154,30 +154,6 @@ static int rx_queue_buffer_size[QUEUE_NUM] = { 10 * 1024, 100 * 1024,
 static int tx_queue_buffer_size[QUEUE_NUM] = { 10 * 1024, 100 * 1024,
 	50 * 1024, 50 * 1024, 50 * 1024, 10 * 1024, 10 * 1024, 10 * 1024,
 };
-
-#elif (MD_GENERATION >= 6295)
-static int rx_queue_buffer_size[QUEUE_NUM] = { 80 * 1024, 80 * 1024,
-	40 * 1024, 80 * 1024, 20 * 1024, 20 * 1024, 64 * 1024, 0 * 1024,
-	8 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024,
-	0 * 1024, 0 * 1024,
-};
-
-static int tx_queue_buffer_size[QUEUE_NUM] = { 128 * 1024, 40 * 1024,
-	8 * 1024, 40 * 1024, 20 * 1024, 20 * 1024, 64 * 1024, 0 * 1024,
-	8 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024,
-	0 * 1024, 0 * 1024,
-};
-static int rx_exp_buffer_size[QUEUE_NUM] = { 12 * 1024, 32 * 1024,
-	8 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 8 * 1024, 0 * 1024,
-	0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024,
-	0 * 1024, 0 * 1024,
-};
-
-static int tx_exp_buffer_size[QUEUE_NUM] = { 12 * 1024, 32 * 1024,
-	8 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 8 * 1024, 0 * 1024,
-	0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024,
-	0 * 1024, 0 * 1024,
-};
 #else
 static int rx_queue_buffer_size[QUEUE_NUM] = { 80 * 1024, 80 * 1024,
 	40 * 1024, 80 * 1024, 20 * 1024, 20 * 1024, 64 * 1024, 0 * 1024,
@@ -292,9 +268,6 @@ static int ccci_ch_to_c2k_ch(int md_state, int ccci_ch, int direction)
 	u16 channel_map;
 	int i = 0;
 
-	if (md_state == INVALID)
-		goto md_state_invalid;
-
 	ccci_channel_id = (u16) ccci_ch;
 	for (i = 0; i < (sizeof(c2k_ports) / sizeof(struct c2k_port)); i++) {
 		channel_map = (direction == OUT) ? c2k_ports[i].tx_ch_mapping :
@@ -308,8 +281,6 @@ static int ccci_ch_to_c2k_ch(int md_state, int ccci_ch, int direction)
 				c2k_ports[i].excp_ch;
 		}
 	}
-
-md_state_invalid:
 
 	CCCI_ERROR_LOG(MD_SYS3, TAG,
 		"%s:ERR cannot find mapped ccci ch ID(%d)\n",
@@ -1132,12 +1103,11 @@ static int md_ccif_op_send_skb(unsigned char hif_id, int qno,
 
 	if (ccci_h->channel == CCCI_C2K_LB_DL)
 		qno = atomic_read(&lb_dl_q);
-#if (MD_GENERATION < 6295)
+
 	if (qno > 7) {
 		CCCI_ERROR_LOG(md_ctrl->md_id, TAG, "qno error (%d)\n", qno);
 		return -CCCI_ERR_INVALID_QUEUE_INDEX;
 	}
-#endif
 	queue = &md_ctrl->txq[qno];
  retry:
 	/* we use irqsave as network require a lock in softirq,
@@ -1532,7 +1502,11 @@ int ccci_ccif_hif_init(unsigned char hif_id, unsigned char md_id)
 	struct md_ccif_ctrl *md_ctrl;
 
 	md_ctrl = kzalloc(sizeof(struct md_ccif_ctrl), GFP_KERNEL);
-
+	if (!md_ctrl) {
+		CCCI_ERROR_LOG(md_id, TAG,
+				"fail to allocate memory for modem ccif ctl\n");
+		return -CCCI_ERR_GET_MEM_FAIL;
+	}
 	INIT_WORK(&md_ctrl->ccif_sram_work, md_ccif_sram_rx_work);
 	init_timer(&md_ctrl->traffic_monitor);
 	md_ctrl->traffic_monitor.function = md_ccif_traffic_monitor_func;

@@ -21,6 +21,9 @@
 #include "ion.h"
 #include "ion_priv.h"
 #include "compat_ion.h"
+#ifdef CONFIG_HW_FDLEAK
+#include <chipset_common/hwfdleak/fdleak.h>
+#endif
 
 union ion_ioctl_arg {
 	struct ion_fd_data fd;
@@ -116,7 +119,6 @@ long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		handle = ion_handle_get_by_id_nolock(client, data.handle.handle);
 		if (IS_ERR(handle)) {
 			mutex_unlock(&client->lock);
-			IONMSG("%s:ION_IOC_FREE handle is error\n", __func__);
 			return PTR_ERR(handle);
 		}
 		ion_free_nolock(client, handle);
@@ -142,6 +144,12 @@ long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IONMSG("ION_IOC_SHARE fd = %d.\n", data.fd.fd);
 			ret = data.fd.fd;
 		}
+#ifdef CONFIG_HW_FDLEAK
+		if (ION_IOC_SHARE == cmd)
+			fdleak_report(FDLEAK_WP_DMABUF, 0);
+		else
+			fdleak_report(FDLEAK_WP_DMABUF, 1);
+#endif
 		break;
 	}
 	case ION_IOC_IMPORT:

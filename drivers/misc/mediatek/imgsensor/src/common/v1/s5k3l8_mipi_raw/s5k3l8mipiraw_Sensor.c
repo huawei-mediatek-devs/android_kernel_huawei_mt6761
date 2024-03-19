@@ -35,8 +35,7 @@ static DEFINE_SPINLOCK(imgsensor_drv_lock);
 static struct imgsensor_info_struct imgsensor_info = {
 	.sensor_id = S5K3L8_SENSOR_ID,
 
-	//.checksum_value = 0x49c09f86,
-	.checksum_value = 0xf336c953,
+	.checksum_value = 0x49c09f86,
 
 	.pre = {
 		.pclk = 566400000,
@@ -56,40 +55,40 @@ static struct imgsensor_info_struct imgsensor_info = {
 		.pclk = 560000000,
 		.linelength  = 5920,//5808,
 		.framelength = 3206,
-		.startx = 24,
+		.startx = 0,
 		.starty = 0,
-		.grabwindow_width  = 4160,
+		.grabwindow_width  = 4208,
 		.grabwindow_height = 3120,
 		.mipi_data_lp2hs_settle_dc = 85,
-		.mipi_pixel_rate = 454700000,
+		.mipi_pixel_rate = 435200000,
 		/*	 following for GetDefaultFramerateByScenario()	*/
 		.max_framerate = 300,
 	},
 	#else //CONTINUEMODE
 	.cap = {
-		.pclk = 563680000,
+		.pclk = 566400000,
 		.linelength  = 5808,
-		.framelength = 3234,
-		.startx = 24,
+		.framelength = 3272,
+		.startx = 0,
 		.starty = 0,
-		.grabwindow_width  = 4160,
+		.grabwindow_width  = 4208,
 		.grabwindow_height = 3120,
 		.mipi_data_lp2hs_settle_dc = 21,
-		.mipi_pixel_rate = 454700000,
+		.mipi_pixel_rate = 435200000,
 		/*	 following for GetDefaultFramerateByScenario()	*/
 		.max_framerate = 300,
 	},
 	#endif
 	.cap1 = {
-		.pclk = 563680000,
+		.pclk = 566400000,
 		.linelength  = 5808,
 		.framelength = 6490,
-		.startx = 24,
+		.startx = 0,
 		.starty = 0,
-		.grabwindow_width  = 4160,
+		.grabwindow_width  = 4208,
 		.grabwindow_height = 3120,
 		.mipi_data_lp2hs_settle_dc = 21,
-		.mipi_pixel_rate = 454700000,
+		.mipi_pixel_rate = 435200000,
 		/*	 following for GetDefaultFramerateByScenario()	*/
 		.max_framerate = 150,
 	},
@@ -102,7 +101,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 		.grabwindow_width  = 4208,
 		.grabwindow_height = 3120,
 		.mipi_data_lp2hs_settle_dc = 21,
-		.mipi_pixel_rate = 449700000,
+		.mipi_pixel_rate = 435200000,
 		/*	 following for GetDefaultFramerateByScenario()	*/
 		.max_framerate = 300,
 	},
@@ -255,7 +254,7 @@ static struct SENSOR_WINSIZE_INFO_STRUCT imgsensor_winsize_info[10] = {
 	     0,    0, 2104, 1560,    0,    0, 2104, 1560}, // Preview
 // capture
 	{ 4208, 3120,    0,    0, 4208, 3120, 4208, 3120,
-	     0,    0, 4208, 3120,    24,    0, 4160, 3120},
+	     0,    0, 4208, 3120,    0,    0, 4208, 3120},
 // video
 	{ 4208, 3120,    0,    0, 4208, 3120, 4208, 3120,
 	     0,    0, 4208, 3120,    0,    0, 4208, 3120},
@@ -444,60 +443,6 @@ static void set_shutter(kal_uint16 shutter)
 	// Update Shutter
 	write_cmos_sensor(0X0202, shutter & 0xFFFF);
 	pr_info("Exit! shutter =%d, framelength =%d\n",
-		shutter, imgsensor.frame_length);
-
-}
-
-static void set_shutter_frame_length(kal_uint16 shutter,
-			kal_uint16 frame_length)
-{
-	unsigned long flags;
-	kal_uint16 realtime_fps = 0;
-	kal_int32 dummy_line = 0;
-
-	spin_lock_irqsave(&imgsensor_drv_lock, flags);
-	imgsensor.shutter = shutter;
-	spin_unlock_irqrestore(&imgsensor_drv_lock, flags);
-
-	spin_lock(&imgsensor_drv_lock);
-	/*Change frame time*/
-	dummy_line = frame_length - imgsensor.frame_length;
-	imgsensor.frame_length = imgsensor.frame_length + dummy_line;
-	imgsensor.min_frame_length = imgsensor.frame_length;
-	//
-	if (shutter > imgsensor.min_frame_length - imgsensor_info.margin)
-	imgsensor.frame_length = shutter + imgsensor_info.margin;
-	else
-	imgsensor.frame_length = imgsensor.min_frame_length;
-	if (imgsensor.frame_length > imgsensor_info.max_frame_length)
-	imgsensor.frame_length = imgsensor_info.max_frame_length;
-	spin_unlock(&imgsensor_drv_lock);
-	shutter = (shutter < imgsensor_info.min_shutter) ?
-		imgsensor_info.min_shutter : shutter;
-	shutter = (shutter > (imgsensor_info.max_frame_length -
-		imgsensor_info.margin)) ? (imgsensor_info.max_frame_length -
-		imgsensor_info.margin) : shutter;
-
-	if (imgsensor.autoflicker_en) {
-		realtime_fps = imgsensor.pclk /
-			imgsensor.line_length * 10 / imgsensor.frame_length;
-		if (realtime_fps >= 297 && realtime_fps <= 305)
-			set_max_framerate(296, 0);
-		else if (realtime_fps >= 147 && realtime_fps <= 150)
-			set_max_framerate(146, 0);
-		else {
-			// Extend frame length
-			write_cmos_sensor(0x0340,
-				imgsensor.frame_length & 0xffff);
-		}
-	} else {
-		// Extend frame length
-		write_cmos_sensor(0x0340, imgsensor.frame_length & 0xffff);
-	}
-
-	// Update Shutter
-	write_cmos_sensor(0x0202, shutter & 0xffff);
-	pr_info("Add for N3D! shutter =%d, framelength =%d\n",
 		shutter, imgsensor.frame_length);
 
 }
@@ -1189,11 +1134,11 @@ kal_uint16 addr_data_pair_capture_s5k3l8_30fps[] = {
 	0x0302, 0x0001,
 	0x0300, 0x0005,
 	0x030C, 0x0006,
-	0x030E, 0x0119,
+	0x030E, 0x0110,
 	0x030A, 0x0001,
 	0x0308, 0x0008,
 	0x0342, 0x16B0,
-	0x0340, 0x0CA2,
+	0x0340, 0x0CC8,
 	0x0202, 0x0200,
 	0x0200, 0x00C6,
 	0x0B04, 0x0101,
@@ -2764,11 +2709,6 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 				imgsensor_info.pre.mipi_pixel_rate;
 			break;
 		}
-		break;
-
-	case SENSOR_FEATURE_SET_SHUTTER_FRAME_TIME:
-		set_shutter_frame_length((UINT16)*feature_data,
-			(UINT16)*(feature_data+1));
 		break;
 
 	case SENSOR_FEATURE_SET_STREAMING_SUSPEND:

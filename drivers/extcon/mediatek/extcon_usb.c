@@ -27,12 +27,8 @@ struct usb_extcon_info {
 	struct device *dev;
 	struct extcon_dev *edev;
 	unsigned int dr; /* data role */
+	struct delayed_work wq_detcable;
 	struct workqueue_struct *extcon_workq;
-};
-
-struct mt_usb_work {
-	struct delayed_work dwork;
-	unsigned int dr; /* data role */
 };
 
 static const unsigned int usb_extcon_cable[] = {
@@ -60,101 +56,86 @@ enum {
 };
 
 static struct usb_extcon_info *g_extcon_info;
-static void usb_extcon_detect_cable(struct work_struct *work)
+static unsigned int curr_dr = DUAL_PROP_DR_NONE;
+
+static unsigned int extcon_get_dr(void)
 {
-	struct mt_usb_work *info = container_of(to_delayed_work(work),
-						    struct mt_usb_work,
-						    dwork);
-	unsigned int cur_dr, new_dr;
-
-	if (!g_extcon_info) {
-		pr_info("g_extcon_info = NULL\n");
-		return;
-	}
-	cur_dr = g_extcon_info->dr;
-	new_dr = info->dr;
-	pr_info("cur_dr(%d) new_dr(%d)\n", cur_dr, new_dr);
-
-	/* none -> device */
-	if (cur_dr == DUAL_PROP_DR_NONE &&
-			new_dr == DUAL_PROP_DR_DEVICE) {
-		extcon_set_state_sync(g_extcon_info->edev,
-			EXTCON_USB, true);
-	/* none -> host */
-	} else if (cur_dr == DUAL_PROP_DR_NONE &&
-			new_dr == DUAL_PROP_DR_HOST) {
-		extcon_set_state_sync(g_extcon_info->edev,
-			EXTCON_USB_HOST, true);
-	/* device -> none */
-	} else if (cur_dr == DUAL_PROP_DR_DEVICE &&
-			new_dr == DUAL_PROP_DR_NONE) {
-		extcon_set_state_sync(g_extcon_info->edev,
-			EXTCON_USB, false);
-	/* host -> none */
-	} else if (cur_dr == DUAL_PROP_DR_HOST &&
-			new_dr == DUAL_PROP_DR_NONE) {
-		extcon_set_state_sync(g_extcon_info->edev,
-			EXTCON_USB_HOST, false);
-	/* device -> host */
-	} else if (cur_dr == DUAL_PROP_DR_DEVICE &&
-			new_dr == DUAL_PROP_DR_HOST) {
-		pr_info("device -> host, it's illegal\n");
-	/* host -> device */
-	} else if (cur_dr == DUAL_PROP_DR_HOST &&
-			new_dr == DUAL_PROP_DR_DEVICE) {
-		pr_info("host -> device, it's illegal\n");
-	}
-
-	g_extcon_info->dr = new_dr;
-	kfree(info);
+	return curr_dr;
 }
 
-static void issue_connection_work(unsigned int dr)
+static void usb_extcon_detect_cable(struct work_struct *work)
 {
-	struct mt_usb_work *work;
+	struct usb_extcon_info *info = container_of(to_delayed_work(work),
+						    struct usb_extcon_info,
+						    wq_detcable);
 
-	if (!g_extcon_info) {
-		pr_info("g_extcon_info = NULL\n");
-		return;
+	unsigned int dr;
+
+	dr = extcon_get_dr();
+
+	if (info->dr != dr) {
+		bool host_connected = false;
+		bool device_connected = false;
+
+		info->dr = dr;
+
+		if (dr == DUAL_PROP_DR_DEVICE)
+			device_connected = true;
+		else if (dr == DUAL_PROP_DR_HOST)
+			host_connected = true;
+
+		pr_info("usb_extcon_detect_cable change =%d %d\n",
+			host_connected, device_connected);
+
+		extcon_set_state_sync(info->edev, EXTCON_USB_HOST,
+					host_connected);
+		extcon_set_state_sync(info->edev, EXTCON_USB,
+					device_connected);
 	}
-	/* create and prepare worker */
-	work = kzalloc(sizeof(struct mt_usb_work), GFP_ATOMIC);
-	if (!work)
-		return;
-
-	work->dr = dr;
-	INIT_DELAYED_WORK(&work->dwork, usb_extcon_detect_cable);
-	/* issue connection work */
-	queue_delayed_work(g_extcon_info->extcon_workq, &work->dwork, 0);
 }
 
 #if !defined(CONFIG_USB_MU3D_DRV)
 void mt_usb_connect(void)
 {
-	pr_info("%s\n", __func__);
-	issue_connection_work(DUAL_PROP_DR_DEVICE);
+	curr_dr = DUAL_PROP_DR_DEVICE;
+
+	if (g_extcon_info) {
+		queue_delayed_work(g_extcon_info->extcon_workq,
+			&g_extcon_info->wq_detcable, 0);
+	}
 }
 EXPORT_SYMBOL_GPL(mt_usb_connect);
 
 void mt_usb_disconnect(void)
 {
-	pr_info("%s\n", __func__);
-	issue_connection_work(DUAL_PROP_DR_NONE);
+	curr_dr = DUAL_PROP_DR_NONE;
+
+	if (g_extcon_info) {
+		queue_delayed_work(g_extcon_info->extcon_workq,
+			&g_extcon_info->wq_detcable, 0);
+	}
 }
 EXPORT_SYMBOL_GPL(mt_usb_disconnect);
 #endif
 
 void mt_usbhost_connect(void)
 {
-	pr_info("%s\n", __func__);
-	issue_connection_work(DUAL_PROP_DR_HOST);
+	curr_dr = DUAL_PROP_DR_HOST;
+
+	if (g_extcon_info) {
+		queue_delayed_work(g_extcon_info->extcon_workq,
+			&g_extcon_info->wq_detcable, 0);
+	}
 }
 EXPORT_SYMBOL_GPL(mt_usbhost_connect);
 
 void mt_usbhost_disconnect(void)
 {
-	pr_info("%s\n", __func__);
-	issue_connection_work(DUAL_PROP_DR_NONE);
+	curr_dr = DUAL_PROP_DR_NONE;
+	if (g_extcon_info) {
+		queue_delayed_work(g_extcon_info->extcon_workq,
+			&g_extcon_info->wq_detcable, 0);
+	}
 }
 EXPORT_SYMBOL_GPL(mt_usbhost_disconnect);
 
@@ -170,6 +151,8 @@ void mt_vbus_off(void)
 }
 EXPORT_SYMBOL_GPL(mt_vbus_off);
 
+
+
 static int usb_extcon_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -184,22 +167,24 @@ static int usb_extcon_probe(struct platform_device *pdev)
 
 	info->edev = devm_extcon_dev_allocate(dev, usb_extcon_cable);
 	if (IS_ERR(info->edev)) {
-		dev_info(dev, "failed to allocate extcon device\n");
+		dev_err(dev, "failed to allocate extcon device\n");
 		return -ENOMEM;
 	}
 
 	ret = devm_extcon_dev_register(dev, info->edev);
 	if (ret < 0) {
-		dev_info(dev, "failed to register extcon device\n");
+		dev_err(dev, "failed to register extcon device\n");
 		return ret;
 	}
 	platform_set_drvdata(pdev, info);
 	info->dr = DUAL_PROP_DR_NONE;
 	info->extcon_workq = create_singlethread_workqueue("usb_extcon_workq");
-	g_extcon_info = info;
+	INIT_DELAYED_WORK(&info->wq_detcable, usb_extcon_detect_cable);
 
 	/* Perform initial detection */
-	/* issue_connection_work(DUAL_PROP_DR_NONE); */
+	usb_extcon_detect_cable(&info->wq_detcable.work);
+	g_extcon_info = info;
+
 	return 0;
 }
 

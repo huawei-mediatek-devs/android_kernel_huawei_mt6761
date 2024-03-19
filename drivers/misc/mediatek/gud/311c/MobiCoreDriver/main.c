@@ -428,11 +428,13 @@ static int mobicore_start(void)
 			break;
 	}
 
-	for (--core; core >= 0 && mc_active_core() != core; --core) {
+	--core;
+	if (mc_active_core() != core) {
+		mc_dev_info("Switch to core %d (%u Hz)\n", core, freq);
 		ret = mc_switch_core(core);
-		mc_dev_info("Switch to core %d (%u Hz): %d\n", core, freq, ret);
-		if (!ret)
-			break;
+		if (ret)
+			mc_dev_info("Switch to core %d (%u Hz) failed: %d\n",
+				core, freq, ret);
 	}
 #endif
 

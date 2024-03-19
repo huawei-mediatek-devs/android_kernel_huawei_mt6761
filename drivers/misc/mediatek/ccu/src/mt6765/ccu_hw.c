@@ -64,11 +64,12 @@ static  bool cmd_done;
 static int32_t g_ccu_sensor_current_fps = -1;
 
 #define SENSOR_NAME_MAX_LEN 32
-static struct ccu_sensor_info
-	g_ccu_sensor_info[IMGSENSOR_SENSOR_IDX_MAX_NUM] = {{0} };
-static char g_ccu_sensor_name
-	[IMGSENSOR_SENSOR_IDX_MAX_NUM][SENSOR_NAME_MAX_LEN];
-
+static struct ccu_sensor_info g_ccu_sensor_info_main  = {-1, NULL};
+static char g_ccu_sensor_name_main[SENSOR_NAME_MAX_LEN];
+static struct ccu_sensor_info g_ccu_sensor_info_main2  = {-1, NULL};
+static char g_ccu_sensor_name_main2[SENSOR_NAME_MAX_LEN];
+static struct ccu_sensor_info g_ccu_sensor_info_sub  = {-1, NULL};
+static char g_ccu_sensor_name_sub[SENSOR_NAME_MAX_LEN];
 
 struct ccu_mailbox_t *pMailBox[MAX_MAILBOX_NUM];
 static struct ccu_msg_t receivedCcuCmd;
@@ -86,8 +87,10 @@ struct ap_task_manage_t ap_task_manage;
 
 
 static struct CCU_INFO_STRUCT ccuInfo;
-static bool bWaitCond;
+static  bool bWaitCond;
+static bool AFbWaitCond[2];
 static unsigned int g_LogBufIdx = 1;
+static unsigned int AFg_LogBufIdx[2] = {1, 1};
 static struct ccu_cmd_s *_fast_cmd_ack;
 
 static int _ccu_powerdown(void);
@@ -378,6 +381,38 @@ irqreturn_t ccu_isr_handler(int irq, void *dev_id)
 				LOG_ERR("wakeup ccuInfo.WaitQueueHead done\n");
 				break;
 			}
+		case MSG_TO_APMCU_CAM_A_AFO_i:
+			{
+				LOG_DBG
+					("AFWaitQueueHead:%d\n",
+					receivedCcuCmd.in_data_ptr);
+				LOG_DBG
+					("======AFO_A_done_from_CCU =====\n");
+				AFbWaitCond[0] = true;
+				AFg_LogBufIdx[0] = 3;
+
+				wake_up_interruptible
+					(&ccuInfo.AFWaitQueueHead[0]);
+				LOG_DBG("wakeup %s done\n",
+					"ccuInfo.AFWaitQueueHead");
+				break;
+			}
+		case MSG_TO_APMCU_CAM_B_AFO_i:
+			{
+				LOG_DBG
+				    ("AFBWaitQueueHead:%d\n",
+					receivedCcuCmd.in_data_ptr);
+				LOG_DBG
+				    ("===== AFO_B_done_from_CCU ======n");
+				AFbWaitCond[1] = true;
+				AFg_LogBufIdx[1] = 4;
+
+				wake_up_interruptible(
+					&ccuInfo.AFWaitQueueHead[1]);
+				LOG_DBG("wakeup %s done\n",
+					"ccuInfo.AFBWaitQueueHead");
+				break;
+			}
 
 		default:
 			{
@@ -556,6 +591,8 @@ int ccu_init_hw(struct ccu_device_s *device)
 	/* init waitqueue */
 	init_waitqueue_head(&cmd_wait);
 	init_waitqueue_head(&ccuInfo.WaitQueueHead);
+	init_waitqueue_head(&ccuInfo.AFWaitQueueHead[0]);
+	init_waitqueue_head(&ccuInfo.AFWaitQueueHead[1]);
 	/* init atomic task counter */
 	/*ccuInfo.taskCount = ATOMIC_INIT(0);*/
 
@@ -792,8 +829,7 @@ int ccu_power(struct ccu_power_s *power)
 		ccuInfo.IsCcuPoweredOn = 1;
 	} else if (power->bON == 0) {
 		/*CCU Power off*/
-		if (ccuInfo.IsCcuPoweredOn == 1)
-			ret = _ccu_powerdown();
+		ret = _ccu_powerdown();
 	} else if (power->bON == 2) {
 		/*Restart CCU, no need to release CG*/
 
@@ -840,10 +876,10 @@ int ccu_power(struct ccu_power_s *power)
 		_ccu_deallocate_mva(&ccu_ion_client, &i2c_buffer_handle);
 	} else if (power->bON == 4) {
 		/*CCU boot fail, just enable CG*/
-		if (ccuInfo.IsCcuPoweredOn == 1) {
-			ccu_clock_disable();
-			ccuInfo.IsCcuPoweredOn = 0;
-		}
+
+		ccu_clock_disable();
+		ccuInfo.IsCcuPoweredOn = 0;
+
 	} else {
 	}
 
@@ -1066,8 +1102,7 @@ int ccu_run(void)
 
 int ccu_waitirq(struct CCU_WAIT_IRQ_STRUCT *WaitIrq)
 {
-	signed int ret = 0;
-	long Timeout = WaitIrq->EventInfo.Timeout;
+	signed int ret = 0, Timeout = WaitIrq->EventInfo.Timeout;
 
 	LOG_DBG("Clear(%d),bWaitCond(%d),Timeout(%d)\n",
 		WaitIrq->EventInfo.Clear, bWaitCond, Timeout);
@@ -1107,9 +1142,64 @@ int ccu_waitirq(struct CCU_WAIT_IRQ_STRUCT *WaitIrq)
 	}
 
 	if (Timeout > 0) {
-		LOG_DBG("remain timeout:%ld, task: %d\n", Timeout, g_LogBufIdx);
+		LOG_DBG("remain timeout:%d, task: %d\n", Timeout, g_LogBufIdx);
 		/*send to user if not timeout*/
 		WaitIrq->EventInfo.TimeInfo.passedbySigcnt = (int)g_LogBufIdx;
+	}
+	/*EXIT:*/
+
+	return ret;
+}
+
+int ccu_AFwaitirq(struct CCU_WAIT_IRQ_STRUCT *WaitIrq, int tg_num)
+{
+	signed int ret = 0, Timeout = WaitIrq->EventInfo.Timeout;
+
+	LOG_DBG("Clear(%d),AFbWaitCond(%d),Timeout(%d)\n",
+		WaitIrq->EventInfo.Clear, AFbWaitCond[tg_num-1], Timeout);
+	LOG_DBG("arg is struct CCU_WAIT_IRQ_STRUCT, size:%zu\n",
+		sizeof(struct CCU_WAIT_IRQ_STRUCT));
+
+	if (Timeout != 0) {
+		/* 2. start to wait signal */
+		LOG_DBG("+:wait_event_interruptible_timeout\n");
+	AFbWaitCond[tg_num-1] = false;
+		Timeout = wait_event_interruptible_timeout(
+				ccuInfo.AFWaitQueueHead[tg_num-1],
+				AFbWaitCond[tg_num-1],
+				CCU_MsToJiffies(WaitIrq->EventInfo.
+					Timeout));
+
+		LOG_DBG("-:wait_event_interruptible_timeout\n");
+	} else {
+		LOG_DBG("+:ccu wait_event_interruptible\n");
+		/*task_count_temp = atomic_read(&(ccuInfo.taskCount))*/
+		/*if(task_count_temp == 0)*/
+		/*{*/
+
+		mutex_unlock(&ap_task_manage.ApTaskMutex);
+		LOG_DBG("unlock ApTaskMutex\n");
+		wait_event_interruptible(ccuInfo.AFWaitQueueHead[tg_num-1],
+			AFbWaitCond[tg_num-1]);
+		LOG_DBG("accuiring ApTaskMutex\n");
+		mutex_lock(&ap_task_manage.ApTaskMutex);
+		LOG_DBG("got ApTaskMutex\n");
+		/*}*/
+		/*else*/
+		/*{*/
+		/*LOG_DBG("ccuInfo.taskCount is not zero: %d\n",*/
+		/*	task_count_temp);*/
+		/*}*/
+		AFbWaitCond[tg_num-1] = false;
+		LOG_DBG("-:ccu wait_event_interruptible\n");
+	}
+
+	if (Timeout > 0) {
+		LOG_DBG("remain timeout:%d, task: %d\n",
+			Timeout, AFg_LogBufIdx[tg_num-1]);
+		/*send to user if not timeout*/
+		WaitIrq->EventInfo.TimeInfo.passedbySigcnt =
+			(int)AFg_LogBufIdx[tg_num-1];
 	}
 	/*EXIT:*/
 
@@ -1160,71 +1250,72 @@ int ccu_read_info_reg(int regNo)
 	return *offset;
 }
 
-void ccu_set_sensor_info(int32_t sensorType, struct ccu_sensor_info *info)
+void ccu_set_sensor_info(int32_t sensorType,  struct ccu_sensor_info *info)
 {
 	if (sensorType == IMGSENSOR_SENSOR_IDX_NONE) {
 		/*Non-sensor*/
 		LOG_ERR("No sensor been detected.\n");
-	} else if ((sensorType >= IMGSENSOR_SENSOR_IDX_MIN_NUM) &&
-		(sensorType < IMGSENSOR_SENSOR_IDX_MAX_NUM)) {
-		g_ccu_sensor_info[sensorType].slave_addr  = info->slave_addr;
-		g_ccu_sensor_info[sensorType].i2c_id  = info->i2c_id;
+	} else if (sensorType == IMGSENSOR_SENSOR_IDX_MAIN) {
+		/*Main*/
+		g_ccu_sensor_info_main.slave_addr  = info->slave_addr;
 		if (info->sensor_name_string != NULL) {
-			memcpy(g_ccu_sensor_name[sensorType],
-			info->sensor_name_string,
-			strlen(info->sensor_name_string)+1);
-			g_ccu_sensor_info[sensorType].sensor_name_string =
-			g_ccu_sensor_name[sensorType];
+			memcpy(g_ccu_sensor_name_main, info->sensor_name_string,
+				strlen(info->sensor_name_string)+1);
+			g_ccu_sensor_info_main.sensor_name_string =
+				g_ccu_sensor_name_main;
 		}
-		LOG_DBG_MUST("ccu catch sensor %d i2c slave address : 0x%x\n",
-		sensorType, info->slave_addr);
-		LOG_DBG_MUST("ccu catch sensor %d name : %s\n",
-		sensorType, g_ccu_sensor_info[sensorType].sensor_name_string);
-		LOG_DBG_MUST("ccu catch sensor %d i2c_id : %d\n",
-		sensorType, g_ccu_sensor_info[sensorType].i2c_id);
+		LOG_DBG_MUST("ccu catch Main sensor i2c slave address : 0x%x\n",
+			info->slave_addr);
+		LOG_DBG_MUST("ccu catch Main sensor name : %s\n",
+			g_ccu_sensor_info_main.sensor_name_string);
+	} else if (sensorType == IMGSENSOR_SENSOR_IDX_SUB) {
+		/*Sub*/
+		g_ccu_sensor_info_sub.slave_addr  = info->slave_addr;
+		if (info->sensor_name_string != NULL) {
+			memcpy(g_ccu_sensor_name_sub, info->sensor_name_string,
+				strlen(info->sensor_name_string)+1);
+			g_ccu_sensor_info_sub.sensor_name_string =
+				g_ccu_sensor_name_sub;
+		}
+		LOG_DBG_MUST("ccu catch Sub sensor i2c slave address : 0x%x\n",
+			info->slave_addr);
+		LOG_DBG_MUST("ccu catch Sub sensor name : %s\n",
+			g_ccu_sensor_info_sub.sensor_name_string);
+	} else if (sensorType == IMGSENSOR_SENSOR_IDX_MAIN2) {
+		/*Main2*/
+		g_ccu_sensor_info_main2.slave_addr  = info->slave_addr;
+		if (info->sensor_name_string != NULL) {
+			memcpy(g_ccu_sensor_name_main2,
+				info->sensor_name_string,
+				strlen(info->sensor_name_string)+1);
+			g_ccu_sensor_info_main2.sensor_name_string =
+				g_ccu_sensor_name_main2;
+		}
+		LOG_DBG_MUST(
+			"ccu catch Main2 sensor i2c slave address : 0x%x\n",
+			info->slave_addr);
+		LOG_DBG_MUST("ccu catch Main2 sensor name : %s\n",
+			g_ccu_sensor_info_main2.sensor_name_string);
 	} else {
 		LOG_DBG_MUST("ccu catch sensor i2c slave address fail!\n");
 	}
 }
 
-void ccu_get_sensor_i2c_info(struct ccu_i2c_info *sensor_info)
+void ccu_get_sensor_i2c_slave_addr(int32_t *sensorI2cSlaveAddr)
 {
-	int32_t i;
-
-	for (i = IMGSENSOR_SENSOR_IDX_MIN_NUM;
-		i < IMGSENSOR_SENSOR_IDX_MAX_NUM; ++i) {
-		sensor_info[i].slave_addr =
-		g_ccu_sensor_info[i].slave_addr;
-		sensor_info[i].i2c_id =
-		g_ccu_sensor_info[i].i2c_id;
-	}
+	sensorI2cSlaveAddr[0] = g_ccu_sensor_info_main.slave_addr;
+	sensorI2cSlaveAddr[1] = g_ccu_sensor_info_sub.slave_addr;
+	sensorI2cSlaveAddr[2] = g_ccu_sensor_info_main2.slave_addr;
 }
 
 void ccu_get_sensor_name(char **sensor_name)
 {
-	int32_t i;
-
-	for (i = IMGSENSOR_SENSOR_IDX_MIN_NUM;
-		i < IMGSENSOR_SENSOR_IDX_MAX_NUM; ++i) {
-		sensor_name[i] =
-		g_ccu_sensor_info[i].sensor_name_string;
-	}
+	sensor_name[0] = g_ccu_sensor_info_main.sensor_name_string;
+	sensor_name[1] = g_ccu_sensor_info_sub.sensor_name_string;
+	sensor_name[2] = g_ccu_sensor_info_main2.sensor_name_string;
 }
 
 int ccu_query_power_status(void)
 {
 	return ccuInfo.IsCcuPoweredOn;
-}
-
-void ccu_get_timestamp(uint32_t *low, uint32_t *high)
-{
-	if (IS_KERNEL_32) {
-		LOG_DBG_MUST("ccu kernel 32 bits, return 0\n");
-		*low  = 0;
-		*high = 0;
-	} else {
-		LOG_DBG_MUST("ccu kernel 64 bits\n");
-		*low  = ccu_read_reg(ccu_base, CCU_INFO04);
-		*high = ccu_read_reg(ccu_base, CCU_INFO05);
-	}
 }

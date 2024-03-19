@@ -53,7 +53,17 @@ static const struct mt6360_core_platform_data def_platform_data = {
 	.sda_drvsrsel = 0,
 	.fon_enbase = 0,
 	.fon_osc = 0,
+	.fod_hw_en = 1,
+	.fod_isense = 3,
 };
+
+static irqreturn_t mt6360_pmu_usbid_evt_handler(int irq, void *data)
+{
+	struct mt6360_pmu_core_info *mpci = data;
+
+	dev_dbg(mpci->dev, "%s\n", __func__);
+	return IRQ_HANDLED;
+}
 
 static irqreturn_t mt6360_pmu_ap_wdtrst_evt_handler(int irq, void *data)
 {
@@ -112,6 +122,7 @@ static irqreturn_t mt6360_pmu_sysuv_evt_handler(int irq, void *data)
 }
 
 static struct mt6360_pmu_irq_desc mt6360_pmu_core_irq_desc[] = {
+	MT6360_PMU_IRQDESC(usbid_evt),
 	MT6360_PMU_IRQDESC(ap_wdtrst_evt),
 	MT6360_PMU_IRQDESC(en_evt),
 	MT6360_PMU_IRQDESC(qonb_rst_evt),
@@ -194,6 +205,10 @@ static const struct mt6360_pdata_prop mt6360_pdata_props[] = {
 			     MT6360_PMU_I2C_CTRL, 1, 0x02, NULL, 0),
 	MT6360_PDATA_VALPROP(fon_osc, struct mt6360_core_platform_data,
 			     MT6360_PMU_I2C_CTRL, 0, 0x01, NULL, 0),
+	MT6360_PDATA_VALPROP(fod_hw_en, struct mt6360_core_platform_data,
+			     MT6360_PMU_FOD_CTRL, 6, 0x40, NULL, 0),
+	MT6360_PDATA_VALPROP(fod_isense, struct mt6360_core_platform_data,
+			     MT6360_PMU_FOD_CTRL, 4, 0x30, NULL, 0),
 };
 
 static int mt6360_core_apply_pdata(struct mt6360_pmu_core_info *mpci,
@@ -218,18 +233,18 @@ static const struct mt6360_val_prop mt6360_val_props[] = {
 	MT6360_DT_VALPROP(mrstb_rst_sel, struct mt6360_core_platform_data),
 	MT6360_DT_VALPROP(apwdtrst_en, struct mt6360_core_platform_data),
 	MT6360_DT_VALPROP(cc_open_sel, struct mt6360_core_platform_data),
-	MT6360_DT_VALPROP(i2c_cc_open_tsel, struct mt6360_core_platform_data),
 	MT6360_DT_VALPROP(pd_mden, struct mt6360_core_platform_data),
 	MT6360_DT_VALPROP(ship_rst_dis, struct mt6360_core_platform_data),
 	MT6360_DT_VALPROP(ot_shdn_sel, struct mt6360_core_platform_data),
 	MT6360_DT_VALPROP(vddaov_shdn_sel, struct mt6360_core_platform_data),
-	MT6360_DT_VALPROP(ldo5_otp_en, struct mt6360_core_platform_data),
 	MT6360_DT_VALPROP(shipping_mode_pass_clock,
 					      struct mt6360_core_platform_data),
 	MT6360_DT_VALPROP(sda_sizesel, struct mt6360_core_platform_data),
 	MT6360_DT_VALPROP(sda_drvsrsel, struct mt6360_core_platform_data),
 	MT6360_DT_VALPROP(fon_enbase, struct mt6360_core_platform_data),
 	MT6360_DT_VALPROP(fon_osc, struct mt6360_core_platform_data),
+	MT6360_DT_VALPROP(fod_hw_en, struct mt6360_core_platform_data),
+	MT6360_DT_VALPROP(fod_isense, struct mt6360_core_platform_data),
 };
 
 static int mt6360_core_parse_dt_data(struct device *dev,

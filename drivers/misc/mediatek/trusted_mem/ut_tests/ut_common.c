@@ -35,7 +35,6 @@
 #include "private/tmem_utils.h"
 #include "private/tmem_proc.h"
 #include "private/tmem_cfg.h"
-#include "private/tmem_priv.h"
 #include "private/ut_entry.h"
 #include "private/ut_macros.h"
 #include "private/ut_common.h"
@@ -241,31 +240,30 @@ enum UT_RET_STATE mem_alloc_alignment_test(enum TRUSTED_MEM_TYPE mem_type,
 	return UT_STATE_PASS;
 }
 
+static int get_max_pool_size(enum TRUSTED_MEM_TYPE mem_type)
+{
+	switch (mem_type) {
+	case TRUSTED_MEM_SVP:
+		return SIZE_256M;
+	case TRUSTED_MEM_PROT:
+		return SIZE_128M;
+	case TRUSTED_MEM_WFD:
+		return SIZE_64M;
+	case TRUSTED_MEM_SVP_VIRT_2D_FR:
+		return SIZE_16M;
+	default:
+		return SIZE_4K;
+	}
+}
 
 static u32 *g_mem_handle_list;
 enum UT_RET_STATE mem_handle_list_init(enum TRUSTED_MEM_TYPE mem_type)
 {
-	int max_pool_size = tmem_core_get_max_pool_size(mem_type);
+	int max_pool_size = get_max_pool_size(mem_type);
 	u32 min_chunk_sz = tmem_core_get_min_chunk_size(mem_type);
 
 	int max_handle_cnt = max_pool_size / min_chunk_sz;
 
-	if (INVALID(g_mem_handle_list)) {
-		g_mem_handle_list =
-			mld_kmalloc(sizeof(u32) * max_handle_cnt, GFP_KERNEL);
-	}
-	ASSERT_NOTNULL(g_mem_handle_list, "alloc memory for mem handles");
-
-	return UT_STATE_PASS;
-}
-
-static enum UT_RET_STATE mem_handle_list_re_init(enum TRUSTED_MEM_TYPE mem_type,
-						 u32 min_chunk_sz)
-{
-	int max_pool_size = tmem_core_get_max_pool_size(mem_type);
-	int max_handle_cnt = max_pool_size / min_chunk_sz;
-
-	mem_handle_list_deinit();
 	if (INVALID(g_mem_handle_list)) {
 		g_mem_handle_list =
 			mld_kmalloc(sizeof(u32) * max_handle_cnt, GFP_KERNEL);
@@ -287,7 +285,7 @@ enum UT_RET_STATE mem_handle_list_deinit(void)
 
 static u32 get_saturation_test_min_chunk_size(enum TRUSTED_MEM_TYPE mem_type)
 {
-	if (is_mtee_mchunks(mem_type))
+	if (mem_type == TRUSTED_MEM_PROT)
 		return get_saturation_stress_pmem_min_chunk_size();
 
 	return tmem_core_get_min_chunk_size(mem_type);
@@ -301,7 +299,7 @@ mem_alloc_saturation_variant(enum TRUSTED_MEM_TYPE mem_type, u8 *mem_owner,
 	int chunk_num;
 	u32 alignment = 0, chunk_size, ref_count;
 	u32 one_more_handle;
-	int max_pool_size = tmem_core_get_max_pool_size(mem_type);
+	int max_pool_size = get_max_pool_size(mem_type);
 	int max_items;
 	u32 min_chunk_sz = get_saturation_test_min_chunk_size(mem_type);
 
@@ -572,8 +570,6 @@ static enum UT_RET_STATE mem_create_run_thread(enum TRUSTED_MEM_TYPE mem_type)
 	int idx;
 	int chunk_cnt;
 	u32 min_alloc_sz = tmem_core_get_min_chunk_size(mem_type);
-	u32 max_total_sz =
-		tmem_core_get_max_pool_size(mem_type) / MEM_SPAWN_THREAD_COUNT;
 
 	/* create new thread */
 	for (idx = 0; idx < MEM_SPAWN_THREAD_COUNT; idx++) {
@@ -583,7 +579,7 @@ static enum UT_RET_STATE mem_create_run_thread(enum TRUSTED_MEM_TYPE mem_type)
 			 "mem%d_thread_%d", mem_type, idx);
 		thread_param[mem_type][idx].mem_type = mem_type;
 		thread_param[mem_type][idx].alloc_chunk_size = min_alloc_sz;
-		thread_param[mem_type][idx].alloc_total_size = max_total_sz;
+		thread_param[mem_type][idx].alloc_total_size = SIZE_8M;
 		chunk_cnt = thread_param[mem_type][idx].alloc_total_size
 			    / thread_param[mem_type][idx].alloc_chunk_size;
 		thread_param[mem_type][idx].running = false;
@@ -635,137 +631,6 @@ static enum UT_RET_STATE mem_wait_run_thread(enum TRUSTED_MEM_TYPE mem_type)
 	return UT_STATE_PASS;
 }
 
-static enum UT_RET_STATE
-mem_alloc_mixed_size_test_with_alignment(enum TRUSTED_MEM_TYPE mem_type,
-					 u8 *mem_owner, u32 alignment)
-{
-	int ret;
-	int chunk_size, chunk_count;
-	int chunk_idx;
-	u32 try_size;
-	u32 max_try_size = SIZE_16M;
-	u32 handle, ref_count;
-	u32 max_pool_size = tmem_core_get_max_pool_size(mem_type);
-	u32 next_free_pos = 0x0;
-	int remained_free_size;
-	u32 used_size;
-
-	if (!is_mtee_mchunks(mem_type))
-		return UT_STATE_FAIL;
-
-	if (mem_handle_list_re_init(mem_type, SIZE_1M))
-		return UT_STATE_FAIL;
-
-	for (try_size = SIZE_1M; try_size <= max_try_size;
-	     try_size += SIZE_1M) {
-		chunk_idx = 0;
-		remained_free_size = max_pool_size;
-		chunk_size = try_size;
-		next_free_pos = 0;
-
-		/* Allocate one chunk of 4KB size */
-		ret = tmem_core_alloc_chunk_priv(mem_type, alignment, SIZE_4K,
-						 &ref_count, &handle, mem_owner,
-						 0, 0);
-		ASSERT_EQ(0, ret, "alloc 4KB chunk memory");
-		ASSERT_EQ(1, ref_count, "reference count check");
-		ASSERT_NE(0, handle, "handle check");
-
-		used_size = SIZE_4K;
-		if (alignment && (next_free_pos % alignment))
-			used_size += alignment;
-		next_free_pos += used_size;
-		remained_free_size -= used_size;
-
-		/* Try allocating more chunks */
-		while (remained_free_size >= chunk_size) {
-
-			used_size = chunk_size;
-			if (alignment && (next_free_pos % alignment))
-				used_size += alignment;
-
-			ret = tmem_core_alloc_chunk_priv(
-				mem_type, alignment, chunk_size, &ref_count,
-				&g_mem_handle_list[chunk_idx], mem_owner, 0, 0);
-			if (used_size <= remained_free_size) {
-				ASSERT_EQ(0, ret, "alloc chunk memory");
-				ASSERT_EQ(1, ref_count,
-					  "reference count check");
-				ASSERT_NE(0, g_mem_handle_list[chunk_idx],
-					  "handle check");
-			} else {
-				ASSERT_NE(0, ret, "alloc chunk memory");
-				break;
-			}
-
-			next_free_pos += used_size;
-			remained_free_size -= used_size;
-			chunk_idx++;
-		}
-
-		/* Should be failed for one more chunk */
-		ret = tmem_core_alloc_chunk_priv(
-			mem_type, alignment, chunk_size, &ref_count,
-			&g_mem_handle_list[chunk_idx], mem_owner, 0, 0);
-		ASSERT_NE(0, ret, "alloc chunk memory");
-
-		/* Should be failed if no more 4KB chunk */
-		used_size = SIZE_4K;
-		if (alignment && (next_free_pos % alignment))
-			used_size += alignment;
-
-		ret = tmem_core_alloc_chunk_priv(
-			mem_type, alignment, SIZE_4K, &ref_count,
-			&g_mem_handle_list[chunk_idx], mem_owner, 0, 0);
-		if (used_size <= remained_free_size) {
-			ASSERT_EQ(0, ret, "alloc chunk memory");
-			ASSERT_EQ(1, ref_count, "reference count check");
-			ASSERT_NE(0, g_mem_handle_list[chunk_idx],
-				  "handle check");
-			ret = tmem_core_unref_chunk(
-				mem_type, g_mem_handle_list[chunk_idx],
-				mem_owner, 0);
-			ASSERT_EQ(0, ret, "free 4KB chunk memory");
-		} else {
-			ASSERT_NE(0, ret, "alloc chunk memory");
-		}
-
-		/* Try to free all allocated chunks */
-		chunk_count = chunk_idx;
-		for (chunk_idx = 0; chunk_idx < chunk_count; chunk_idx++) {
-			ret = tmem_core_unref_chunk(
-				mem_type, g_mem_handle_list[chunk_idx],
-				mem_owner, 0);
-			ASSERT_EQ(0, ret, "free chunk memory");
-		}
-
-		/* Free the allocated one chunk of 4KB size */
-		ret = tmem_core_unref_chunk(mem_type, handle, mem_owner, 0);
-		ASSERT_EQ(0, ret, "free 4KB chunk memory");
-	}
-
-	return UT_STATE_PASS;
-}
-
-enum UT_RET_STATE mem_alloc_mixed_size_test(enum TRUSTED_MEM_TYPE mem_type,
-					    u8 *mem_owner,
-					    int region_final_state)
-{
-	int ret;
-
-	ret = mem_alloc_mixed_size_test_with_alignment(mem_type, mem_owner, 0);
-	ASSERT_EQ(0, ret, "alloc mixed size alignment is 0");
-
-	ret = mem_alloc_mixed_size_test_with_alignment(mem_type, mem_owner,
-						       SIZE_1M);
-	ASSERT_EQ(0, ret, "alloc mixed size alignment is 1MB");
-
-	ASSERT_EQ(0, regmgr_state_check(mem_type, region_final_state),
-		  "reg state check");
-
-	return UT_STATE_PASS;
-}
-
 enum UT_RET_STATE mem_alloc_multithread_test(enum TRUSTED_MEM_TYPE mem_type)
 {
 	int ret;
@@ -782,7 +647,6 @@ enum UT_RET_STATE mem_alloc_multithread_test(enum TRUSTED_MEM_TYPE mem_type)
 	return UT_STATE_PASS;
 }
 
-#if MULTIPLE_REGION_MULTIPLE_THREAD_TEST_ENABLE
 static enum UT_RET_STATE mem_multi_type_alloc_multithread_test_locked(void)
 {
 	int mem_idx;
@@ -810,41 +674,6 @@ static enum UT_RET_STATE mem_multi_type_alloc_multithread_test_locked(void)
 
 	return UT_STATE_PASS;
 }
-#endif
-
-#if MTEE_MCHUNKS_MULTIPLE_THREAD_TEST_ENABLE
-static enum UT_RET_STATE mem_mtee_mchunks_alloc_multithread_test_locked(void)
-{
-	int mem_idx;
-	int ret;
-
-	for (mem_idx = TRUSTED_MEM_PHYICAL_START;
-	     mem_idx <= TRUSTED_MEM_PHYSICAL_END; mem_idx++) {
-		if (!is_mtee_mchunks(mem_idx))
-			continue;
-		if (tmem_core_is_device_registered(mem_idx)) {
-			ret = mem_create_run_thread(mem_idx);
-			ASSERT_EQ(0, ret, "create run thread check");
-		}
-	}
-
-	for (mem_idx = TRUSTED_MEM_PHYICAL_START;
-	     mem_idx <= TRUSTED_MEM_PHYSICAL_END; mem_idx++) {
-		if (!is_mtee_mchunks(mem_idx))
-			continue;
-		if (tmem_core_is_device_registered(mem_idx)) {
-			ret = mem_wait_run_thread(mem_idx);
-			ASSERT_EQ(0, ret,
-				  "wait for running thread to stop check");
-		}
-	}
-
-	ret = all_regmgr_state_off_check();
-	ASSERT_EQ(0, ret, "all region state off check");
-
-	return UT_STATE_PASS;
-}
-#endif
 
 static bool multi_type_alloc_multithread_locked;
 static inline void set_multi_type_test_lock(bool lock_en)
@@ -856,7 +685,6 @@ bool is_multi_type_alloc_multithread_test_locked(void)
 	return multi_type_alloc_multithread_locked;
 }
 
-#if MULTIPLE_REGION_MULTIPLE_THREAD_TEST_ENABLE
 enum UT_RET_STATE mem_multi_type_alloc_multithread_test(void)
 {
 	int ret;
@@ -868,21 +696,6 @@ enum UT_RET_STATE mem_multi_type_alloc_multithread_test(void)
 	ASSERT_EQ(0, ret, "multi type alloc multithread test check");
 	return UT_STATE_PASS;
 }
-#endif
-
-#if MTEE_MCHUNKS_MULTIPLE_THREAD_TEST_ENABLE
-enum UT_RET_STATE mem_mtee_mchunks_alloc_multithread_test(void)
-{
-	int ret;
-
-	set_multi_type_test_lock(true);
-	ret = mem_mtee_mchunks_alloc_multithread_test_locked();
-	set_multi_type_test_lock(false);
-
-	ASSERT_EQ(0, ret, "mtee multiple chunks multithread test check");
-	return UT_STATE_PASS;
-}
-#endif
 
 enum UT_RET_STATE ut_dummy(void)
 {

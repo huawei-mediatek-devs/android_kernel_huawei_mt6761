@@ -66,11 +66,6 @@
 #define HEADSET_MODE_2	(2)
 #define HEADSET_MODE_6	(6)
 
-/* IOCTL */
-#define ACCDET_IOC_MAGIC 'A'
-#define ACCDET_INIT _IO(ACCDET_IOC_MAGIC, 0)
-#define SET_CALL_STATE _IO(ACCDET_IOC_MAGIC, 1)
-#define GET_BUTTON_STATUS _IO(ACCDET_IOC_MAGIC, 2)
 
 /* 400us, Accdet irq clear timeout  */
 #define ACCDET_TIME_OUT 0x61A80
@@ -211,7 +206,6 @@ extern const struct of_device_id accdet_of_match[];
 extern int accdet_read_audio_res(unsigned int res_value);
 /* just be called by audio module for DC trim */
 extern void accdet_late_init(unsigned long data);
-extern void accdet_modify_vref_volt(void);
 extern const struct file_operations *accdet_get_fops(void);
 extern struct platform_driver accdet_driver_func(void);
 extern void mt_accdet_remove(void);
@@ -221,7 +215,5 @@ extern void accdet_set_debounce(int state, unsigned int debounce);
 extern int mt_accdet_probe(struct platform_device *dev);
 extern signed int pwrap_read(unsigned int adr, unsigned int *rdata);
 extern signed int pwrap_write(unsigned int adr, unsigned int  wdata);
-long mt_accdet_unlocked_ioctl(struct file *file,
-	unsigned int cmd, unsigned long arg);
 
 #endif

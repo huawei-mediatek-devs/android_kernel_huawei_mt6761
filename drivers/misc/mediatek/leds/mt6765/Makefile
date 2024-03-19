@@ -14,3 +14,10 @@
 obj-$(CONFIG_MTK_LEDS) := mtk_leds.o
 
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/video/include
+
+ifeq ($(CONFIG_LCD_KIT_DRIVER),y)
+ccflags-y += -I$(srctree)/drivers/devkit/lcdkit/lcdkit3.0/kernel/common/include
+ccflags-y += -I$(srctree)/drivers/devkit/lcdkit/lcdkit3.0/kernel/mtk/include
+ccflags-y += -I$(srctree)/drivers/devkit/lcdkit/lcdkit3.0/kernel/mtk/adapt
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/lcm/inc
+endif

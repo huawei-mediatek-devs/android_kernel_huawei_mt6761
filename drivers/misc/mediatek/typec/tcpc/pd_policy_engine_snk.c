@@ -17,7 +17,6 @@
 #include "inc/pd_dpm_core.h"
 #include "inc/tcpci.h"
 #include "inc/pd_policy_engine.h"
-#include <mt-plat/charger_type.h>
 
 /*
  * [PD2.0] Figure 8-39 Sink Port state diagram
@@ -60,19 +59,7 @@ void pe_snk_startup_entry(struct pd_port *pd_port)
 
 void pe_snk_discovery_entry(struct pd_port *pd_port)
 {
-	unsigned long timeout;
-	enum charger_type chg_type;
-
 	pd_enable_vbus_valid_detection(pd_port, true);
-
-	timeout = jiffies + msecs_to_jiffies(1000);
-	do {
-		chg_type = mt_get_charger_type();
-		msleep(50);
-	} while (chg_type == CHARGER_UNKNOWN && time_before(jiffies, timeout));
-
-	if (chg_type == CHARGER_UNKNOWN)
-		PE_INFO("BC1.2 TIMEOUT\r\n");
 }
 
 void pe_snk_wait_for_capabilities_entry(
@@ -126,20 +113,9 @@ void pe_snk_select_capability_entry(struct pd_port *pd_port)
 
 void pe_snk_select_capability_exit(struct pd_port *pd_port)
 {
-	if (pd_check_ctrl_msg_event(pd_port, PD_CTRL_ACCEPT)) {
+	if (pd_check_ctrl_msg_event(pd_port, PD_CTRL_ACCEPT))
 		pd_port->pe_data.remote_selected_cap =
 					RDO_POS(pd_port->last_rdo);
-		pd_port->cap_miss_match = 0;
-	} else if (pd_check_ctrl_msg_event(pd_port, PD_CTRL_REJECT)) {
-#ifdef CONFIG_USB_PD_RENEGOTIATION_COUNTER
-		if (pd_port->cap_miss_match == 0x01) {
-			PE_INFO("reset renegotiation cnt by cap mismatch\r\n");
-			pd_port->pe_data.renegotiation_count = 0;
-		}
-#endif /* CONFIG_USB_PD_RENEGOTIATION_COUNTER */
-		pd_port->cap_miss_match |= (1 << 1);
-	} else
-		pd_port->cap_miss_match = 0;
 
 	/* Waiting for Hard-Reset Done */
 	if (!pd_check_timer_msg_event(pd_port, PD_TIMER_SENDER_RESPONSE))

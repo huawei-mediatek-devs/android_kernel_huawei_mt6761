@@ -184,7 +184,7 @@ int disp_helper_set_option(enum DISP_HELPER_OPT option, int value)
 		}
 	}
 
-	if (option >= DISP_OPT_NUM) {
+	if ((option >= DISP_OPT_NUM)||(option < DISP_OPT_USE_CMDQ)) {
 		DISPWARN("Wrong option: %d\n", option);
 		return -EINVAL;
 	}

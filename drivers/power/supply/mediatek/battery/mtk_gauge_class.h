@@ -70,30 +70,10 @@ enum gauge_info {
 	GAUGE_MONITER_PLCHG_STATUS,
 	GAUGE_BAT_PLUG_STATUS,
 	GAUGE_IS_NVRAM_FAIL_MODE,
-	GAUGE_MONITOR_SOFF_VALIDTIME,
 	GAUGE_CON0_SOC,
 	GAUGE_SHUTDOWN_CAR,
 	GAUGE_INFO_MAX
 };
-
-enum gauge_event {
-	EVT_INT_CHR_FULL,
-	EVT_INT_ZCV,
-	EVT_INT_BAT_CYCLE,
-	EVT_INT_IAVG,
-	EVT_INT_BAT_PLUGOUT,
-	EVT_INT_NAFG,
-	EVT_INT_BAT_INT1_HT,
-	EVT_INT_BAT_INT1_LT,
-	EVT_INT_BAT_INT2_HT,
-	EVT_INT_BAT_INT2_LT,
-	EVT_INT_VBAT_L,
-	EVT_INT_VBAT_H,
-	EVT_INT_NAFG_CHECK,
-	EVB_PERIODIC_CHECK,
-	GAUGE_EVT_MAX
-};
-
 
 struct gauge_properties {
 	const char *alias_name;
@@ -140,21 +120,19 @@ struct gauge_hw_info_data {
 
 
 struct gauge_ops {
-	int (*suspend)(struct gauge_device *gdev, pm_message_t pm);
-	int (*resume)(struct gauge_device *gdev);
+	int (*suspend)(struct gauge_device *, pm_message_t);
+	int (*resume)(struct gauge_device *);
 
-	int (*gauge_initial)(struct gauge_device *gdev);
+	int (*gauge_initial)(struct gauge_device *);
 	int (*gauge_read_current)(struct gauge_device *gauge_dev,
 		bool *fg_is_charging, int *data);
 	int (*gauge_get_average_current)(struct gauge_device *gauge_dev,
 		int *data, bool *valid);
 	int (*gauge_get_coulomb)(struct gauge_device *gauge_dev, int *data);
-	int (*gauge_reset_hw)(struct gauge_device *gdev);
-	int (*gauge_get_hwocv)(struct gauge_device *gdev, int *data);
-	int (*gauge_set_coulomb_interrupt1_ht)(
-		struct gauge_device *gdev, int car);
-	int (*gauge_set_coulomb_interrupt1_lt)(
-		struct gauge_device *gdev, int car);
+	int (*gauge_reset_hw)(struct gauge_device *);
+	int (*gauge_get_hwocv)(struct gauge_device *, int *data);
+	int (*gauge_set_coulomb_interrupt1_ht)(struct gauge_device *, int car);
+	int (*gauge_set_coulomb_interrupt1_lt)(struct gauge_device *, int car);
 	int (*gauge_get_boot_battery_plug_out_status)(
 		struct gauge_device *gauge_dev, int *is_plugout,
 		int *plutout_time);
@@ -231,7 +209,7 @@ struct gauge_ops {
 	int (*gauge_set_reset_status)(
 		struct gauge_device *gauge_dev, int reset);
 	int (*gauge_dump)(
-		struct gauge_device *gauge_dev, struct seq_file *m, int type);
+		struct gauge_device *gauge_dev, struct seq_file *m);
 	int (*gauge_get_hw_version)(
 		struct gauge_device *gauge_dev);
 	int (*gauge_set_info)(
@@ -240,10 +218,6 @@ struct gauge_ops {
 	int (*gauge_get_info)(
 		struct gauge_device *gauge_dev,
 		enum gauge_info ginfo, int *value);
-	int (*gauge_notify_event)(
-		struct gauge_device *gauge_dev,
-		enum gauge_event evt, int value);
-
 
 };
 
@@ -353,15 +327,13 @@ extern int gauge_dev_enable_battery_tmp_lt_interrupt(
 extern int gauge_dev_enable_battery_tmp_ht_interrupt(
 	struct gauge_device *gauge_dev, bool en, int threshold);
 extern int gauge_dev_dump(
-	struct gauge_device *gauge_dev, struct seq_file *m, int type);
+	struct gauge_device *gauge_dev, struct seq_file *m);
 extern int gauge_dev_get_hw_version(
 	struct gauge_device *gauge_dev);
 extern int gauge_dev_set_info(
 	struct gauge_device *gauge_dev, enum gauge_info ginfo, int value);
 extern int gauge_dev_get_info(
 	struct gauge_device *gauge_dev, enum gauge_info ginfo, int *value);
-extern int gauge_dev_notify_event(
-	struct gauge_device *gauge_dev, enum gauge_event evt, int value);
 
 #endif
 

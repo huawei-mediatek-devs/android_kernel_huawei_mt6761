@@ -1,7 +1,14 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (C) 2019 MediaTek Inc.
- * Author: Argus Lin <argus.lin@mediatek.com>
+ * Copyright (C) 2018 MediaTek Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
  */
 
 #include "accdet.h"
@@ -9,23 +16,15 @@
 #ifdef CONFIG_ACCDET_EINT
 #include <linux/of_gpio.h>
 #endif
+#include <upmu_common.h>
 #include <linux/timer.h>
 #include <linux/of.h>
 #include <linux/of_irq.h>
-#include <linux/timer.h>
-#include <linux/irq.h>
-#include "reg_accdet.h"
-#if defined CONFIG_MTK_PMIC_NEW_ARCH
-#include <upmu_common.h>
 #include <mtk_auxadc_intf.h>
 #include <mach/mtk_pmic.h>
+#include <linux/irq.h>
+#include "reg_accdet.h"
 #include <mach/upmu_hw.h>
-#endif
-#include <mach/mtk_pmic_wrap.h>
-#ifdef CONFIG_MTK_PMIC_WRAP
-#include <linux/regmap.h>
-#include <linux/soc/mediatek/pmic_wrap.h>
-#endif
 #else
 #include "string.h"
 #include "reg_base.H"
@@ -71,7 +70,7 @@
 /* Used to let accdet know if the pin has been fully plugged-in */
 #define EINT_PIN_PLUG_IN        (1)
 #define EINT_PIN_PLUG_OUT       (0)
-#define EINT_PIN_MOISTURE_DETECTED (2)
+#define EINT_PIN_MOISTURE_DETECED (2)
 
 #ifdef CONFIG_ACCDET_EINT_IRQ
 enum pmic_eint_ID {
@@ -110,15 +109,11 @@ static dev_t accdet_devno;
 static struct cdev *accdet_cdev;
 static struct class *accdet_class;
 static struct device *accdet_device;
-static int s_button_status;
 
 /* accdet input device to report cable type and key event */
 static struct input_dev *accdet_input_dev;
 
 #if PMIC_ACCDET_KERNEL
-#ifdef CONFIG_MTK_PMIC_WRAP
-static struct regmap *accdet_regmap;
-#endif
 /* when  MICBIAS_DISABLE_TIMER timeout, queue work: dis_micbias_work */
 static struct work_struct dis_micbias_work;
 static struct workqueue_struct *dis_micbias_workqueue;
@@ -136,12 +131,6 @@ static struct workqueue_struct *eint_workqueue;
 #define MICBIAS_DISABLE_TIMER   (6 * HZ)
 static struct timer_list micbias_timer;
 static void dis_micbias_timerhandler(unsigned long data);
-static bool dis_micbias_done;
-#ifdef CONFIG_ACCDET_EINT_IRQ
-static u32 gmoistureID;
-#endif
-static bool accdet_thing_in_flag;
-static char accdet_log_buf[1536];
 
 /* accdet_init_timer:  init accdet if audio doesn't call to accdet for DC trim
  * timeout: 10 seconds
@@ -206,11 +195,11 @@ static bool dump_reg;
 static struct task_struct *thread;
 
 /*******************local function declaration******************/
-#ifdef CONFIG_ACCDET_EINT_IRQ
 static u32 config_moisture_detect_1_0(void);
 static u32 config_moisture_detect_1_1(void);
 static u32 config_moisture_detect_2_1(void);
 static u32 config_moisture_detect_2_1_1(void);
+static void send_accdet_status_event(u32 cable_type, u32 status);
 static u32 get_moisture_det_en(void);
 static u32 get_moisture_sw_auxadc_check(void);
 static u32 adjust_eint_analog_setting(u32 eintID);
@@ -219,35 +208,18 @@ static u32 adjust_moisture_setting(u32 moistureID, u32 eintID);
 static u32 adjust_eint_setting(u32 moistureID, u32 eintID);
 static void recover_eint_analog_setting(void);
 static void recover_eint_digital_setting(void);
-static void recover_eint_setting(u32 moistureID);
 static void recover_moisture_setting(u32 moistureID);
 static u32 get_triggered_eint(void);
 static void config_digital_moisture_init_by_mode(void);
 static void config_analog_moisture_init_by_mode(void);
 static void config_eint_init_by_mode(void);
-#endif
-static void send_accdet_status_event(u32 cable_type, u32 status);
 static void accdet_init_once(void);
 static inline void accdet_init(void);
-static void accdet_init_debounce(void);
-static void mini_dump_register(void);
-static void accdet_modify_vref_volt_self(void);
 /*******************global function declaration*****************/
 
 #if !defined CONFIG_MTK_PMIC_NEW_ARCH
-enum PMIC_FAKE_IRQ_ENUM {
-	INT_ACCDET,
-	INT_ACCDET_EINT0,
-	INT_ACCDET_EINT1,
-};
-
-void pmic_register_interrupt_callback(unsigned int intNo,
-	void(EINT_FUNC_PTR)(void))
-{
-}
-
-void pmic_enable_interrupt(enum PMIC_FAKE_IRQ_ENUM intNo,
-	unsigned int en, char *str)
+void pmic_register_interrupt_callback(unsigned int intNo
+				, void(EINT_FUNC_PTR)(void))
 {
 }
 
@@ -260,14 +232,8 @@ unsigned int pmic_Read_Efuse_HPOffset(int i)
 inline u32 pmic_read(u32 addr)
 {
 	u32 val = 0;
-#ifdef CONFIG_MTK_PMIC_WRAP
-	if (accdet_regmap)
-		regmap_read(accdet_regmap, addr, &val);
-	else
-		pr_notice("%s %d Error.\n", __func__, __LINE__);
-#else
+
 	pwrap_read(addr, &val);
-#endif
 
 	return val;
 }
@@ -276,36 +242,19 @@ inline u32 pmic_read_mbit(u32 addr, u32 shift, u32 mask)
 {
 	u32 val = 0;
 
-#ifdef CONFIG_MTK_PMIC_WRAP
-	if (accdet_regmap)
-		regmap_read(accdet_regmap, addr, &val);
-	else
-		pr_notice("%s %d Error.\n", __func__, __LINE__);
-#else
 	pwrap_read(addr, &val);
-#endif
 #if PMIC_ACCDET_DEBUG
-	if (dump_reg) {
-		pr_debug("%s [0x%x]=[0x%x], shift[0x%x], mask[0x%x]\n",
-			__func__, addr, ((val>>shift) & mask), shift, mask);
-	}
+	pr_debug("%s [0x%x]=[0x%x], shift[0x%x], mask[0x%x]\n",
+		__func__, addr, ((val>>shift) & mask), shift, mask);
 #endif
 	return ((val>>shift) & mask);
 }
 
 inline void pmic_write(u32 addr, u32 wdata)
 {
-#ifdef CONFIG_MTK_PMIC_WRAP
-	if (accdet_regmap)
-		regmap_write(accdet_regmap, addr, wdata);
-	else
-		pr_notice("%s %d Error.\n", __func__, __LINE__);
-#else
 	pwrap_write(addr, wdata);
-#endif
 #if PMIC_ACCDET_DEBUG
-	if (dump_reg)
-		pr_debug("%s [0x%x]=[0x%x]\n", __func__, addr, wdata);
+	pr_debug("%s [0x%x]=[0x%x]\n", __func__, addr, wdata);
 #endif
 }
 
@@ -315,282 +264,186 @@ inline void pmic_write_mset(u32 addr, u32 shift, u32 mask, u32 data)
 
 	pmic_reg = pmic_read(addr);
 	pmic_reg &= ~(mask<<shift);
-	pmic_write(addr, pmic_reg | (data<<shift));
+	pwrap_write(addr, pmic_reg | (data<<shift));
 #if PMIC_ACCDET_DEBUG
-if (dump_reg) {
 	pr_debug("%s [0x%x]=[0x%x], shift[0x%x], mask[0x%x], data[0x%x]\n",
 		__func__, addr, pmic_read(addr), shift, mask, data);
-}
 #endif
 }
 
 inline void pmic_write_set(u32 addr, u32 shift)
 {
-	pmic_write(addr, pmic_read(addr) | (1<<shift));
+	pwrap_write(addr, pmic_read(addr) | (1<<shift));
 #if PMIC_ACCDET_DEBUG
-	if (dump_reg) {
-		pr_debug("%s [0x%x]=[0x%x], shift[0x%x]\n",
-			__func__, addr, pmic_read(addr), shift);
-	}
+	pr_debug("%s [0x%x]=[0x%x], shift[0x%x]\n",
+		__func__, addr, pmic_read(addr), shift);
 #endif
 }
 
 inline void pmic_write_mclr(u32 addr, u32 shift, u32 data)
 {
-	pmic_write(addr, pmic_read(addr) & ~(data<<shift));
+	pwrap_write(addr, pmic_read(addr) & ~(data<<shift));
 #if PMIC_ACCDET_DEBUG
-	if (dump_reg) {
-		pr_debug("%s [0x%x]=[0x%x], shift[0x%x], data[0x%x]\n",
+	pr_debug("%s [0x%x]=[0x%x], shift[0x%x], data[0x%x]\n",
 		__func__, addr, pmic_read(addr), shift, data);
-	}
 #endif
 }
 
 inline void pmic_write_clr(u32 addr, u32 shift)
 {
-	pmic_write(addr, pmic_read(addr) & ~(1<<shift));
+	pwrap_write(addr, pmic_read(addr) & ~(1<<shift));
 #if PMIC_ACCDET_DEBUG
-	if (dump_reg) {
-		pr_debug("%s [0x%x]=[0x%x], shift[0x%x]\n",
-			__func__, addr, pmic_read(addr), shift);
-	}
+	pr_debug("%s [0x%x]=[0x%x], shift[0x%x]\n",
+		__func__, addr, pmic_read(addr), shift);
 #endif
-}
-
-static void mini_dump_register(void)
-{
-	int addr = 0, end_addr = 0, idx = 0, log_size = 0;
-
-	log_size +=
-	sprintf(accdet_log_buf,
-		"(0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x",
-		PMIC_ACCDET_SW_EN_ADDR,
-		pmic_read(PMIC_ACCDET_SW_EN_ADDR),
-		PMIC_ACCDET_CMP_PWM_EN_ADDR,
-		pmic_read(PMIC_ACCDET_CMP_PWM_EN_ADDR),
-		PMIC_ACCDET_IRQ_ADDR,
-		pmic_read(PMIC_ACCDET_IRQ_ADDR),
-		PMIC_ACCDET_DA_STABLE_ADDR,
-		pmic_read(PMIC_ACCDET_DA_STABLE_ADDR));
-	log_size += sprintf(accdet_log_buf + log_size,
-		"(0x%x)=0x%x (0x%x)=0x%x\naccdet (0x%x)=0x%x (0x%x)=0x%x",
-		PMIC_ACCDET_HWMODE_EN_ADDR,
-		pmic_read(PMIC_ACCDET_HWMODE_EN_ADDR),
-		PMIC_ACCDET_CMPEN_SEL_ADDR,
-		pmic_read(PMIC_ACCDET_CMPEN_SEL_ADDR),
-		PMIC_ACCDET_CMPEN_SW_ADDR,
-		pmic_read(PMIC_ACCDET_CMPEN_SW_ADDR),
-		PMIC_AD_AUDACCDETCMPOB_ADDR,
-		pmic_read(PMIC_AD_AUDACCDETCMPOB_ADDR));
-	log_size += sprintf(accdet_log_buf + log_size,
-		"(0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x\n",
-		PMIC_AD_EINT0CMPMOUT_ADDR,
-		pmic_read(PMIC_AD_EINT0CMPMOUT_ADDR),
-		PMIC_AD_EINT0INVOUT_ADDR,
-		pmic_read(PMIC_AD_EINT0INVOUT_ADDR),
-		PMIC_ACCDET_EN_ADDR,
-		pmic_read(PMIC_ACCDET_EN_ADDR),
-		PMIC_AD_AUDACCDETCMPOB_ADDR,
-		pmic_read(PMIC_AD_AUDACCDETCMPOB_ADDR));
-	end_addr = PMIC_RG_ACCDETSPARE_ADDR;
-	for (addr = PMIC_RG_AUDPWDBMICBIAS0_ADDR; addr <= end_addr; addr += 8) {
-		idx = addr;
-		log_size += sprintf(accdet_log_buf + log_size,
-			"accdet (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x\n",
-			idx, pmic_read(idx),
-			idx+2, pmic_read(idx+2),
-			idx+4, pmic_read(idx+4),
-			idx+6, pmic_read(idx+6));
-	}
-	pr_info("\naccdet %s %d", accdet_log_buf, log_size);
 }
 
 static void dump_register(void)
 {
-	int addr = 0, st_addr = 0, end_addr = 0, idx = 0;
+	int addr = 0, end_addr = 0, idx = 0;
 
-	if (dump_reg) {
 #ifdef CONFIG_ACCDET_EINT_IRQ
 #ifdef CONFIG_ACCDET_SUPPORT_EINT0
-		pr_info("Accdet EINT0 support,MODE_%d regs:\n",
-				accdet_dts.mic_mode);
+	pr_info("Accdet EINT0 support,MODE_%d regs:\n", accdet_dts.mic_mode);
 #elif defined CONFIG_ACCDET_SUPPORT_EINT1
-		pr_info("Accdet EINT1 support,MODE_%d regs:\n",
-				accdet_dts.mic_mode);
+	pr_info("Accdet EINT1 support,MODE_%d regs:\n", accdet_dts.mic_mode);
 #elif defined CONFIG_ACCDET_SUPPORT_BI_EINT
-		pr_info("Accdet BIEINT support,MODE_%d regs:\n",
+	pr_info("Accdet BIEINT support,MODE_%d regs:\n",
 				accdet_dts.mic_mode);
 #else
-		pr_info("ACCDET_EINT_IRQ:NO EINT configed.Error!!\n");
+	pr_info("ACCDET_EINT_IRQ:NO EINT configed.Error!!\n");
 #endif
 #elif defined CONFIG_ACCDET_EINT
-		pr_info("Accdet EINT,MODE_%d regs:\n",
-				accdet_dts.mic_mode);
+	pr_info("Accdet EINT,MODE_%d regs:\n", accdet_dts.mic_mode);
 #endif
 
-		pr_info("ACCDET_RG\n");
-		st_addr = PMIC_ACCDET_AUXADC_SEL_ADDR;
-		end_addr = PMIC_ACCDET_MON_FLAG_EN_ADDR;
-		for (addr = st_addr; addr <= end_addr; addr += 8) {
+	pr_info("ACCDET_RG\n");
+	end_addr = PMIC_ACCDET_MON_FLAG_EN_ADDR;
+	for (addr = PMIC_ACCDET_AUXADC_SEL_ADDR; addr <= end_addr; addr += 8) {
 		idx = addr;
 		pr_info("(0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x\n",
 			idx, pmic_read(idx),
 			idx+2, pmic_read(idx+2),
 			idx+4, pmic_read(idx+4),
 			idx+6, pmic_read(idx+6));
-		}
-		pr_info("AUDDEC_ANA_RG\n");
-		st_addr = PMIC_RG_AUDPREAMPLON_ADDR;
-		end_addr = PMIC_RG_CLKSQ_EN_ADDR;
-		for (addr = st_addr; addr <= end_addr; addr += 8) {
+	}
+	pr_info("AUDDEC_ANA_RG\n");
+	end_addr = PMIC_RG_CLKSQ_EN_ADDR;
+	for (addr = PMIC_RG_AUDPREAMPLON_ADDR; addr <= end_addr; addr += 8) {
 		idx = addr;
 		pr_info("(0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x\n",
 			idx, pmic_read(idx),
 			idx+2, pmic_read(idx+2),
 			idx+4, pmic_read(idx+4),
 			idx+6, pmic_read(idx+6));
-		}
+	}
 
-		pr_info("(0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x\n",
-			PMIC_RG_RTC32K_CK_PDN_ADDR,
-			pmic_read(PMIC_RG_RTC32K_CK_PDN_ADDR),
-			PMIC_RG_ACCDET_CK_PDN_ADDR,
-			pmic_read(PMIC_RG_ACCDET_CK_PDN_ADDR),
-			PMIC_RG_ACCDET_RST_ADDR,
-			pmic_read(PMIC_RG_ACCDET_RST_ADDR),
-			PMIC_RG_INT_EN_ACCDET_ADDR,
-			pmic_read(PMIC_RG_INT_EN_ACCDET_ADDR));
-		pr_info("(0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x\n",
-			PMIC_RG_INT_MASK_ACCDET_ADDR,
-			pmic_read(PMIC_RG_INT_MASK_ACCDET_ADDR),
-			PMIC_RG_INT_STATUS_ACCDET_ADDR,
-			pmic_read(PMIC_RG_INT_STATUS_ACCDET_ADDR),
-			PMIC_RG_AUDPWDBMICBIAS1_ADDR,
-			pmic_read(PMIC_RG_AUDPWDBMICBIAS1_ADDR),
-			PMIC_RG_AUDACCDETMICBIAS0PULLLOW_ADDR,
-			pmic_read(PMIC_RG_AUDACCDETMICBIAS0PULLLOW_ADDR));
-		pr_info("(0x%x)=0x%x (0x%x)=0x%x\n",
-			PMIC_AUXADC_RQST_CH0_ADDR,
-			pmic_read(PMIC_AUXADC_RQST_CH0_ADDR),
-			PMIC_AUXADC_ACCDET_AUTO_SPL_ADDR,
-			pmic_read(PMIC_AUXADC_ACCDET_AUTO_SPL_ADDR));
-		pr_info("(0x%x)=0x%x\n", PMIC_RG_HPLOUTPUTSTBENH_VAUDP32_ADDR,
-			pmic_read(PMIC_RG_HPLOUTPUTSTBENH_VAUDP32_ADDR));
+	pr_info("(0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x\n",
+		PMIC_RG_RTC32K_CK_PDN_ADDR,
+		pmic_read(PMIC_RG_RTC32K_CK_PDN_ADDR),
+		PMIC_RG_ACCDET_CK_PDN_ADDR,
+		pmic_read(PMIC_RG_ACCDET_CK_PDN_ADDR),
+		PMIC_RG_ACCDET_RST_ADDR,
+		pmic_read(PMIC_RG_ACCDET_RST_ADDR),
+		PMIC_RG_INT_EN_ACCDET_ADDR,
+		pmic_read(PMIC_RG_INT_EN_ACCDET_ADDR));
+	pr_info("(0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x\n",
+		PMIC_RG_INT_MASK_ACCDET_ADDR,
+		pmic_read(PMIC_RG_INT_MASK_ACCDET_ADDR),
+		PMIC_RG_INT_STATUS_ACCDET_ADDR,
+		pmic_read(PMIC_RG_INT_STATUS_ACCDET_ADDR),
+		PMIC_RG_AUDPWDBMICBIAS1_ADDR,
+		pmic_read(PMIC_RG_AUDPWDBMICBIAS1_ADDR),
+		PMIC_RG_AUDACCDETMICBIAS0PULLLOW_ADDR,
+		pmic_read(PMIC_RG_AUDACCDETMICBIAS0PULLLOW_ADDR));
+	pr_info("(0x%x)=0x%x (0x%x)=0x%x\n",
+		PMIC_AUXADC_RQST_CH0_ADDR,
+		pmic_read(PMIC_AUXADC_RQST_CH0_ADDR),
+		PMIC_AUXADC_ACCDET_AUTO_SPL_ADDR,
+		pmic_read(PMIC_AUXADC_ACCDET_AUTO_SPL_ADDR));
 
-		pr_info("accdet_dts:deb0=0x%x,deb1=0x%x,deb3=0x%x,deb4=0x%x\n",
-			 cust_pwm_deb->debounce0, cust_pwm_deb->debounce1,
-			 cust_pwm_deb->debounce3, cust_pwm_deb->debounce4);
-	} else
-		mini_dump_register();
+	pr_info("accdet_dts:deb0=0x%x,deb1=0x%x,deb3=0x%x,deb4=0x%x\n",
+		 cust_pwm_deb->debounce0, cust_pwm_deb->debounce1,
+		 cust_pwm_deb->debounce3, cust_pwm_deb->debounce4);
 }
-
 
 #if PMIC_ACCDET_KERNEL
 static void cat_register(char *buf)
 {
-	int addr = 0, st_addr = 0, end_addr = 0, idx = 0;
+	char buf_temp[128] = { 0 };
 
-	dump_reg = true;
-	dump_register();
-	dump_reg = false;
-	sprintf(accdet_log_buf, "ACCDET_RG\n");
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
-	st_addr = PMIC_ACCDET_AUXADC_SEL_ADDR;
-	end_addr = PMIC_ACCDET_MON_FLAG_EN_ADDR;
-	for (addr = st_addr; addr <= end_addr; addr += 8) {
-		idx = addr;
-		sprintf(accdet_log_buf,
-			"(0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x\n",
-			idx, pmic_read(idx),
-			idx+2, pmic_read(idx+2),
-			idx+4, pmic_read(idx+4),
-			idx+6, pmic_read(idx+6));
-		strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
-	}
-	sprintf(accdet_log_buf, "AUDDEC_ANA_RG\n");
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
-	st_addr = PMIC_RG_AUDPREAMPLON_ADDR;
-	end_addr = PMIC_RG_CLKSQ_EN_ADDR;
-	for (addr = st_addr; addr <= end_addr; addr += 8) {
-		idx = addr;
-		sprintf(accdet_log_buf,
-			"(0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x (0x%x)=0x%x\n",
-			idx, pmic_read(idx),
-			idx+2, pmic_read(idx+2),
-			idx+4, pmic_read(idx+4),
-			idx+6, pmic_read(idx+6));
-		strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
-	}
 #ifdef CONFIG_ACCDET_EINT_IRQ
 #ifdef CONFIG_ACCDET_SUPPORT_EINT0
-	sprintf(accdet_log_buf, "[Accdet EINT0 support][MODE_%d]regs:\n",
+	sprintf(buf_temp, "[Accdet EINT0 support][MODE_%d]regs:\n",
 		accdet_dts.mic_mode);
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
+	strncat(buf, buf_temp, strlen(buf_temp));
 #elif defined CONFIG_ACCDET_SUPPORT_EINT1
-	sprintf(accdet_log_buf, "[ccdet EINT1 support][MODE_%d]regs:\n",
+	sprintf(buf_temp, "[ccdet EINT1 support][MODE_%d]regs:\n",
 		accdet_dts.mic_mode);
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
+	strncat(buf, buf_temp, strlen(buf_temp));
 #elif defined CONFIG_ACCDET_SUPPORT_BI_EINT
-	sprintf(accdet_log_buf, "[Accdet BIEINT support][MODE_%d] regs:\n",
+	sprintf(buf_temp, "[Accdet BIEINT support][MODE_%d] regs:\n",
 		accdet_dts.mic_mode);
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
+	strncat(buf, buf_temp, strlen(buf_temp));
 #else
 	strncat(buf, "ACCDET_EINT_IRQ:NO EINT configed.Error!!\n", 64);
 #endif
 #elif defined CONFIG_ACCDET_EINT
-	sprintf(accdet_log_buf, "[Accdet AP EINT][MODE_%d] regs:\n",
+	sprintf(buf_temp, "[Accdet AP EINT][MODE_%d] regs:\n",
 		accdet_dts.mic_mode);
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
+	strncat(buf, buf_temp, strlen(buf_temp));
 #else
 	strncat(buf, "ACCDET EINT:No configed.Error!!\n", 64);
 #endif
 
-	sprintf(accdet_log_buf, "[0x%x]=0x%x\n",
+	sprintf(buf_temp, "[0x%x]=0x%x\n",
 		PMIC_RG_SCK32K_CK_PDN_ADDR,
 		pmic_read(PMIC_RG_SCK32K_CK_PDN_ADDR));
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
+	strncat(buf, buf_temp, strlen(buf_temp));
 
-	sprintf(accdet_log_buf, "[0x%x]=0x%x\n",
+	sprintf(buf_temp, "[0x%x]=0x%x\n",
 		PMIC_RG_ACCDET_RST_ADDR, pmic_read(PMIC_RG_ACCDET_RST_ADDR));
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
+	strncat(buf, buf_temp, strlen(buf_temp));
 
-	sprintf(accdet_log_buf, "[0x%x]=0x%x, [0x%x]=0x%x, [0x%x]=0x%x\n",
+	sprintf(buf_temp, "[0x%x]=0x%x, [0x%x]=0x%x, [0x%x]=0x%x\n",
 		PMIC_RG_INT_EN_ACCDET_ADDR,
 		pmic_read(PMIC_RG_INT_EN_ACCDET_ADDR),
 		PMIC_RG_INT_MASK_ACCDET_ADDR,
 		pmic_read(PMIC_RG_INT_MASK_ACCDET_ADDR),
 		PMIC_RG_INT_STATUS_ACCDET_ADDR,
 		pmic_read(PMIC_RG_INT_STATUS_ACCDET_ADDR));
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
+	strncat(buf, buf_temp, strlen(buf_temp));
 
-	sprintf(accdet_log_buf, "[0x%x]=0x%x,[0x%x]=0x%x\n",
+	sprintf(buf_temp, "[0x%x]=0x%x,[0x%x]=0x%x\n",
 		PMIC_RG_AUDPWDBMICBIAS1_ADDR,
 		pmic_read(PMIC_RG_AUDPWDBMICBIAS1_ADDR),
 		PMIC_RG_AUDACCDETMICBIAS0PULLLOW_ADDR,
 		pmic_read(PMIC_RG_AUDACCDETMICBIAS0PULLLOW_ADDR));
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
+	strncat(buf, buf_temp, strlen(buf_temp));
 
-	sprintf(accdet_log_buf, "[0x%x]=0x%x, [0x%x]=0x%x\n",
+	sprintf(buf_temp, "[0x%x]=0x%x, [0x%x]=0x%x\n",
 		PMIC_AUXADC_RQST_CH5_ADDR, pmic_read(PMIC_AUXADC_RQST_CH5_ADDR),
 		PMIC_AUXADC_ACCDET_AUTO_SPL_ADDR,
 		pmic_read(PMIC_AUXADC_ACCDET_AUTO_SPL_ADDR));
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
+	strncat(buf, buf_temp, strlen(buf_temp));
 
-	sprintf(accdet_log_buf,
-		"dtsInfo:deb0=0x%x,deb1=0x%x,deb3=0x%x,deb4=0x%x\n",
+	sprintf(buf_temp, "dtsInfo:deb0=0x%x,deb1=0x%x,deb3=0x%x,deb4=0x%x\n",
 		 cust_pwm_deb->debounce0, cust_pwm_deb->debounce1,
 		 cust_pwm_deb->debounce3, cust_pwm_deb->debounce4);
-	strncat(buf, accdet_log_buf, strlen(accdet_log_buf));
+	strncat(buf, buf_temp, strlen(buf_temp));
 }
 
 static int dbug_thread(void *unused)
 {
-	dump_register();
-
+	while (debug_thread_en) {
+		if (dump_reg)
+			dump_register();
+		msleep(500);
+	}
 	return 0;
 }
 
-static ssize_t start_debug_store(struct device_driver *ddri,
+static ssize_t store_accdet_start_debug_thread(struct device_driver *ddri,
 	const char *buf, size_t count)
 {
 	int error = 0;
@@ -602,12 +455,6 @@ static ssize_t start_debug_store(struct device_driver *ddri,
 	}
 
 	ret = strncmp(buf, "0", 1);
-	/* fix syzkaller issue */
-	if (debug_thread_en == true) {
-		pr_info("%s() debug thread started, ret!\n", __func__);
-		return count;
-	}
-
 	if (ret) {
 		debug_thread_en = true;
 		thread = kthread_run(dbug_thread, 0, "ACCDET");
@@ -625,7 +472,7 @@ static ssize_t start_debug_store(struct device_driver *ddri,
 	return count;
 }
 
-static ssize_t set_reg_store(struct device_driver *ddri,
+static ssize_t store_accdet_set_reg(struct device_driver *ddri,
 	const char *buf, size_t count)
 {
 	int ret = 0;
@@ -651,7 +498,7 @@ static ssize_t set_reg_store(struct device_driver *ddri,
 	return count;
 }
 
-static ssize_t dump_reg_show(struct device_driver *ddri, char *buf)
+static ssize_t show_accdet_dump_reg(struct device_driver *ddri, char *buf)
 {
 	if (buf == NULL) {
 		pr_notice("%s() *buf is NULL\n", __func__);
@@ -664,7 +511,7 @@ static ssize_t dump_reg_show(struct device_driver *ddri, char *buf)
 	return strlen(buf);
 }
 
-static ssize_t dump_reg_store(struct device_driver *ddri,
+static ssize_t store_accdet_dump_reg(struct device_driver *ddri,
 	const char *buf, size_t count)
 {
 	int ret = 0;
@@ -686,7 +533,7 @@ static ssize_t dump_reg_store(struct device_driver *ddri,
 	return count;
 }
 
-static ssize_t set_headset_mode_store(struct device_driver *ddri,
+static ssize_t store_accdet_set_headset_mode(struct device_driver *ddri,
 	const char *buf, size_t count)
 {
 	int ret = 0;
@@ -709,17 +556,14 @@ static ssize_t set_headset_mode_store(struct device_driver *ddri,
 		pr_info("%s() Don't support switch to mode_1!\n", __func__);
 		/* accdet_dts.mic_mode = tmp_headset_mode; */
 		/* accdet_init(); */
-		/* accdet_init_debounce(); */
 		break;
 	case HEADSET_MODE_2:
 		accdet_dts.mic_mode = tmp_headset_mode;
 		accdet_init();
-		accdet_init_debounce();
 		break;
 	case HEADSET_MODE_6:
 		accdet_dts.mic_mode = tmp_headset_mode;
 		accdet_init();
-		accdet_init_debounce();
 		break;
 	default:
 		pr_info("%s() Invalid mode: %d\n", __func__, tmp_headset_mode);
@@ -733,7 +577,7 @@ static ssize_t set_headset_mode_store(struct device_driver *ddri,
 	return count;
 }
 
-static ssize_t state_show(struct device_driver *ddri, char *buf)
+static ssize_t show_cable_state(struct device_driver *ddri, char *buf)
 {
 	char temp_type = (char)cable_type;
 
@@ -746,11 +590,13 @@ static ssize_t state_show(struct device_driver *ddri, char *buf)
 	return strlen(buf);
 }
 
-static DRIVER_ATTR_WO(start_debug);
-static DRIVER_ATTR_WO(set_reg);
-static DRIVER_ATTR_RW(dump_reg);
-static DRIVER_ATTR_WO(set_headset_mode);
-static DRIVER_ATTR_RO(state);
+static DRIVER_ATTR(start_debug, 0644, NULL, store_accdet_start_debug_thread);
+static DRIVER_ATTR(set_reg, 0644, NULL, store_accdet_set_reg);
+static DRIVER_ATTR(dump_reg, 0644, show_accdet_dump_reg,
+			store_accdet_dump_reg);
+static DRIVER_ATTR(set_headset_mode, 0644, NULL,
+			store_accdet_set_headset_mode);
+static DRIVER_ATTR(state, 0644, show_cable_state, NULL);
 
 static struct driver_attribute *accdet_attr_list[] = {
 	&driver_attr_start_debug,
@@ -855,14 +701,47 @@ static u32 accdet_get_auxadc(int deCount)
 static void accdet_get_efuse(void)
 {
 	u32 efuseval = 0;
+#ifdef CONFIG_FOUR_KEY_HEADSET
+	u32 tmp_val = 0;
+	u32 tmp_8bit = 0
+#endif
 	int tmp_div;
 	unsigned int moisture_eint0;
 	unsigned int moisture_eint1;
 
+#ifdef CONFIG_FOUR_KEY_HEADSET
+	/* 4-key efuse:
+	 * bit[9:2] efuse value is loaded, so every read out value need to be
+	 * left shift 2 bit,and then compare with voltage get from AUXADC.
+	 * AD efuse: key-A Voltage:0--AD;
+	 * DB efuse: key-D Voltage: AD--DB;
+	 * BC efuse: key-B Voltage:DB--BC;
+	 * key-C Voltage: BC--600;
+	 */
+	tmp_val = pmic_Read_Efuse_HPOffset(111);
+	tmp_8bit = tmp_val & ACCDET_CALI_MASK0;
+	accdet_dts.four_key.mid = tmp_8bit << 2;
+
+	tmp_8bit = (tmp_val >> 8) & ACCDET_CALI_MASK0;
+	accdet_dts.four_key.voice = tmp_8bit << 2;
+
+	tmp_val = pmic_Read_Efuse_HPOffset(112);
+	tmp_8bit = tmp_val & ACCDET_CALI_MASK0;
+	accdet_dts.four_key.up = tmp_8bit << 2;
+
+	accdet_dts.four_key.down = 600;
+	pr_info("accdet key thresh: mid=%dmv,voice=%dmv,up=%dmv,down=%dmv\n",
+		accdet_dts.four_key.mid, accdet_dts.four_key.voice,
+		accdet_dts.four_key.up, accdet_dts.four_key.down);
+#endif
 	/* accdet offset efuse:
 	 * this efuse must divided by 2
 	 */
-	efuseval = pmic_Read_Efuse_HPOffset(102);
+#ifdef CONFIG_MTK_PMIC_NEW_ARCH
+	efuseval = pmic_Read_Efuse_HPOffset(110);
+#else
+	efuseval = 0;
+#endif
 	accdet_auxadc_offset = efuseval & 0xFF;
 	if (accdet_auxadc_offset > 128)
 		accdet_auxadc_offset -= 256;
@@ -874,7 +753,7 @@ static void accdet_get_efuse(void)
  * we need to transfer it
  */
 	/* moisture vdd efuse offset */
-	efuseval = pmic_Read_Efuse_HPOffset(105);
+	efuseval = pmic_Read_Efuse_HPOffset(113);
 	moisture_vdd_offset = (int)((efuseval >> 8) & ACCDET_CALI_MASK0);
 	if (moisture_vdd_offset > 128)
 		moisture_vdd_offset -= 256;
@@ -882,7 +761,7 @@ static void accdet_get_efuse(void)
 		__func__, efuseval, moisture_vdd_offset);
 
 	/* moisture offset */
-	efuseval = pmic_Read_Efuse_HPOffset(106);
+	efuseval = pmic_Read_Efuse_HPOffset(114);
 	moisture_offset = (int)(efuseval & ACCDET_CALI_MASK0);
 	if (moisture_offset > 128)
 		moisture_offset -= 256;
@@ -891,12 +770,12 @@ static void accdet_get_efuse(void)
 
 	if (accdet_dts.moisture_use_ext_res == 0x0) {
 		/* moisture eint efuse offset */
-		efuseval = pmic_Read_Efuse_HPOffset(104);
+		efuseval = pmic_Read_Efuse_HPOffset(112);
 		moisture_eint0 = (int)((efuseval >> 8) & ACCDET_CALI_MASK0);
 		pr_info("%s moisture_eint0 efuse=0x%x,moisture_eint0=0x%x\n",
 			__func__, efuseval, moisture_eint0);
 
-		efuseval = pmic_Read_Efuse_HPOffset(105);
+		efuseval = pmic_Read_Efuse_HPOffset(113);
 		moisture_eint1 = (int)(efuseval & ACCDET_CALI_MASK0);
 		pr_info("%s moisture_eint1 efuse=0x%x,moisture_eint1=0x%x\n",
 			__func__, efuseval, moisture_eint1);
@@ -927,36 +806,6 @@ static void accdet_get_efuse(void)
 }
 
 #ifdef CONFIG_FOUR_KEY_HEADSET
-static void accdet_get_efuse_4key(void)
-{
-	u32 tmp_val = 0;
-	u32 tmp_8bit = 0
-
-	/* 4-key efuse:
-	 * bit[9:2] efuse value is loaded, so every read out value need to be
-	 * left shift 2 bit,and then compare with voltage get from AUXADC.
-	 * AD efuse: key-A Voltage:0--AD;
-	 * DB efuse: key-D Voltage: AD--DB;
-	 * BC efuse: key-B Voltage:DB--BC;
-	 * key-C Voltage: BC--600;
-	 */
-	tmp_val = pmic_Read_Efuse_HPOffset(103);
-	tmp_8bit = tmp_val & ACCDET_CALI_MASK0;
-	accdet_dts.four_key.mid = tmp_8bit << 2;
-
-	tmp_8bit = (tmp_val >> 8) & ACCDET_CALI_MASK0;
-	accdet_dts.four_key.voice = tmp_8bit << 2;
-
-	tmp_val = pmic_Read_Efuse_HPOffset(104);
-	tmp_8bit = tmp_val & ACCDET_CALI_MASK0;
-	accdet_dts.four_key.up = tmp_8bit << 2;
-
-	accdet_dts.four_key.down = 600;
-	pr_info("accdet key thresh: mid=%dmv,voice=%dmv,up=%dmv,down=%dmv\n",
-		accdet_dts.four_key.mid, accdet_dts.four_key.voice,
-		accdet_dts.four_key.up, accdet_dts.four_key.down);
-}
-
 static u32 key_check(u32 v)
 {
 	if ((v < accdet_dts.four_key.down) && (v >= accdet_dts.four_key.up))
@@ -1138,7 +987,7 @@ static inline void clear_accdet_eint(u32 eintid)
 			PMIC_ACCDET_EINT1_IRQ_CLR_SHIFT);
 	}
 
-	pr_debug("%s() eint-%s IRQ-STS:[0x%x]=0x%x\n", __func__,
+	pr_info("%s() eint-%s IRQ-STS:[0x%x]=0x%x\n", __func__,
 		(eintid == PMIC_EINT0)?"0":((eintid == PMIC_EINT1)?"1":"BI"),
 		PMIC_ACCDET_IRQ_ADDR, pmic_read(PMIC_ACCDET_IRQ_ADDR));
 }
@@ -1166,7 +1015,7 @@ static inline void clear_accdet_eint_check(u32 eintid)
 				PMIC_RG_INT_STATUS_ACCDET_EINT1_SHIFT);
 	}
 
-	pr_debug("%s() eint-%s IRQ-STS:[0x%x]=0x%x TOP_INT_STS:[0x%x]:0x%x\n",
+	pr_info("%s() eint-%s IRQ-STS:[0x%x]=0x%x TOP_INT_STS:[0x%x]:0x%x\n",
 		__func__,
 		(eintid == PMIC_EINT0)?"0":((eintid == PMIC_EINT1)?"1":"BI"),
 		PMIC_ACCDET_IRQ_ADDR, pmic_read(PMIC_ACCDET_IRQ_ADDR),
@@ -1186,7 +1035,7 @@ static u32 get_moisture_sw_auxadc_check(void)
 	if (accdet_dts.moisture_detect_mode == 0x1 ||
 		accdet_dts.moisture_detect_mode == 0x2 ||
 		accdet_dts.moisture_detect_mode == 0x3) {
-		if (cur_eint_state == EINT_PIN_MOISTURE_DETECTED) {
+		if (cur_eint_state == EINT_PIN_MOISTURE_DETECED) {
 			pr_info("%s Moisture plug out detectecd\n", __func__);
 			cur_eint_state = EINT_PIN_PLUG_OUT;
 			return M_PLUG_OUT;
@@ -1241,7 +1090,6 @@ static u32 adjust_eint_analog_setting(u32 eintID)
 static u32 adjust_eint_digital_setting(u32 eintID)
 {
 	unsigned int ret = 0;
-
 #ifdef CONFIG_ACCDET_SUPPORT_EINT0
 	/* disable inverter */
 	pmic_write_clr(PMIC_ACCDET_EINT0_INVERTER_SW_EN_ADDR,
@@ -1264,7 +1112,7 @@ static u32 adjust_eint_digital_setting(u32 eintID)
 		pmic_write_clr(PMIC_ACCDET_DA_STABLE_ADDR,
 			PMIC_ACCDET_EINT0_CEN_STABLE_SHIFT);
 		ret = get_moisture_sw_auxadc_check();
-		/* disable mtest en */
+		/* disble mtest en */
 		pmic_write_clr(PMIC_RG_MTEST_EN_ADDR, PMIC_RG_MTEST_EN_SHIFT);
 		pmic_write_clr(PMIC_AUDACCDETAUXADCSWCTRL_SEL_ADDR,
 			PMIC_AUDACCDETAUXADCSWCTRL_SEL_SHIFT);
@@ -1279,15 +1127,16 @@ static u32 adjust_eint_digital_setting(u32 eintID)
 			PMIC_ACCDET_EINT0_CTURBO_SW_SHIFT);
 		pr_info("auxadc T1\r");
 		ret = get_moisture_sw_auxadc_check();
-	if ((ret == M_WATER_IN) || (ret == M_HP_PLUG_IN)) {
+		if ((ret == M_WATER_IN) || (ret == M_HP_PLUG_IN)) {
 		pmic_write_clr(PMIC_ACCDET_EINT_CTURBO_SEL_ADDR,
 			PMIC_ACCDET_EINT_CTURBO_SEL_SHIFT);
 		pmic_write_clr(PMIC_ACCDET_EINT0_CTURBO_SW_ADDR,
 			PMIC_ACCDET_EINT0_CTURBO_SW_SHIFT);
-	}
+		}
 		return ret;
 	}
-	if (accdet_dts.eint_detect_mode == 0x4) {
+	if ((accdet_dts.eint_detect_mode == 0x4) ||
+		(accdet_dts.eint_detect_mode == 0x5)) {
 #ifdef CONFIG_ACCDET_SUPPORT_EINT0
 		/* set DA stable signal */
 		pmic_write_clr(PMIC_ACCDET_DA_STABLE_ADDR,
@@ -1309,9 +1158,9 @@ static u32 adjust_eint_digital_setting(u32 eintID)
 }
 static u32 adjust_moisture_digital_setting(u32 eintID)
 {
-if ((accdet_dts.moisture_detect_mode == 0x1) ||
-	(accdet_dts.moisture_detect_mode == 0x2) ||
-	(accdet_dts.moisture_detect_mode == 0x3)) {
+	if ((accdet_dts.moisture_detect_mode == 0x1) ||
+		(accdet_dts.moisture_detect_mode == 0x2) ||
+		(accdet_dts.moisture_detect_mode == 0x3)) {
 #ifdef CONFIG_ACCDET_SUPPORT_EINT0
 	/* wk1, enable moisture detection */
 	pmic_write_set(PMIC_ACCDET_EINT0_M_SW_EN_ADDR,
@@ -1327,13 +1176,13 @@ if ((accdet_dts.moisture_detect_mode == 0x1) ||
 	pmic_write_set(PMIC_ACCDET_EINT1_M_SW_EN_ADDR,
 		PMIC_ACCDET_EINT1_M_SW_EN_SHIFT);
 #endif
-}
+	}
 	return 0;
 }
 
 static u32 adjust_moisture_analog_setting(u32 eintID)
 {
-	unsigned int efuseval = 0, vref2val = 0, vref2hi = 0;
+	unsigned int rg;
 
 	if (accdet_dts.moisture_detect_mode == 0x1) {
 		/* select VTH to 2.8v(default), can set to 2.4 or 2.0v by dts */
@@ -1356,58 +1205,58 @@ static u32 adjust_moisture_analog_setting(u32 eintID)
 		/* do nothing */
 	} else if (accdet_dts.moisture_detect_mode == 0x5) {
 		/* enable VREF2 */
-		vref2hi = 0x1;
-		switch (accdet_dts.moisture_comp_vref2) {
-		case 0:
-			vref2val = 0x3;
-			break;
-		case 1:
-			vref2val = 0x7;
-			break;
-		case 2:
-			vref2val = 0xc;
-			break;
-		default:
-			vref2val = 0x3;
-			break;
-		}
-		pr_info("%s efuse=0x%x,vref2val=0x%x, vref2hi=0x%x\n",
-			__func__, efuseval, vref2val, vref2hi);
-		/* voltage 880~1330mV */
-		pmic_write_set(PMIC_RG_ACCDETSPARE_ADDR, 15);
-		pmic_write_mset(PMIC_RG_EINTCOMPVTH_ADDR,
-			6, 0x3, (vref2val & 0xc) >> 2);
-		pmic_write_mset(PMIC_RG_ACCDETSPARE_ADDR,
-			13, 0x3, (vref2val & 0x3));
-		/* golden setting
-		 * pmic_write_mset(PMIC_RG_ACCDETSPARE_ADDR, 3, 0x1f, 0x1e);
-		 */
+		/* TBD read efuse */
+		pmic_write_mset(PMIC_RG_ACCDETSPARE_ADDR, 3, 0x1f, 0x1e);
+		rg = pmic_read_mbit(PMIC_RG_ACCDETSPARE_ADDR, 0x2, 0x3);
+		pmic_write_mset(PMIC_RG_EINTCOMPVTH_ADDR, 6, 0x3, rg);
 	}
 	return 0;
 }
 
 static u32 adjust_moisture_setting(u32 moistureID, u32 eintID)
 {
-	unsigned int ret = 0;
+	unsigned int reg = 0, ret = 0;
 
 	if (moistureID == M_PLUG_IN) {
-		if (accdet_thing_in_flag == true) {
+		if (eint_accdet_sync_flag == true) {
 			/* receive M_PLUG_IN second time, just clear irq sts */
 			clear_accdet_eint(eintID);
 			clear_accdet_eint_check(eintID);
 		} else {
-			/* to check if 1st time thing in interrupt */
-			accdet_thing_in_flag = true;
-			cur_eint_state = EINT_PIN_PLUG_OUT;
 			/* adjust analog moisture setting */
 			adjust_moisture_analog_setting(eintID);
-		if (accdet_dts.moisture_detect_mode != 0x5) {
 			/* wk2 */
 			pmic_write_set(PMIC_RG_EINT0HIRENB_ADDR,
 				PMIC_RG_EINT0HIRENB_SHIFT);
-		}
 			/* adjust digital setting */
 			ret = adjust_eint_digital_setting(eintID);
+			if (accdet_dts.eint_detect_mode == 0x5) {
+#ifdef CONFIG_ACCDET_SUPPORT_EINT0
+				/* enable RG_EINT0CONFIGACCDET */
+				pmic_write_set(PMIC_RG_EINT0CONFIGACCDET_ADDR,
+					PMIC_RG_EINT0CONFIGACCDET_SHIFT);
+				/* wk2 */
+				pmic_write_set(PMIC_RG_EINT0HIRENB_ADDR,
+					PMIC_RG_EINT0HIRENB_SHIFT);
+#elif defined CONFIG_ACCDET_SUPPORT_EINT1
+				/* enable RG_EINT1CONFIGACCDET */
+				pmic_write_set(PMIC_RG_EINT1CONFIGACCDET_ADDR,
+					PMIC_RG_EINT1CONFIGACCDET_SHIFT);
+				pmic_write_set(PMIC_RG_EINT1HIRENB_ADDR,
+					PMIC_RG_EINT1HIRENB_SHIFT);
+#elif defined CONFIG_ACCDET_SUPPORT_BI_EINT
+				/* enable RG_EINT0CONFIGACCDET */
+				pmic_write_set(PMIC_RG_EINT0CONFIGACCDET_ADDR,
+					PMIC_RG_EINT0CONFIGACCDET_SHIFT);
+				pmic_write_set(PMIC_RG_EINT0HIRENB_ADDR,
+					PMIC_RG_EINT0HIRENB_SHIFT);
+				/* enable RG_EINT1CONFIGACCDET */
+				pmic_write_set(PMIC_RG_EINT1CONFIGACCDET_ADDR,
+					PMIC_RG_EINT1CONFIGACCDET_SHIFT);
+				pmic_write_set(PMIC_RG_EINT1HIRENB_ADDR,
+					PMIC_RG_EINT1HIRENB_SHIFT);
+#endif
+			}
 			/* adjust digital moisture setting */
 			adjust_moisture_digital_setting(eintID);
 			/* sw axuadc check, EINT 1.0~ EINT 2.0 */
@@ -1430,23 +1279,22 @@ static u32 adjust_moisture_setting(u32 moistureID, u32 eintID)
 			pmic_write_set(PMIC_ACCDET_EINT1_M_SW_EN_ADDR,
 				PMIC_ACCDET_EINT1_M_SW_EN_SHIFT);
 #endif
-			pr_info("%s() , thing in done\n", __func__);
 		}
 		return M_NO_ACT;
 	} else if (moistureID == M_WATER_IN) {
-		cur_eint_state = EINT_PIN_MOISTURE_DETECTED;
+		cur_eint_state = EINT_PIN_MOISTURE_DETECED;
 		if (accdet_dts.moisture_detect_mode == 0x5) {
-			/* Case 5: water in need 128ms to detect plug out
-			 * set debounce to 128ms
-			 * this value shold less then eint_thresh
-			 */
+		/* Case 5: water in need 256ms to detect plug out
+		 * set debounce to 256ms
+		 * this value shold less then eint_thresh
+		 */
 			accdet_set_debounce(eint_state011,
 				accdet_dts.pwm_deb.eint_debounce3);
 		} else {
-			/* water in need 0.12ms to detect plug out
-			 * set debounce to 0.12ms
-			 * this value shold less then eint_thresh
-			 */
+		/* water in need 0.12ms to detect plug out
+		 * set debounce to 0.12ms
+		 * this value shold less then eint_thresh
+		 */
 			accdet_set_debounce(eint_state011, 0x1);
 		}
 		clear_accdet_eint(eintID);
@@ -1454,34 +1302,54 @@ static u32 adjust_moisture_setting(u32 moistureID, u32 eintID)
 		return M_NO_ACT;
 	} else if (moistureID == M_HP_PLUG_IN) {
 		/* water in then HP in, recover state */
-		if (cur_eint_state == EINT_PIN_MOISTURE_DETECTED)
+		if (cur_eint_state == EINT_PIN_MOISTURE_DETECED)
 			cur_eint_state = EINT_PIN_PLUG_OUT;
 
 #ifdef CONFIG_ACCDET_SUPPORT_EINT0
-		/* wk1, disable moisture detection */
-		pmic_write_clr(PMIC_ACCDET_EINT0_M_SW_EN_ADDR,
-			PMIC_ACCDET_EINT0_M_SW_EN_SHIFT);
+	/* wk1, disable moisture detection */
+	pmic_write_clr(PMIC_ACCDET_EINT0_M_SW_EN_ADDR,
+		PMIC_ACCDET_EINT0_M_SW_EN_SHIFT);
 #elif defined CONFIG_ACCDET_SUPPORT_EINT1
-		/* wk1, disable moisture detection */
-		pmic_write_clr(PMIC_ACCDET_EINT1_M_SW_EN_ADDR,
-			PMIC_ACCDET_EINT1_M_SW_EN_SHIFT);
+	/* wk1, disable moisture detection */
+	pmic_write_clr(PMIC_ACCDET_EINT1_M_SW_EN_ADDR,
+		PMIC_ACCDET_EINT1_M_SW_EN_SHIFT);
 #elif defined CONFIG_ACCDET_SUPPORT_BI_EINT
-		/* wk1, disable moisture detection */
-		pmic_write_clr(PMIC_ACCDET_EINT0_M_SW_EN_ADDR,
-			PMIC_ACCDET_EINT0_M_SW_EN_SHIFT);
-		pmic_write_clr(PMIC_ACCDET_EINT1_M_SW_EN_ADDR,
-			PMIC_ACCDET_EINT1_M_SW_EN_SHIFT);
+	/* wk1, disable moisture detection */
+	pmic_write_clr(PMIC_ACCDET_EINT0_M_SW_EN_ADDR,
+		PMIC_ACCDET_EINT0_M_SW_EN_SHIFT);
+	pmic_write_clr(PMIC_ACCDET_EINT1_M_SW_EN_ADDR,
+		PMIC_ACCDET_EINT1_M_SW_EN_SHIFT);
 #endif
-		/* wk3, if HP + W together, after detect HP, we should
-		 * set accdet_sync_flag to true to avoid receive W interrupt
-		 */
-		eint_accdet_sync_flag = true;
 
 		adjust_eint_analog_setting(eintID);
-		/* set debounce to 2ms */
-		accdet_set_debounce(eint_state000, 0x6);
+		/* set debounce to 0.12ms */
+		accdet_set_debounce(eint_state000, 0x1);
+		if (accdet_dts.moisture_detect_mode == 0x5) {
+			/* 50ms is enough, but we set to ~128ms */
+			accdet_set_debounce(eint_state011, 0xd);
+			/* mic mode setting */
+			reg = pmic_read(PMIC_RG_AUDACCDETMICBIAS0PULLLOW_ADDR);
+			if (accdet_dts.mic_mode == HEADSET_MODE_1) {
+			/* disable analog fast discharge */
+			pmic_write_clr(PMIC_RG_ANALOGFDEN_ADDR,
+				PMIC_RG_ANALOGFDEN_SHIFT);
+			pmic_write_mclr(PMIC_RG_ACCDETSPARE_ADDR, 11, 0x3);
+			} else if (accdet_dts.mic_mode == HEADSET_MODE_2) {
+				/* disable analog fast discharge */
+				pmic_write_mclr(PMIC_RG_ANALOGFDEN_ADDR,
+					PMIC_RG_ANALOGFDEN_SHIFT, 0x3);
+			} else if (accdet_dts.mic_mode == HEADSET_MODE_6) {
+				/* disable analog fast discharge */
+				pmic_write_mclr(PMIC_RG_ANALOGFDEN_ADDR,
+					PMIC_RG_ANALOGFDEN_SHIFT, 0x3);
+			}
+			/* connect VREF2 to EINT0CMP */
+			pmic_write_mset(PMIC_RG_EINTCOMPVTH_ADDR,
+				PMIC_RG_EINTCOMPVTH_SHIFT,
+				PMIC_RG_EINTCOMPVTH_MASK, 0x3);
+		}
 	} else if (moistureID == M_PLUG_OUT) {
-		/* set debounce to 1ms */
+		/* set debounce to 256ms */
 		accdet_set_debounce(eint_state000,
 			accdet_dts.pwm_deb.eint_debounce0);
 	} else {
@@ -1499,7 +1367,7 @@ static u32 adjust_eint_setting(u32 moistureID, u32 eintID)
 		/* adjust analog setting */
 		adjust_eint_analog_setting(eintID);
 	} else if (moistureID == M_PLUG_OUT) {
-		/* set debounce to 1ms */
+		/* set debounce to 256ms */
 		accdet_set_debounce(eint_state000,
 			accdet_dts.pwm_deb.eint_debounce0);
 	} else {
@@ -1516,7 +1384,8 @@ static void recover_eint_analog_setting(void)
 		/* ESD switches on */
 		pmic_write_set(PMIC_RG_ACCDETSPARE_ADDR, 8);
 	}
-	if (accdet_dts.eint_detect_mode == 0x4) {
+	if ((accdet_dts.eint_detect_mode == 0x4) ||
+		(accdet_dts.eint_detect_mode == 0x5)) {
 #ifdef CONFIG_ACCDET_SUPPORT_EINT0
 		/* disable RG_EINT0CONFIGACCDET */
 		pmic_write_clr(PMIC_RG_EINT0CONFIGACCDET_ADDR,
@@ -1533,8 +1402,6 @@ static void recover_eint_analog_setting(void)
 		pmic_write_clr(PMIC_RG_EINT1CONFIGACCDET_ADDR,
 			PMIC_RG_EINT1CONFIGACCDET_SHIFT);
 #endif
-		pmic_write_clr(PMIC_RG_EINT0HIRENB_ADDR,
-			PMIC_RG_EINT0HIRENB_SHIFT);
 	}
 
 }
@@ -1555,7 +1422,8 @@ static void recover_eint_digital_setting(void)
 	pmic_write_clr(PMIC_ACCDET_EINT1_M_SW_EN_ADDR,
 		PMIC_ACCDET_EINT1_M_SW_EN_SHIFT);
 #endif
-	if (accdet_dts.eint_detect_mode == 0x4) {
+	if ((accdet_dts.eint_detect_mode == 0x4) ||
+		(accdet_dts.eint_detect_mode == 0x5)) {
 		/* enable eint0cen */
 #ifdef CONFIG_ACCDET_SUPPORT_EINT0
 		/* enable eint0cen */
@@ -1577,26 +1445,28 @@ static void recover_eint_digital_setting(void)
 
 	if (accdet_dts.eint_detect_mode != 0x1) {
 #ifdef CONFIG_ACCDET_SUPPORT_EINT0
-		/* enable inverter */
-		pmic_write_set(PMIC_ACCDET_EINT0_INVERTER_SW_EN_ADDR,
-				PMIC_ACCDET_EINT0_INVERTER_SW_EN_SHIFT);
+	/* enable inverter */
+	pmic_write_set(PMIC_ACCDET_EINT0_INVERTER_SW_EN_ADDR,
+					PMIC_ACCDET_EINT0_INVERTER_SW_EN_SHIFT);
 #elif defined CONFIG_ACCDET_SUPPORT_EINT1
-		/* enable inverter */
-		pmic_write_set(PMIC_ACCDET_EINT1_INVERTER_SW_EN_ADDR,
-				PMIC_ACCDET_EINT1_INVERTER_SW_EN_SHIFT);
+	/* enable inverter */
+	pmic_write_set(PMIC_ACCDET_EINT1_INVERTER_SW_EN_ADDR,
+					PMIC_ACCDET_EINT1_INVERTER_SW_EN_SHIFT);
 #elif defined CONFIG_ACCDET_SUPPORT_BI_EINT
-		/* enable inverter */
-		pmic_write_set(PMIC_ACCDET_EINT0_INVERTER_SW_EN_ADDR,
-				PMIC_ACCDET_EINT0_INVERTER_SW_EN_SHIFT);
-		/* enable inverter */
-		pmic_write_set(PMIC_ACCDET_EINT1_INVERTER_SW_EN_ADDR,
-				PMIC_ACCDET_EINT1_INVERTER_SW_EN_SHIFT);
+	/* enable inverter */
+	pmic_write_set(PMIC_ACCDET_EINT0_INVERTER_SW_EN_ADDR,
+					PMIC_ACCDET_EINT0_INVERTER_SW_EN_SHIFT);
+	/* enable inverter */
+	pmic_write_set(PMIC_ACCDET_EINT1_INVERTER_SW_EN_ADDR,
+					PMIC_ACCDET_EINT1_INVERTER_SW_EN_SHIFT);
 #endif
 	}
 }
 
 static void recover_moisture_analog_setting(void)
 {
+	unsigned int reg = 0;
+
 	if (accdet_dts.moisture_detect_mode == 0x1) {
 		/* select VTH to 2v */
 		pmic_write_mset(PMIC_RG_EINTCOMPVTH_ADDR,
@@ -1606,33 +1476,43 @@ static void recover_moisture_analog_setting(void)
 	} else if (accdet_dts.moisture_detect_mode == 0x3) {
 	} else if (accdet_dts.moisture_detect_mode == 0x4) {
 	} else if (accdet_dts.moisture_detect_mode == 0x5) {
-		/* enable comp1 delay window */
-		pmic_write_clr(PMIC_RG_EINT0NOHYS_ADDR,
-			PMIC_RG_EINT0NOHYS_SHIFT);
-
+		/* 50ms is enough, but we set to ~128ms */
 		accdet_set_debounce(eint_state011,
 			accdet_dts.pwm_deb.eint_debounce3);
-		/* disconnect VREF2 to EINT0CMP and recover to vref */
-		pmic_write_mset(PMIC_RG_EINTCOMPVTH_ADDR,
-			PMIC_RG_EINTCOMPVTH_SHIFT, PMIC_RG_EINTCOMPVTH_MASK,
-			accdet_dts.moisture_comp_vth);
+		/* mic mode setting */
+		reg = pmic_read(PMIC_RG_AUDACCDETMICBIAS0PULLLOW_ADDR);
+		if (accdet_dts.mic_mode == HEADSET_MODE_1) {
+			/* disable analog fast discharge */
+			pmic_write_set(PMIC_RG_ANALOGFDEN_ADDR,
+				PMIC_RG_ANALOGFDEN_SHIFT);
+			pmic_write_mset(PMIC_RG_ACCDETSPARE_ADDR, 11, 0x3, 0x3);
+		} else if (accdet_dts.mic_mode == HEADSET_MODE_2) {
+			/* disable analog fast discharge */
+			pmic_write_mset(PMIC_RG_ANALOGFDEN_ADDR,
+				PMIC_RG_ANALOGFDEN_SHIFT,
+				PMIC_RG_ANALOGFDEN_MASK, 0x3);
+		} else if (accdet_dts.mic_mode == HEADSET_MODE_6) {
+			/* disable analog fast discharge */
+			pmic_write_mset(PMIC_RG_ANALOGFDEN_ADDR,
+				PMIC_RG_ANALOGFDEN_SHIFT,
+				PMIC_RG_ANALOGFDEN_MASK, 0x3);
+		}
+		/* recover to 2.8v */
+		pmic_write_mclr(PMIC_RG_EINTCOMPVTH_ADDR, 0x3, 0x3);
+
 	}
 }
 
 static void recover_moisture_setting(u32 moistureID)
 {
 	if (moistureID == M_HP_PLUG_IN) {
-		/* set debounce to 2ms */
-		accdet_set_debounce(eint_state000, 0x6);
+		/* set debounce to 0.12ms */
+		accdet_set_debounce(eint_state000, 0x1);
 	} else if (moistureID == M_PLUG_OUT) {
-		/* set debounce to 1ms */
-		accdet_set_debounce(eint_state000,
-			accdet_dts.pwm_deb.eint_debounce0);
 		recover_eint_analog_setting();
-		recover_moisture_analog_setting();
 		recover_eint_digital_setting();
-		pr_info("%s done\n", __func__);
 
+		recover_moisture_analog_setting();
 	}
 }
 
@@ -1641,7 +1521,6 @@ static void recover_eint_setting(u32 moistureID)
 	if (moistureID == M_PLUG_OUT) {
 		recover_eint_analog_setting();
 		recover_eint_digital_setting();
-		pr_info("%s done\n", __func__);
 	}
 }
 
@@ -1670,7 +1549,9 @@ static u32 get_triggered_eint(void)
 static inline void enable_accdet(u32 state_swctrl)
 {
 	/* enable ACCDET unit */
+#ifndef HW_MODE_SUPPORT
 	pmic_write_set(PMIC_ACCDET_SW_EN_ADDR, PMIC_ACCDET_SW_EN_SHIFT);
+#endif
 	pr_info("%s done IRQ-STS[0x%x]=0x%x,PWM[0x%x]=0x%x\n",
 		__func__, PMIC_ACCDET_IRQ_ADDR,
 		pmic_read(PMIC_ACCDET_IRQ_ADDR),
@@ -1688,6 +1569,9 @@ static inline void disable_accdet(void)
 	clear_accdet_int_check();
 	mutex_unlock(&accdet_eint_irq_sync_mutex);
 
+#ifndef HW_MODE_SUPPORT
+	pmic_write_clr(PMIC_ACCDET_SEQ_INIT_ADDR, PMIC_ACCDET_SW_EN_SHIFT);
+#endif
 	/* recover accdet debounce0,3 */
 	accdet_set_debounce(accdet_state000, cust_pwm_deb->debounce0);
 	accdet_set_debounce(accdet_state011, cust_pwm_deb->debounce3);
@@ -1699,6 +1583,7 @@ static inline void disable_accdet(void)
 
 static inline void headset_plug_out(void)
 {
+	pr_info("accdet %s\n", __func__);
 	send_accdet_status_event(cable_type, 0);
 	accdet_status = PLUG_OUT;
 	cable_type = NO_DEVICE;
@@ -1708,12 +1593,7 @@ static inline void headset_plug_out(void)
 		pr_info("accdet %s, send key=%d release\n", __func__, cur_key);
 		cur_key = 0;
 	}
-	dis_micbias_done = false;
-	pr_info("accdet %s, set cable_type = NO_DEVICE %d\n", __func__,
-		dis_micbias_done);
-#if PMIC_ACCDET_DEBUG
-	dump_register();
-#endif
+	pr_info("accdet %s, set cable_type = NO_DEVICE\n", __func__);
 }
 #if PMIC_ACCDET_KERNEL
 static void dis_micbias_timerhandler(unsigned long data)
@@ -1727,44 +1607,9 @@ static void dis_micbias_timerhandler(unsigned long data)
 
 static void dis_micbias_work_callback(struct work_struct *work)
 {
-	u32 cur_AB, eintID;
-
-	/* check EINT0 status, if plug out,
-	 * not need to disable accdet here
-	 */
-	eintID = pmic_read_mbit(PMIC_ACCDET_EINT0_MEM_IN_ADDR,
-		PMIC_ACCDET_EINT0_MEM_IN_SHIFT,
-		PMIC_ACCDET_EINT0_MEM_IN_MASK);
-	if (eintID == M_PLUG_OUT) {
-		pr_info("%s Plug-out, no dis micbias\n", __func__);
-		return;
-	}
-	/* if modify_vref_volt called, not need to dis micbias again */
-	if (dis_micbias_done == true) {
-		pr_info("%s modify_vref_volt called\n", __func__);
-		return;
-	}
-
-cur_AB = pmic_read(PMIC_ACCDET_MEM_IN_ADDR) >> ACCDET_STATE_MEM_IN_OFFSET;
-	cur_AB = cur_AB & ACCDET_STATE_AB_MASK;
-
-	/* if 3pole disable accdet
-	 * if <20k + 4pole, disable accdet will disable accdet
-	 * plug out interrupt. The behavior will same as 3pole
-	 */
-	if (cable_type == HEADSET_MIC) {
-		/* do nothing */
-	} else if ((cable_type == HEADSET_NO_MIC) ||
-		(cur_AB == ACCDET_STATE_AB_00) ||
-		(cur_AB == ACCDET_STATE_AB_11)) {
-		/* disable accdet_sw_en=0
-		 * disable accdet_hwmode_en=0
-		 */
-		pmic_write_clr(PMIC_ACCDET_SW_EN_ADDR,
-			PMIC_ACCDET_SW_EN_SHIFT);
+	if (cable_type == HEADSET_NO_MIC) {
 		disable_accdet();
-	pr_info("%s more than 6s,MICBIAS:Disabled AB:0x%x c_type:0x%x\n",
-		__func__, cur_AB, cable_type);
+		pr_info("accdet %s more than 6s,MICBIAS:Disabled\n", __func__);
 	}
 }
 #endif /* end of #if PMIC_ACCDET_KERNEL */
@@ -1775,13 +1620,13 @@ static void eint_work_callback(struct work_struct *work)
 static void eint_work_callback(void)
 #endif
 {
+#ifdef CONFIG_ACCDET_EINT_IRQ
 	pr_info("accdet %s(),DCC EINT func\n", __func__);
+#else
+	pr_info("accdet %s(),ACC EINT func\n", __func__);
+#endif
 
 	if (cur_eint_state == EINT_PIN_PLUG_IN) {
-		/* wk, disable vusb LP */
-		pmic_write(PMIC_RG_LDO_VUSB_HW0_OP_EN_ADDR, 0x8000);
-		pr_info("%s VUSB LP dis\n", __func__);
-
 		pr_info("accdet cur: plug-in, cur_eint_state = %d\n",
 			cur_eint_state);
 		mutex_lock(&accdet_eint_irq_sync_mutex);
@@ -1792,32 +1637,19 @@ static void eint_work_callback(void)
 
 		accdet_init();
 
-		pr_info("%s VUSB LP dis done\n", __func__);
 		enable_accdet(0);
 	} else {
 		pr_info("accdet cur:plug-out, cur_eint_state = %d\n",
 			cur_eint_state);
 		mutex_lock(&accdet_eint_irq_sync_mutex);
 		eint_accdet_sync_flag = false;
-		accdet_thing_in_flag = false;
 		mutex_unlock(&accdet_eint_irq_sync_mutex);
-		if (accdet_dts.moisture_detect_mode != 0x5)
-			del_timer_sync(&micbias_timer);
+		del_timer_sync(&micbias_timer);
 
-		/* disable accdet_sw_en=0
-		 */
-		pmic_write_clr(PMIC_ACCDET_SW_EN_ADDR,
-			PMIC_ACCDET_SW_EN_SHIFT);
 		disable_accdet();
 		headset_plug_out();
 	}
 
-#ifdef CONFIG_ACCDET_EINT_IRQ
-	if (get_moisture_det_en() == 0x1)
-		recover_moisture_setting(gmoistureID);
-	else
-		recover_eint_setting(gmoistureID);
-#endif
 #ifdef CONFIG_ACCDET_EINT
 	enable_irq(accdet_irq);
 	pr_info("accdet %s enable_irq !!\n", __func__);
@@ -1886,7 +1718,6 @@ cur_AB = pmic_read(PMIC_ACCDET_MEM_IN_ADDR) >> ACCDET_STATE_MEM_IN_OFFSET;
 	pr_notice("accdet %s(), cur_status:%s current AB = %d\n", __func__,
 		     accdet_status_str[accdet_status], cur_AB);
 
-	s_button_status = 0;
 	pre_status = accdet_status;
 
 	switch (accdet_status) {
@@ -1899,24 +1730,20 @@ cur_AB = pmic_read(PMIC_ACCDET_MEM_IN_ADDR) >> ACCDET_STATE_MEM_IN_OFFSET;
 			} else
 				pr_info("accdet headset has been plug-out\n");
 			mutex_unlock(&accdet_eint_irq_sync_mutex);
-			/* wk, for IOT HP */
-			accdet_set_debounce(eint_state011,
-				accdet_dts.pwm_deb.eint_debounce3);
 		} else if (cur_AB == ACCDET_STATE_AB_01) {
 			mutex_lock(&accdet_eint_irq_sync_mutex);
 			if (eint_accdet_sync_flag) {
 				accdet_status = MIC_BIAS;
 				cable_type = HEADSET_MIC;
+
+				/* ABC=110 debounce=30ms */
+				accdet_set_debounce(accdet_state011,
+					cust_pwm_deb->debounce3 * 30);
 			} else
 				pr_info("accdet headset has been plug-out\n");
 			mutex_unlock(&accdet_eint_irq_sync_mutex);
-			/* solution: adjust hook switch debounce time
-			 * for fast key press condition, avoid to miss key
-			 */
 			accdet_set_debounce(accdet_state000,
 				button_press_debounce);
-			/* wk, for IOT HP */
-			accdet_set_debounce(eint_state011, 0x1);
 		} else if (cur_AB == ACCDET_STATE_AB_11) {
 			pr_info("accdet PLUG_OUT state not change!\n");
 #ifdef CONFIG_ACCDET_EINT_IRQ
@@ -1933,9 +1760,11 @@ cur_AB = pmic_read(PMIC_ACCDET_MEM_IN_ADDR) >> ACCDET_STATE_MEM_IN_OFFSET;
 		break;
 	case MIC_BIAS:
 		if (cur_AB == ACCDET_STATE_AB_00) {
+			/*solution: resume hook switch debounce time*/
+			accdet_set_debounce(accdet_state000,
+				cust_pwm_deb->debounce0);
 			mutex_lock(&accdet_eint_irq_sync_mutex);
 			if (eint_accdet_sync_flag) {
-				s_button_status = 1;
 				accdet_status = HOOK_SWITCH;
 				multi_key_detection(cur_AB);
 			} else
@@ -1950,8 +1779,6 @@ cur_AB = pmic_read(PMIC_ACCDET_MEM_IN_ADDR) >> ACCDET_STATE_MEM_IN_OFFSET;
 			} else
 				pr_info("accdet headset has been plug-out\n");
 			mutex_unlock(&accdet_eint_irq_sync_mutex);
-			/* wk, for IOT HP */
-			accdet_set_debounce(eint_state011, 0x1);
 		} else if (cur_AB == ACCDET_STATE_AB_11) {
 			pr_info("accdet Don't send plug out in MIC_BIAS\n");
 			mutex_lock(&accdet_eint_irq_sync_mutex);
@@ -1985,8 +1812,10 @@ cur_AB = pmic_read(PMIC_ACCDET_MEM_IN_ADDR) >> ACCDET_STATE_MEM_IN_OFFSET;
 			} else
 				pr_info("accdet headset has been plug-out\n");
 			mutex_unlock(&accdet_eint_irq_sync_mutex);
-			/* wk, for IOT HP */
-			accdet_set_debounce(eint_state011, 0x1);
+
+			/* solution: reduce hook switch debounce time to half */
+			accdet_set_debounce(accdet_state000,
+				button_press_debounce);
 		} else if (cur_AB == ACCDET_STATE_AB_11) {
 			pr_info("accdet Don't send plugout in HOOK_SWITCH\n");
 			mutex_lock(&accdet_eint_irq_sync_mutex);
@@ -2030,13 +1859,6 @@ static void accdet_work_callback(void)
 		pr_info("%s() Headset has been plugout. Don't set state\n",
 			__func__);
 	mutex_unlock(&accdet_eint_irq_sync_mutex);
-	if (cable_type != NO_DEVICE) {
-		accdet_modify_vref_volt_self();
-		/* wk, enable vusb LP */
-		pmic_write(PMIC_RG_LDO_VUSB_HW0_OP_EN_ADDR, 0x8005);
-		pr_info("%s VUSB LP en\n", __func__);
-	}
-
 	pr_info("%s() report cable_type done\n", __func__);
 	__pm_relax(accdet_irq_lock);
 }
@@ -2066,15 +1888,8 @@ static int pmic_eint_queue_work(int eintID)
 		(eintID == PMIC_EINT0)?"0":((eintID == PMIC_EINT1)?"1":"BI"),
 		cur_eint_state);
 
-	if (cur_eint_state == EINT_PIN_MOISTURE_DETECTED) {
-		pr_info("%s water in then plug out, handle plugout\r",
-			__func__);
-		cur_eint_state = EINT_PIN_PLUG_OUT;
-#if PMIC_ACCDET_KERNEL
-		ret = queue_work(eint_workqueue, &eint_work);
-#else
-		eint_work_callback();
-#endif /* end of #if PMIC_ACCDET_KERNEL */
+	if (cur_eint_state == EINT_PIN_MOISTURE_DETECED) {
+		pr_info("water in then plug out, do nothing\r");
 		return 0;
 	}
 #ifdef CONFIG_ACCDET_SUPPORT_EINT0
@@ -2084,14 +1899,10 @@ static int pmic_eint_queue_work(int eintID)
 				cust_pwm_deb->debounce3);
 			cur_eint_state = EINT_PIN_PLUG_OUT;
 		} else {
-			if (gmoistureID != M_PLUG_OUT) {
-				cur_eint_state = EINT_PIN_PLUG_IN;
+			cur_eint_state = EINT_PIN_PLUG_IN;
 
-				if (accdet_dts.moisture_detect_mode != 0x5) {
-					mod_timer(&micbias_timer,
-					jiffies + MICBIAS_DISABLE_TIMER);
-				}
-			}
+			mod_timer(&micbias_timer,
+				jiffies + MICBIAS_DISABLE_TIMER);
 		}
 #if PMIC_ACCDET_KERNEL
 		ret = queue_work(eint_workqueue, &eint_work);
@@ -2108,14 +1919,10 @@ static int pmic_eint_queue_work(int eintID)
 				cust_pwm_deb->debounce3);
 			cur_eint_state = EINT_PIN_PLUG_OUT;
 		} else {
-			if (gmoistureID != M_PLUG_OUT) {
-				cur_eint_state = EINT_PIN_PLUG_IN;
+			cur_eint_state = EINT_PIN_PLUG_IN;
 
-				if (accdet_dts.moisture_detect_mode != 0x5) {
-					mod_timer(&micbias_timer,
-					jiffies + MICBIAS_DISABLE_TIMER);
-				}
-			}
+			mod_timer(&micbias_timer,
+				jiffies + MICBIAS_DISABLE_TIMER);
 		}
 #if PMIC_ACCDET_KERNEL
 		ret = queue_work(eint_workqueue, &eint_work);
@@ -2132,8 +1939,7 @@ static int pmic_eint_queue_work(int eintID)
 				cust_pwm_deb->debounce3);
 			cur_eint0_state = EINT_PIN_PLUG_OUT;
 		} else {
-			if (gmoistureID != M_PLUG_OUT)
-				cur_eint0_state = EINT_PIN_PLUG_IN;
+			cur_eint0_state = EINT_PIN_PLUG_IN;
 		}
 	}
 	if ((eintID & PMIC_EINT1) == PMIC_EINT1) {
@@ -2142,8 +1948,7 @@ static int pmic_eint_queue_work(int eintID)
 				cust_pwm_deb->debounce3);
 			cur_eint1_state = EINT_PIN_PLUG_OUT;
 		} else {
-			if (gmoistureID != M_PLUG_OUT)
-				cur_eint1_state = EINT_PIN_PLUG_IN;
+			cur_eint1_state = EINT_PIN_PLUG_IN;
 		}
 	}
 
@@ -2151,10 +1956,8 @@ static int pmic_eint_queue_work(int eintID)
 	if (cur_eint_state == EINT_PIN_PLUG_OUT) {
 		cur_eint_state = cur_eint0_state & cur_eint1_state;
 		if (cur_eint_state == EINT_PIN_PLUG_IN) {
-			if (accdet_dts.moisture_detect_mode != 0x5) {
-				mod_timer(&micbias_timer,
-					jiffies + MICBIAS_DISABLE_TIMER);
-			}
+			mod_timer(&micbias_timer,
+				jiffies + MICBIAS_DISABLE_TIMER);
 			ret = queue_work(eint_workqueue, &eint_work);
 		} else
 			pr_info("%s wait eint.now:eint0=%d;eint1=%d\n",
@@ -2218,7 +2021,6 @@ static u32 config_moisture_detect_1_1(void)
 
 static u32 config_moisture_detect_2_1(void)
 {
-	u32 efuseval, eintvth;
 	/* select VTH to 2.8v(default), can set to 2.4 or 2.0v by dts */
 	pmic_write_mset(PMIC_RG_EINTCOMPVTH_ADDR,
 		PMIC_RG_EINTCOMPVTH_SHIFT, PMIC_RG_EINTCOMPVTH_MASK,
@@ -2237,19 +2039,9 @@ static u32 config_moisture_detect_2_1(void)
 	pmic_write_set(PMIC_RG_EINT0CTURBO_ADDR, PMIC_RG_EINT0CTURBO_SHIFT);
 	pmic_write_set(PMIC_RG_EINT1CTURBO_ADDR, PMIC_RG_EINT1CTURBO_SHIFT);
 #endif
-	/* set moisture reference voltage MVTH
-	 * golden setting
-	 * pmic_write_mset(PMIC_RG_ACCDETSPARE_ADDR, 0x3, 0x1F, 0xA);
-	 */
-
-	/* EINTVTH1K/5K/10K efuse */
-	efuseval = pmic_Read_Efuse_HPOffset(107);
-	eintvth = (int)(efuseval & ACCDET_CALI_MASK0);
-	pr_info("%s moisture_eint0 efuse=0x%x,eintvth=0x%x\n",
-		__func__, efuseval, eintvth);
-
+	//TBD read efuse  read efuse: set 70mV: 0x2532<7:3>= 4?™d10
 	/* set moisture reference voltage MVTH */
-	pmic_write_mset(PMIC_RG_ACCDETSPARE_ADDR, 0x3, 0x1F, eintvth);
+	pmic_write_mset(PMIC_RG_ACCDETSPARE_ADDR, 0x3, 0x1F, 0xA);
 	return 0;
 }
 
@@ -2267,22 +2059,22 @@ static u32 config_moisture_detect_2_1_1(void)
 
 void accdet_irq_handle(void)
 {
-	u32 eintID = 0;
-#ifdef CONFIG_ACCDET_EINT_IRQ
-	u32 ret = 0;
-#endif
-	u32 irq_status, acc_sts, eint_sts;
-#if PMIC_ACCDET_CTP || PMIC_ACCDET_DEBUG
+	u32 eintID = 0, moistureID = 0, ret = 0;
+	u32 irq_status;
+#if PMIC_ACCDET_CTP
 	dump_register();
+	/* use teraterm log to check debounce time */
+	pr_info(" %s() cur_time:0x%x \r\n",
+		__func__, accdet_get_current_time());
 #endif
 #ifdef CONFIG_ACCDET_EINT_IRQ
 	eintID = get_triggered_eint();
 #endif
 	irq_status = pmic_read(PMIC_ACCDET_IRQ_ADDR);
-	acc_sts = pmic_read(PMIC_ACCDET_MEM_IN_ADDR);
-	eint_sts = pmic_read(PMIC_ACCDET_EINT0_MEM_IN_ADDR);
 
 	if ((irq_status & ACCDET_IRQ_B0) && (eintID == 0)) {
+		pr_info("%s() IRQ_STS = 0x%x, IRQ triggered\n", __func__,
+			irq_status);
 		clear_accdet_int();
 		accdet_queue_work();
 		clear_accdet_int_check();
@@ -2294,33 +2086,40 @@ void accdet_irq_handle(void)
 		cur_eint_state);
 
 		/* check EINT0 status */
-		gmoistureID = pmic_read_mbit(PMIC_ACCDET_EINT0_MEM_IN_ADDR,
+		moistureID = pmic_read_mbit(PMIC_ACCDET_EINT0_MEM_IN_ADDR,
 			PMIC_ACCDET_EINT0_MEM_IN_SHIFT,
 			PMIC_ACCDET_EINT0_MEM_IN_MASK);
-#ifdef CONFIG_ACCDET_EINT_IRQ
 		if (get_moisture_det_en() == 0x1) {
 			/* adjust moisture digital/analog setting */
-			ret = adjust_moisture_setting(gmoistureID, eintID);
-			if (ret == M_NO_ACT) {
+			ret = adjust_moisture_setting(moistureID, eintID);
+		if (ret == M_NO_ACT) {
 #if PMIC_ACCDET_CTP
-				dump_register();
+			dump_register();
 #endif
-				return;
-			}
+			pr_info("%s() , IRQ triggered, return\n", __func__);
+			return;
+		} else if (ret == M_HP_PLUG_IN) {
+			/* enable accdet */
+			pmic_write_set(PMIC_ACCDET_HWMODE_EN_ADDR,
+				PMIC_ACCDET_HWMODE_EN_SHIFT);
+		}
 		} else {
 			/* adjust eint digital/analog setting */
-			adjust_eint_setting(gmoistureID, eintID);
+			adjust_eint_setting(moistureID, eintID);
 		}
-#endif
 		clear_accdet_eint(eintID);
 		clear_accdet_eint_check(eintID);
 		pmic_eint_queue_work(eintID);
 
+		if (get_moisture_det_en() == 0x1)
+			recover_moisture_setting(moistureID);
+		else
+			recover_eint_setting(moistureID);
 #endif
 		} else {
 			pr_info("%s no interrupt detected!\n", __func__);
 		}
-#if PMIC_ACCDET_CTP || PMIC_ACCDET_DEBUG
+#if PMIC_ACCDET_CTP
 		dump_register();
 #endif
 }
@@ -2334,6 +2133,7 @@ static void accdet_int_handler(void)
 #ifdef CONFIG_ACCDET_EINT_IRQ
 static void accdet_eint_handler(void)
 {
+	pr_info("%s() enter\n", __func__);
 	accdet_irq_handle();
 	pr_info("%s() exit\n", __func__);
 }
@@ -2368,11 +2168,7 @@ static irqreturn_t ex_eint_handler(int irq, void *data)
 
 		cur_eint_state = EINT_PIN_PLUG_IN;
 
-		if (accdet_dts.moisture_detect_mode != 0x5) {
-			mod_timer(&micbias_timer,
-				jiffies + MICBIAS_DISABLE_TIMER);
-		}
-
+		mod_timer(&micbias_timer, jiffies + MICBIAS_DISABLE_TIMER);
 	}
 
 	disable_irq_nosync(accdet_irq);
@@ -2399,8 +2195,7 @@ static inline int ext_eint_setup(struct platform_device *platform_device)
 	pins_default = pinctrl_lookup_state(accdet_pinctrl, "default");
 	if (IS_ERR(pins_default)) {
 		ret = PTR_ERR(pins_default);
-		dev_notice(&platform_device->dev,
-			"deflt pinctrl not found, skip it\n");
+		dev_notice(&platform_device->dev, "lookup deflt pinctrl fail\n");
 	}
 
 	pins_eint = pinctrl_lookup_state(accdet_pinctrl, "state_eint_as_int");
@@ -2454,9 +2249,6 @@ static inline int ext_eint_setup(struct platform_device *platform_device)
 
 static int accdet_get_dts_data(void)
 {
-#ifdef CONFIG_MTK_PMIC_WRAP
-	struct device_node *tmpnode, *accdet_node;
-#endif
 #if PMIC_ACCDET_KERNEL
 	int ret;
 	struct device_node *node = NULL;
@@ -2468,27 +2260,13 @@ static int accdet_get_dts_data(void)
 #endif
 
 	pr_debug("%s\n", __func__);
-#ifdef CONFIG_MTK_PMIC_WRAP
-	tmpnode = of_find_compatible_node(NULL, NULL, "mediatek,pwraph");
-	accdet_node = of_parse_phandle(tmpnode, "mediatek,pwrap-regmap", 0);
-	if (accdet_node) {
-		accdet_regmap = pwrap_node_to_regmap(accdet_node);
-		if (IS_ERR(accdet_regmap)) {
-			pr_notice("%s %d Error.\n", __func__, __LINE__);
-			return PTR_ERR(accdet_regmap);
-		}
-	} else {
-		pr_notice("%s %d Error.\n", __func__, __LINE__);
-		return -EINVAL;
-	}
-#endif
 	node = of_find_matching_node(node, accdet_of_match);
 	if (!node) {
 		pr_notice("%s can't find compatible dts node\n", __func__);
 		return -1;
 	}
 
-	/* moisture customized configuration */
+	/* moisture customized configuation */
 	ret = of_property_read_u32(node, "moisture_detect_enable",
 		&accdet_dts.moisture_detect_enable);
 	if (ret) {
@@ -2515,7 +2293,7 @@ static int accdet_get_dts_data(void)
 		&accdet_dts.moisture_detect_mode);
 	if (ret) {
 		/* no moisture detection */
-		accdet_dts.moisture_detect_mode = 0x4;
+		accdet_dts.moisture_detect_mode = 0x0;
 	}
 	ret = of_property_read_u32(node, "moisture_comp_vth",
 		&accdet_dts.moisture_comp_vth);
@@ -2576,10 +2354,8 @@ static int accdet_get_dts_data(void)
 	if (!ret)
 		memcpy(&accdet_dts.four_key, four_key+1,
 				sizeof(struct four_key_threshold));
-	else {
-		pr_info("accdet get 4-key-thrsh dts fail, use efuse\n");
-		accdet_get_efuse_4key();
-	}
+	else
+		pr_info("accdet get 4-key-thrsh fail\n");
 
 	pr_info("accdet key thresh mid = %d, voice = %d, up = %d, dwn = %d\n",
 		accdet_dts.four_key.mid, accdet_dts.four_key.voice,
@@ -2612,6 +2388,8 @@ static int accdet_get_dts_data(void)
 	else
 		pr_info("accdet get pwm-debounce setting fail\n");
 
+	/* for discharge:0xB00 about 86ms */
+	button_press_debounce = (accdet_dts.pwm_deb.debounce0 >> 1);
 	cust_pwm_deb = &accdet_dts.pwm_deb;
 #else
 	accdet_dts.mic_vol = mic_vol;
@@ -2619,8 +2397,8 @@ static int accdet_get_dts_data(void)
 	accdet_dts.three_key.mid = 49;
 	accdet_dts.three_key.up = 220;
 	accdet_dts.three_key.down = 600;
-	accdet_dts.pwm_deb.pwm_width = 0x500;
-	accdet_dts.pwm_deb.pwm_thresh = 0x500;
+	accdet_dts.pwm_deb.pwm_width = 0x4ff;
+	accdet_dts.pwm_deb.pwm_thresh = 0x4ff;
 	accdet_dts.pwm_deb.fall_delay = 0x1;
 	accdet_dts.pwm_deb.rise_delay = 0x1f0;
 	accdet_dts.pwm_deb.debounce0 = 0x800;
@@ -2670,7 +2448,6 @@ static int accdet_get_dts_data(void)
 	cust_pwm_deb->debounce4 = debounce4_test[debounce_index];
 
 #endif /* end of #if PMIC_ACCDET_KERNEL */
-	dis_micbias_done = false;
 	pr_info("accdet pwm_width=0x%x, thresh=0x%x, fall=0x%x, rise=0x%x\n",
 	     cust_pwm_deb->pwm_width, cust_pwm_deb->pwm_thresh,
 	     cust_pwm_deb->fall_delay, cust_pwm_deb->rise_delay);
@@ -2696,7 +2473,6 @@ static int accdet_get_dts_data(void)
 	return 0;
 }
 
-#ifdef CONFIG_ACCDET_EINT_IRQ
 static void config_digital_moisture_init_by_mode(void)
 {
 	/* enable eint cmpmem pwm */
@@ -2712,24 +2488,7 @@ static void config_digital_moisture_init_by_mode(void)
 	pmic_write(PMIC_ACCDET_DA_STABLE_ADDR, ACCDET_EINT0_STABLE_VAL);
 	pmic_write(PMIC_ACCDET_DA_STABLE_ADDR, ACCDET_EINT1_STABLE_VAL);
 #endif
-	if (accdet_dts.moisture_detect_mode == 0x5) {
-#ifdef CONFIG_ACCDET_SUPPORT_EINT0
-		/* clr DA stable signal */
-		pmic_write_clr(PMIC_ACCDET_DA_STABLE_ADDR,
-			PMIC_ACCDET_EINT0_CEN_STABLE_SHIFT);
-#elif defined CONFIG_ACCDET_SUPPORT_EINT1
-		/* clr DA stable signal */
-		pmic_write_clr(PMIC_ACCDET_DA_STABLE_ADDR,
-			PMIC_ACCDET_EINT1_CEN_STABLE_SHIFT);
-#elif defined CONFIG_ACCDET_SUPPORT_BI_EINT
-		/* clr DA stable signal */
-		pmic_write_clr(PMIC_ACCDET_DA_STABLE_ADDR,
-			PMIC_ACCDET_EINT0_CEN_STABLE_SHIFT);
-		/* clr DA stable signal */
-		pmic_write_clr(PMIC_ACCDET_DA_STABLE_ADDR,
-			PMIC_ACCDET_EINT1_CEN_STABLE_SHIFT);
-#endif
-	}
+
 	/* after receive n+1 number, interrupt issued. now is 2 times */
 	pmic_write_set(PMIC_ACCDET_EINT_M_PLUG_IN_NUM_ADDR,
 	PMIC_ACCDET_EINT_M_PLUG_IN_NUM_SHIFT);
@@ -2742,7 +2501,7 @@ static void config_digital_moisture_init_by_mode(void)
 		pmic_write_clr(PMIC_ACCDET_EINT_M_DETECT_EN_ADDR,
 			PMIC_ACCDET_EINT_M_DETECT_EN_SHIFT);
 		/* wk1, disable hwmode */
-		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x0);
+		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x208);
 		/* disable inverter detection */
 #ifdef CONFIG_ACCDET_SUPPORT_EINT0
 		pmic_write_set(PMIC_ACCDET_EINT0_SW_EN_ADDR,
@@ -2761,7 +2520,7 @@ static void config_digital_moisture_init_by_mode(void)
 		pmic_write_clr(PMIC_ACCDET_EINT_M_DETECT_EN_ADDR,
 			PMIC_ACCDET_EINT_M_DETECT_EN_SHIFT);
 		/* wk1, disable hwmode */
-		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x100);
+		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x308);
 	} else if (accdet_dts.moisture_detect_mode == 0x3) {
 		/* disable moisture detection function */
 		pmic_write_clr(PMIC_ACCDET_EINT_M_DETECT_EN_ADDR,
@@ -2771,13 +2530,13 @@ static void config_digital_moisture_init_by_mode(void)
 		pmic_write_set(PMIC_ACCDET_EINT_CMPMEN_SEL_ADDR,
 			PMIC_ACCDET_EINT_CMPMEN_SEL_SHIFT);
 		/* wk1, disable hwmode */
-		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x100);
+		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x308);
 	} else if (accdet_dts.moisture_detect_mode == 0x4) {
 		/* enable moisture detection function */
 		pmic_write_set(PMIC_ACCDET_EINT_M_DETECT_EN_ADDR,
 			PMIC_ACCDET_EINT_M_DETECT_EN_SHIFT);
 		/* wk1, disable hwmode */
-		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x100);
+		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x309);
 	} else if (accdet_dts.moisture_detect_mode == 0x5) {
 		/* blocking CTURBO */
 		pmic_write_set(PMIC_ACCDET_EINT_CTURBO_SEL_ADDR,
@@ -2787,21 +2546,10 @@ static void config_digital_moisture_init_by_mode(void)
 			PMIC_ACCDET_EINT_M_DETECT_EN_SHIFT);
 
 		/* wk1, disable hwmode */
-		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x500);
-		pmic_write_set(PMIC_RG_HPLOUTPUTSTBENH_VAUDP32_ADDR,
-			PMIC_RG_HPLOUTPUTSTBENH_VAUDP32_SHIFT);
-		pmic_write_set(PMIC_RG_HPROUTPUTSTBENH_VAUDP32_ADDR,
-			PMIC_RG_HPROUTPUTSTBENH_VAUDP32_SHIFT);
+		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x709);
 	} else {
 		/* wk1, disable hwmode */
-		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x100);
-	}
-
-	if (accdet_dts.moisture_detect_enable == 0) {
-		pr_info("%s() disable digital moisture.\n", __func__);
-		/* disable moisture detection function */
-		pmic_write_clr(PMIC_ACCDET_EINT_M_DETECT_EN_ADDR,
-			PMIC_ACCDET_EINT_M_DETECT_EN_SHIFT);
+		pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x309);
 	}
 	/* enable PWM */
 	pmic_write(PMIC_ACCDET_CMP_PWM_EN_ADDR, 0x67);
@@ -2908,10 +2656,9 @@ static void config_eint_init_by_mode(void)
 				PMIC_RG_EINT1CONFIGACCDET_SHIFT);
 #endif
 		}
-	} else if (accdet_dts.eint_detect_mode == 0x4) {
-		/* do nothing */
-	} else if (accdet_dts.eint_detect_mode == 0x5) {
-		/* do nothing */
+	} else if ((accdet_dts.eint_detect_mode == 0x4) ||
+				(accdet_dts.eint_detect_mode == 0x5)) {
+			/* do nothing */
 	}
 
 	if (accdet_dts.eint_detect_mode != 0x1) {
@@ -2921,7 +2668,6 @@ static void config_eint_init_by_mode(void)
 			0x3, 0x3);
 	}
 }
-#endif /* end of CONFIG_ACCDET_EINT_IRQ */
 
 static void accdet_init_once(void)
 {
@@ -2937,6 +2683,9 @@ static void accdet_init_once(void)
 	/* clear micbias1 voltage */
 	pmic_write_mclr(PMIC_RG_AUDPWDBMICBIAS1_ADDR,
 		PMIC_RG_AUDMICBIAS1VREF_SHIFT, 0x7);
+	/* open top accdet interrupt */
+	pmic_write_set(PMIC_RG_AUD_INT_CON0_SET_ADDR,
+		PMIC_RG_INT_EN_ACCDET_SHIFT);
 
 	/* init pwm frequency, duty & rise/falling delay */
 	pmic_write(PMIC_ACCDET_PWM_WIDTH_ADDR,
@@ -2952,7 +2701,7 @@ static void accdet_init_once(void)
 	reg = pmic_read(PMIC_RG_AUDPWDBMICBIAS1_ADDR);
 	if (accdet_dts.mic_vol <= 7) {
 		/* micbias1 <= 2.7V */
-		pmic_write(PMIC_RG_AUDPWDBMICBIAS1_ADDR,
+	pmic_write(PMIC_RG_AUDPWDBMICBIAS1_ADDR,
 		reg | (accdet_dts.mic_vol<<PMIC_RG_AUDMICBIAS1VREF_SHIFT) |
 		RG_AUD_MICBIAS1_LOWP_EN);
 	} else if (accdet_dts.mic_vol == 8) {
@@ -2982,7 +2731,8 @@ static void accdet_init_once(void)
 			reg | RG_ACCDET_MODE_ANA11_MODE2);
 		/* enable analog fast discharge */
 		pmic_write_mset(PMIC_RG_ANALOGFDEN_ADDR,
-			PMIC_RG_ANALOGFDEN_SHIFT, 0x3, 0x3);
+			PMIC_RG_ANALOGFDEN_SHIFT,
+			PMIC_RG_ANALOGFDEN_MASK, 0x3);
 	} else if (accdet_dts.mic_mode == HEADSET_MODE_6) {
 		/* DCC mode Low cost mode with internal bias,
 		 * bit8 = 1 to use internal bias
@@ -2993,51 +2743,41 @@ static void accdet_init_once(void)
 				PMIC_RG_AUDMICBIAS1DCSW1PEN_SHIFT);
 		/* enable analog fast discharge */
 		pmic_write_mset(PMIC_RG_ANALOGFDEN_ADDR,
-			PMIC_RG_ANALOGFDEN_SHIFT, 0x3, 0x3);
+			PMIC_RG_ANALOGFDEN_SHIFT,
+			PMIC_RG_ANALOGFDEN_MASK, 0x3);
 	}
 
 #ifdef CONFIG_ACCDET_EINT_IRQ
 	config_eint_init_by_mode();
+#ifdef CONFIG_ACCDET_SUPPORT_EINT0
+	/* open top interrupt eint0 */
+	pmic_write_set(PMIC_RG_AUD_INT_CON0_SET_ADDR,
+		PMIC_RG_INT_EN_ACCDET_EINT0_SHIFT);
+
+#elif defined CONFIG_ACCDET_SUPPORT_EINT1
+	/* open top interrupt eint1 */
+	pmic_write_set(PMIC_RG_AUD_INT_CON0_SET_ADDR,
+		PMIC_RG_INT_EN_ACCDET_EINT1_SHIFT);
+
+#elif defined CONFIG_ACCDET_SUPPORT_BI_EINT
+	/* open top interrupt eint0 & eint1 */
+	pmic_write_mset(PMIC_RG_AUD_INT_CON0_SET_ADDR,
+		PMIC_RG_INT_EN_ACCDET_EINT0_SHIFT,
+		PMIC_RG_INT_EN_ACCDET_EINT0_MASK, 0x3);
+
+#endif
 #endif
 
-#ifdef CONFIG_ACCDET_EINT_IRQ
 	if (accdet_dts.moisture_detect_enable == 1) {
-		pr_info("%s() set analog moisture.\n", __func__);
 		config_analog_moisture_init_by_mode();
+	} else {
+		/* disable moisture detection function */
+		pmic_write_clr(PMIC_ACCDET_EINT_M_DETECT_EN_ADDR,
+			PMIC_ACCDET_EINT_M_DETECT_EN_SHIFT);
 	}
-
 	config_digital_moisture_init_by_mode();
-#endif
-#ifdef CONFIG_ACCDET_EINT
-	/* set pull low pads and DCC mode */
-	pmic_write(PMIC_RG_AUDACCDETMICBIAS0PULLLOW_ADDR, 0x8F);
-	/* disconnect configaccdet */
-	pmic_write(PMIC_RG_EINT1CONFIGACCDET_ADDR, 0x0);
-	/* disable eint comparator */
-	pmic_write(PMIC_RG_EINT0CMPEN_ADDR, 0x0);
-	/* enable PWM */
-	pmic_write(PMIC_ACCDET_CMP_PWM_EN_ADDR, 0x7);
-	/* enable accdet sw mode */
-	pmic_write(PMIC_ACCDET_HWMODE_EN_ADDR, 0x0);
-	/* set DA signal to stable */
-	pmic_write(PMIC_ACCDET_DA_STABLE_ADDR, 0x1);
-	/* disable eint/inverter/sw_en */
-	pmic_write(PMIC_ACCDET_SW_EN_ADDR, 0x0);
-#endif
-	pr_info("%s() done.\n", __func__);
-#if PMIC_ACCDET_DEBUG
-	dump_register();
-#endif
-}
 
-static void accdet_init_debounce(void)
-{
-	/* set debounce to 1ms */
-	accdet_set_debounce(eint_state000,
-		accdet_dts.pwm_deb.eint_debounce0);
-	/* set debounce to 128ms */
-	accdet_set_debounce(eint_state011,
-		accdet_dts.pwm_deb.eint_debounce3);
+	pr_info("%s() done.\n", __func__);
 }
 
 static inline void accdet_init(void)
@@ -3056,6 +2796,8 @@ static inline void accdet_init(void)
 	accdet_set_debounce(accdet_state011, cust_pwm_deb->debounce3);
 	/* auxadc:2ms */
 	accdet_set_debounce(accdet_auxadc, cust_pwm_deb->debounce4);
+	/* new eint and inverter debounce */
+	accdet_set_debounce(eint_state000, accdet_dts.pwm_deb.eint_debounce0);
 	if (accdet_dts.moisture_detect_enable == 0x1) {
 		/* eint_state001 can be configured, less than 2ms */
 		accdet_set_debounce(eint_state001,
@@ -3066,6 +2808,7 @@ static inline void accdet_init(void)
 		accdet_set_debounce(eint_state001,
 			accdet_dts.pwm_deb.eint_debounce1);
 	}
+	accdet_set_debounce(eint_state011, accdet_dts.pwm_deb.eint_debounce3);
 	accdet_set_debounce(eint_inverter_state000,
 		accdet_dts.pwm_deb.eint_inverter_debounce);
 
@@ -3085,71 +2828,13 @@ void accdet_late_init(unsigned long data)
 #else
 		if (true) {
 			accdet_get_dts_data();
-			accdet_get_efuse();
+			//TBD accdet_get_efuse();
 #endif
 			accdet_init();
-			accdet_init_debounce();
 			/* just need run once */
 			accdet_init_once();
 		} else
 			pr_info("%s inited dts fail\n", __func__);
-	}
-}
-
-void accdet_modify_vref_volt(void)
-{
-}
-
-static void accdet_modify_vref_volt_self(void)
-{
-	u32 cur_AB, eintID;
-
-	if (accdet_dts.moisture_detect_mode == 0x5) {
-		/* make sure seq is disable micbias then connect vref2 */
-
-		/* check EINT0 status, if plug out,
-		 * not need to disable accdet here
-		 */
-		eintID = pmic_read_mbit(PMIC_ACCDET_EINT0_MEM_IN_ADDR,
-			PMIC_ACCDET_EINT0_MEM_IN_SHIFT,
-			PMIC_ACCDET_EINT0_MEM_IN_MASK);
-		if (eintID == M_PLUG_OUT) {
-			pr_info("%s Plug-out, no dis micbias\n", __func__);
-			return;
-		}
-cur_AB = pmic_read(PMIC_ACCDET_MEM_IN_ADDR) >> ACCDET_STATE_MEM_IN_OFFSET;
-		cur_AB = cur_AB & ACCDET_STATE_AB_MASK;
-
-		/* if 3pole disable accdet
-		 * if <20k + 4pole, disable accdet will disable accdet
-		 * plug out interrupt. The behavior will same as 3pole
-		 */
-		if (cable_type == HEADSET_MIC) {
-			/* do nothing */
-		} else if ((cable_type == HEADSET_NO_MIC) ||
-			(cur_AB == ACCDET_STATE_AB_00) ||
-			(cur_AB == ACCDET_STATE_AB_11)) {
-			/* disable accdet_sw_en=0
-			 * disable accdet_hwmode_en=0
-			 */
-			pmic_write_clr(PMIC_ACCDET_SW_EN_ADDR,
-				PMIC_ACCDET_SW_EN_SHIFT);
-			disable_accdet();
-			pr_info("%s MICBIAS:Disabled AB:0x%x c_type:0x%x\n",
-				__func__, cur_AB, cable_type);
-			dis_micbias_done = true;
-		}
-		/* disable comp1 delay window */
-		pmic_write_set(PMIC_RG_EINT0NOHYS_ADDR,
-			PMIC_RG_EINT0NOHYS_SHIFT);
-		/* connect VREF2 to EINT0CMP */
-		pmic_write_mset(PMIC_RG_EINTCOMPVTH_ADDR,
-			PMIC_RG_EINTCOMPVTH_SHIFT, 0x3, 0x3);
-		pr_info("%s [0x%x]=0x%x [0x%x]=0x%x\n", __func__,
-			PMIC_RG_EINT0NOHYS_ADDR,
-			pmic_read(PMIC_RG_EINT0NOHYS_ADDR),
-			PMIC_RG_EINTCOMPVTH_ADDR,
-			pmic_read(PMIC_RG_EINTCOMPVTH_ADDR));
 	}
 }
 #if PMIC_ACCDET_KERNEL
@@ -3163,7 +2848,6 @@ static void delay_init_timerhandler(unsigned long data)
 		pr_info("%s()  now init accdet!\n", __func__);
 		if (atomic_cmpxchg(&accdet_first, 1, 0)) {
 			accdet_init();
-			accdet_init_debounce();
 			accdet_init_once();
 		} else
 			pr_info("%s inited dts fail\n", __func__);
@@ -3325,21 +3009,6 @@ int mt_accdet_probe(struct platform_device *dev)
 
 	accdet_get_efuse();
 
-	/* open top accdet interrupt */
-	pmic_enable_interrupt(INT_ACCDET, 1, "ACCDET");
-#ifdef CONFIG_ACCDET_EINT_IRQ
-#ifdef CONFIG_ACCDET_SUPPORT_EINT0
-	/* open top interrupt eint0 */
-	pmic_enable_interrupt(INT_ACCDET_EINT0, 1, "ACCDET_EINT0");
-#elif defined CONFIG_ACCDET_SUPPORT_EINT1
-	/* open top interrupt eint1 */
-	pmic_enable_interrupt(INT_ACCDET_EINT1, 1, "ACCDET_EINT1");
-#elif defined CONFIG_ACCDET_SUPPORT_BI_EINT
-	/* open top interrupt eint0 & eint1 */
-	pmic_enable_interrupt(INT_ACCDET_EINT0, 1, "ACCDET_EINT0");
-	pmic_enable_interrupt(INT_ACCDET_EINT1, 1, "ACCDET_EINT1");
-#endif
-#endif
 	pr_info("%s done!\n", __func__);
 	return 0;
 
@@ -3386,20 +3055,3 @@ void mt_accdet_remove(void)
 	pr_debug("%s done!\n", __func__);
 }
 #endif /* end of #if PMIC_ACCDET_KERNEL */
-
-long mt_accdet_unlocked_ioctl(struct file *file, unsigned int cmd,
-	unsigned long arg)
-{
-	switch (cmd) {
-	case ACCDET_INIT:
-		break;
-	case SET_CALL_STATE:
-		break;
-	case GET_BUTTON_STATUS:
-		return s_button_status;
-	default:
-		pr_debug("[Accdet]accdet_ioctl : default\n");
-		break;
-	}
-	return 0;
-}

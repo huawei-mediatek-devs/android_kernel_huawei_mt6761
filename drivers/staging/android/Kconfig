@@ -25,6 +25,20 @@ config ANDROID_LOW_MEMORY_KILLER
 	  scripts (/init.rc), and it defines priority values with minimum free memory size
 	  for each priority.
 
+config HUAWEI_LMK_DBG
+	bool "HUAWEI Low Memory Killer debug"
+	default n
+	depends on ANDROID_LOW_MEMORY_KILLER
+	---help---
+	  print processes info when lmk happen per several seconds
+
+config HUAWEI_LMK_AGAIN
+	bool "HUAWEI Low Memory Killer again"
+	default n
+	depends on ANDROID_LOW_MEMORY_KILLER
+	---help---
+	  if the vmpress more the 95, kill more process
+
 config ANDROID_LOW_MEMORY_KILLER_AUTODETECT_OOM_ADJ_VALUES
 	bool "Android Low Memory Killer: detect oom_adj values"
 	depends on ANDROID_LOW_MEMORY_KILLER
@@ -61,7 +75,39 @@ config ANDROID_INTF_ALARM_DEV
 	  Espically for wake up alarm ioctl.
 	  Also exports the alarm interface to user-space.
 
+config HUAWEI_RCC
+	tristate "RAM Compress and Clean"
+	depends on SYSFS && SWAP
+	default n
+	help
+	  Creates background thread for compress and clean used RAM
+	  dynamiclly,enabled by write 1 to /sys/kernel/rcc/enable.
+
+config HUAWEI_RCC_DEBUG
+	bool "RAM Compress and Clean debug support"
+	depends on HISI_RCC
+	default n
+	help
+	  This option adds additional debugging code to the
+	  RAM Compress and Clean module.
+
+config HUAWEI_SMART_RECLAIM
+	bool "Enable smart reclaim"
+	default y
+	depends on PROCESS_RECLAIM
+	help
+	  When enabled, memory pages of background processes will be reclaimed.
+	  Depending on if the process is an application or service.
+	  In case of service, advise kernel to reclaim file backed pages
+	  of background processes(file tpyes .dex, .jar and/or .apk).
+	  This triggered by writting soft to /proc/<pid>/reclaim from user space.
+
+
 source "drivers/staging/android/ion/Kconfig"
+
+source "drivers/staging/android/fiq_debugger/Kconfig"
+
+source "drivers/staging/android/hwlogger/Kconfig"
 
 endif # if ANDROID
 

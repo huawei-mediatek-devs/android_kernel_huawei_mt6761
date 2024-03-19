@@ -162,6 +162,8 @@ static int rt5738_regmap_init(struct rt5738_regulator_info *info)
 #ifdef CONFIG_RT_REGMAP
 	info->regmap_props = devm_kzalloc(info->dev,
 		sizeof(struct rt_regmap_properties), GFP_KERNEL);
+	if (!info->regmap_props)
+		return -EINVAL;
 
 	info->regmap_props->name = rt5738_text[info->id];
 	info->regmap_props->aliases = rt5738_text[info->id];

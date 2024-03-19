@@ -23,9 +23,6 @@ int tmem_core_ssmr_release(enum TRUSTED_MEM_TYPE mem_type);
 int tmem_core_alloc_chunk(enum TRUSTED_MEM_TYPE mem_type, u32 alignment,
 			  u32 size, u32 *refcount, u32 *sec_handle, u8 *owner,
 			  u32 id, u32 clean);
-int tmem_core_alloc_chunk_priv(enum TRUSTED_MEM_TYPE mem_type, u32 alignment,
-			       u32 size, u32 *refcount, u32 *sec_handle,
-			       u8 *owner, u32 id, u32 clean);
 int tmem_core_unref_chunk(enum TRUSTED_MEM_TYPE mem_type, u32 sec_handle,
 			  u8 *owner, u32 id);
 
@@ -37,8 +34,5 @@ int tmem_core_regmgr_offline(enum TRUSTED_MEM_TYPE mem_type);
 
 bool tmem_core_is_device_registered(enum TRUSTED_MEM_TYPE mem_type);
 u32 tmem_core_get_min_chunk_size(enum TRUSTED_MEM_TYPE mem_type);
-u32 tmem_core_get_max_pool_size(enum TRUSTED_MEM_TYPE mem_type);
-bool tmem_core_get_region_info(enum TRUSTED_MEM_TYPE mem_type, u64 *pa,
-			       u32 *size);
 
 #endif /* end of TMEM_UT_ENTRY_H */

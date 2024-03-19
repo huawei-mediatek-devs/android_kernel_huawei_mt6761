@@ -922,7 +922,7 @@ static int clkdbg_set_rate(struct seq_file *s, void *v)
 	char *clk_name;
 	char *rate_str;
 	struct clk *clk;
-	unsigned long rate;
+	unsigned long rate = 0;
 	int r;
 
 	strncpy(cmd, last_cmd, sizeof(cmd));

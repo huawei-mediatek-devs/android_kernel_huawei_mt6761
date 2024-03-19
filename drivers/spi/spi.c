@@ -955,8 +955,6 @@ static int spi_map_msg(struct spi_master *master, struct spi_message *msg)
 		if (max_tx || max_rx) {
 			list_for_each_entry(xfer, &msg->transfers,
 					    transfer_list) {
-				if (!xfer->len)
-					continue;
 				if (!xfer->tx_buf)
 					xfer->tx_buf = master->dummy_tx;
 				if (!xfer->rx_buf)
@@ -1014,9 +1012,7 @@ static int spi_transfer_one_message(struct spi_master *master,
 				ret = 0;
 				ms = 8LL * 1000LL * xfer->len;
 				do_div(ms, xfer->speed_hz);
-				/* Increase spi transfer tolerance to 2s */
-				/* To aviod timeout when OS is busy.*/
-				ms += 2000;
+				ms += ms + 2000; /* some tolerance; 200ms->2000ms by MTK */
 
 				if (ms > UINT_MAX)
 					ms = UINT_MAX;

@@ -1278,7 +1278,9 @@ EXPORT_SYMBOL(mtk_fdvfs_update_cur_freq);
 PVRSRV_ERROR MTKMFGSystemInit(void)
 {
 	int i;
-	PVRSRV_ERROR error;
+#ifndef ENABLE_COMMON_DVFS
+    PVRSRV_ERROR error;
+#endif
 
 
 #ifndef MTK_GPU_DVFS
@@ -1402,10 +1404,12 @@ PVRSRV_ERROR MTKMFGSystemInit(void)
 
 	return PVRSRV_OK;
 
+#ifndef ENABLE_COMMON_DVFS
 ERROR:
 	MTKMFGSystemDeInit();
 
 	return PVRSRV_ERROR_INIT_FAILURE;
+#endif
 }
 
 void MTKMFGSystemDeInit(void)

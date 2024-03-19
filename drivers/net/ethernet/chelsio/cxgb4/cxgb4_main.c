@@ -274,7 +274,7 @@ static void dcb_tx_queue_prio_enable(struct net_device *dev, int enable)
 				"Can't %s DCB Priority on port %d, TX Queue %d: err=%d\n",
 				enable ? "set" : "unset", pi->port_id, i, -err);
 		else
-			txq->dcb_prio = enable ? value : 0;
+			txq->dcb_prio = value;
 	}
 }
 
@@ -5203,23 +5203,14 @@ static int __init cxgb4_init_module(void)
 
 	ret = pci_register_driver(&cxgb4_driver);
 	if (ret < 0)
-		goto err_pci;
+		debugfs_remove(cxgb4_debugfs_root);
 
 #if IS_ENABLED(CONFIG_IPV6)
 	if (!inet6addr_registered) {
-		ret = register_inet6addr_notifier(&cxgb4_inet6addr_notifier);
-		if (ret)
-			pci_unregister_driver(&cxgb4_driver);
-		else
-			inet6addr_registered = true;
+		register_inet6addr_notifier(&cxgb4_inet6addr_notifier);
+		inet6addr_registered = true;
 	}
 #endif
-
-	if (ret == 0)
-		return ret;
-
-err_pci:
-	debugfs_remove(cxgb4_debugfs_root);
 
 	return ret;
 }

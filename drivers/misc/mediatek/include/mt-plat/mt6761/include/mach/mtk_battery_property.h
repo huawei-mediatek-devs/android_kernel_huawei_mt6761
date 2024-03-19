@@ -40,7 +40,7 @@
 
 #define SHUTDOWN_GAUGE0_VOLTAGE 34000
 
-#define POWERON_SYSTEM_IBOOT 500	/* mA */
+#define POWERON_SYSTEM_IBOOT 300	/* mA */
 
 /*
  * LOW_TEMP_MODE = 0
@@ -58,7 +58,6 @@
 
 #define D0_SEL 0	/* not implement */
 #define AGING_SEL 0	/* not implement */
-#define DLPT_UI_REMAP_EN 0
 
 /* ADC resistor  */
 #define R_BAT_SENSE	4
@@ -91,24 +90,22 @@
 #define FG_PRE_TRACKING_EN 1
 #define VBAT2_DET_TIME 5
 #define VBAT2_DET_COUNTER 6
-#define VBAT2_DET_VOLTAGE1	34500
-#define VBAT2_DET_VOLTAGE2	32000
-#define VBAT2_DET_VOLTAGE3	35000
+#define VBAT2_DET_VOLTAGE1	34000
+#define VBAT2_DET_VOLTAGE2	30000
+#define VBAT2_DET_VOLTAGE3	34500
 
 /* PCB setting */
 #define CALIBRATE_CAR_TUNE_VALUE_BY_META_TOOL
 #define CALI_CAR_TUNE_AVG_NUM	60
 
 /* Aging Compensation 1*/
-#define AGING_FACTOR_MIN 90
-#define AGING_FACTOR_DIFF 10
+#define AGING_FACTOR_MIN 10
+#define AGING_FACTOR_DIFF 5
 #define DIFFERENCE_VOLTAGE_UPDATE 50
 #define AGING_ONE_EN 1
 #define AGING1_UPDATE_SOC 30
 #define AGING1_LOAD_SOC 70
 #define AGING_TEMP_DIFF 10
-#define AGING_TEMP_LOW_LIMIT 15
-#define AGING_TEMP_HIGH_LIMIT 50
 #define AGING_100_EN 1
 
 /* Aging Compensation 2*/
@@ -116,18 +113,6 @@
 
 /* Aging Compensation 3*/
 #define AGING_THIRD_EN 1
-#define AGING_4_EN 1
-#define AGING_5_EN 1
-#define AGING_6_EN 1
-
-#define AGING4_UPDATE_SOC 40
-#define AGING4_LOAD_SOC 70
-
-#define AGING5_UPDATE_SOC 30
-#define AGING5_LOAD_SOC 70
-
-#define AGING6_UPDATE_SOC 30
-#define AGING6_LOAD_SOC 70
 
 /* threshold */
 #define HWOCV_SWOCV_DIFF	300
@@ -138,9 +123,9 @@
 #define SWOCV_OLDOCV_DIFF	300
 #define SWOCV_OLDOCV_DIFF_CHR	800
 #define VBAT_OLDOCV_DIFF	1000
-#define SWOCV_OLDOCV_DIFF_EMB		1000	/* 100mV */
+#define SWOCV_OLDOCV_DIFF_EMB	1000	/* 100mV */
 
-#define VIR_OLDOCV_DIFF_EMB		10000	/* 1000mV */
+#define VIR_OLDOCV_DIFF_EMB	10000	/* 1000mV */
 #define VIR_OLDOCV_DIFF_EMB_LT	10000	/* 1000mV */
 #define VIR_OLDOCV_DIFF_EMB_TMP	5
 
@@ -262,9 +247,6 @@
 #define UI_LOW_LIMIT_VTH4 34500
 
 #define UI_LOW_LIMIT_TIME 99999
-
-#define MOVING_BATTEMP_EN 1
-#define MOVING_BATTEMP_THR 20
 
 
 #endif

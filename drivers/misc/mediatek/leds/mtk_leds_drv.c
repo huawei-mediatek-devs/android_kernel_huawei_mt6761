@@ -27,6 +27,9 @@
 #ifdef CONFIG_MTK_PWM
 #include <mt-plat/mtk_pwm.h>
 #endif
+#ifdef CONFIG_MTK_PMIC_NEW_ARCH
+#include <mt-plat/upmu_common.h>
+#endif
 #ifdef CONFIG_MTK_AAL_SUPPORT
 #include <ddp_aal.h>
 #endif
@@ -74,13 +77,21 @@ static int debug_enable_led = 1;
 #define CONTROL_BL_TEMPERATURE
 #endif
 
+#ifdef CONFIG_LCD_KIT_DRIVER
+#define MT_LED_INTERNAL_LEVEL_BIT_CNT 11
+#else
 #define MT_LED_INTERNAL_LEVEL_BIT_CNT 10
+#endif
 
 /******************************************************************************
  * for DISP backlight High resolution
  *****************************************************************************/
 #ifdef LED_INCREASE_LED_LEVEL_MTKPATCH
+#ifdef CONFIG_LCD_KIT_DRIVER
+#define LED_INTERNAL_LEVEL_BIT_CNT 11
+#else
 #define LED_INTERNAL_LEVEL_BIT_CNT 10
+#endif
 #endif
 /* Fix dependency if CONFIG_MTK_LCM not ready */
 void __weak disp_aal_notify_backlight_changed(int bl_1024) {};
@@ -406,10 +417,15 @@ int backlight_brightness_set(int level)
 		    mt_mt65xx_led_set_cust(&cust_led_list[MT65XX_LED_TYPE_LCD],
 					   level);
 	} else {
+#ifdef CONFIG_LCD_KIT_DRIVER
+        /* FOR 11 BIT LEVEL */
+		return mt65xx_led_set_cust(&cust_led_list[MT65XX_LED_TYPE_LCD], level);
+#else
 		return mt65xx_led_set_cust(&cust_led_list[MT65XX_LED_TYPE_LCD],
 					   (level >>
 					    (MT_LED_INTERNAL_LEVEL_BIT_CNT -
 					     8)));
+#endif
 	}
 
 }
@@ -628,16 +644,15 @@ static int led_i2c_remove(struct i2c_client *client)
 static int mt65xx_leds_probe(struct platform_device *pdev)
 {
 	int i;
-	int ret;
+	int ret;/* rc; */
 	struct cust_mt65xx_led *cust_led_list = mt_get_cust_led_list();
+    if (NULL == cust_led_list)
+    {
+        printk(KERN_ERR "unable to add led-i2c driver.\n");
+        return -1;
+    }
+	#ifdef CONFIG_BACKLIGHT_SUPPORT_LP8557
 
-	if (!cust_led_list) {
-		pr_info("[LED] get dts fail! Probe exit.\n");
-		ret = -1;
-		goto err_dts;
-	}
-
-#ifdef CONFIG_BACKLIGHT_SUPPORT_LP8557
 	/*i2c_register_board_info(4, &leds_board_info, 1);*/
 	if (i2c_add_driver(&led_i2c_driver)) {
 		LEDS_DRV_DEBUG("unable to add led-i2c driver.\n");
@@ -733,7 +748,6 @@ static int mt65xx_leds_probe(struct platform_device *pdev)
 		}
 	}
 
-err_dts:
 	return ret;
 }
 
@@ -834,6 +848,91 @@ static struct platform_device mt65xx_leds_device = {
 
 #endif
 
+struct pinctrl *pinctrl3;
+struct pinctrl_state *red_en_default;
+struct pinctrl_state *red_en_low;
+struct pinctrl_state *red_en_high;
+
+int leds_red_ctrl_set(int en)
+{
+	int ret = -1;
+	if (pinctrl3 && red_en_high && red_en_low) {
+		if(en) {
+			ret = pinctrl_select_state(pinctrl3, red_en_high);
+		}
+		else {
+			ret = pinctrl_select_state(pinctrl3, red_en_low);
+		}
+		return ret;
+	}
+	LEDS_DRV_DEBUG ("pinctrl init failed\n");
+	return ret;
+}
+
+static int leds_red_ctrl_probe(struct platform_device *pdev)
+{
+	int ret = 0;
+	pinctrl3 = devm_pinctrl_get(&pdev->dev);
+	if (IS_ERR(pinctrl3)) {
+		ret = PTR_ERR(pinctrl3);
+		LEDS_DRV_DEBUG ("Cannot find pinctrl3\n");
+		return ret;
+	}
+	red_en_default = pinctrl_lookup_state(pinctrl3, "red_en_default");
+	if (IS_ERR(red_en_default)) {
+		ret = PTR_ERR(red_en_default);
+		LEDS_DRV_DEBUG ("Cannot find pinctrl default\n");
+	}
+	red_en_low = pinctrl_lookup_state(pinctrl3, "red_en_low");
+	if (IS_ERR(red_en_low)) {
+		ret = PTR_ERR(red_en_low);
+		LEDS_DRV_DEBUG ("Cannot find pinctrl chg_en_low\n");
+		return ret;
+	}
+	red_en_high = pinctrl_lookup_state(pinctrl3, "red_en_high");
+	if (IS_ERR(red_en_high)) {
+		ret = PTR_ERR(red_en_high);
+		LEDS_DRV_DEBUG ("Cannot find pinctrl chg_en_high\n");
+		return ret;
+	}
+	//pull down PCHR_LED
+	pmic_set_register_value(PMIC_CHRIND_EN_SEL, NLED_ON);
+	pmic_set_register_value(PMIC_RG_DRV_128K_CK_PDN, 0x0); /* Disable power down */
+	pmic_set_register_value(PMIC_RG_DRV_CHRIND_CK_PDN, 0);
+	pmic_set_register_value(PMIC_CHRIND_MODE_SEL, ISINK_PWM_MODE);
+	pmic_set_register_value(PMIC_CHRIND_STEP, ISINK_3); /* 16mA */
+	pmic_set_register_value(PMIC_CHRIND_DIM_DUTY, 255);
+	pmic_set_register_value(PMIC_CHRIND_DIM_FSEL, ISINK_128K_500HZ); /* 1KHz */
+	pmic_set_register_value(PMIC_CHRIND_BIAS_EN, NLED_ON);
+	pmic_set_register_value(PMIC_CHRIND_CHOP_EN, NLED_ON);
+	pmic_set_register_value(PMIC_CHRIND_EN, NLED_OFF);
+	return 0;
+}
+
+static int leds_red_ctrl_remove(struct platform_device *pdev)
+{
+	return 0;
+}
+
+const struct of_device_id leds_red_ctrl_of_match[] = {
+	{
+		.compatible = "huawei,led_contrl",
+	},
+};
+
+static struct platform_driver leds_red_ctrl_driver = {
+	.driver = {
+		   .name = "leds_red_ctrl",
+		   .owner = THIS_MODULE,
+		   .of_match_table = leds_red_ctrl_of_match,
+		   },
+	.probe = leds_red_ctrl_probe,
+	.remove = leds_red_ctrl_remove,
+	.shutdown = NULL,
+};
+
+
+
 static int __init mt65xx_leds_init(void)
 {
 	int ret;
@@ -851,6 +950,10 @@ static int __init mt65xx_leds_init(void)
 		LEDS_DRV_DEBUG("mt65xx_leds_init:drv:E%d\n", ret);
 /* platform_device_unregister(&mt65xx_leds_device); */
 		return ret;
+	}
+	ret = platform_driver_register(&leds_red_ctrl_driver);
+	if (ret) {
+		LEDS_DRV_DEBUG("leds_red_ctrl:drv:E%d\n", ret);
 	}
 
 	mt_leds_wake_lock_init();

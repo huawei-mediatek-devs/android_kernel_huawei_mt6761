@@ -20,7 +20,6 @@
 #if 0
 #include "ged_monitor_3D_fence.h"
 #endif
-#include "ged_gpu_tuner.h"
 
 unsigned int (*mtk_get_gpu_memory_usage_fp)(void) = NULL;
 EXPORT_SYMBOL(mtk_get_gpu_memory_usage_fp);
@@ -719,19 +718,6 @@ EXPORT_SYMBOL(mtk_get_gpu_pmu_init);
 
 /* ----------------------------------------------------------------------------- */
 
-int (*mtk_get_gpu_pmu_deinit_fp)(void);
-EXPORT_SYMBOL(mtk_get_gpu_pmu_deinit_fp);
-
-bool mtk_get_gpu_pmu_deinit(void)
-{
-	if (mtk_get_gpu_pmu_deinit_fp != NULL)
-		return mtk_get_gpu_pmu_deinit_fp() == 0;
-	return false;
-}
-EXPORT_SYMBOL(mtk_get_gpu_pmu_deinit);
-
-/* ------------------------------------------------------------------------- */
-
 int (*mtk_get_gpu_pmu_swapnreset_fp)(GPU_PMU *pmus, int pmu_size);
 EXPORT_SYMBOL(mtk_get_gpu_pmu_swapnreset_fp);
 
@@ -744,19 +730,6 @@ bool mtk_get_gpu_pmu_swapnreset(GPU_PMU *pmus, int pmu_size)
 EXPORT_SYMBOL(mtk_get_gpu_pmu_swapnreset);
 
 /* ----------------------------------------------------------------------------- */
-
-int (*mtk_get_gpu_pmu_swapnreset_stop_fp)(void);
-EXPORT_SYMBOL(mtk_get_gpu_pmu_swapnreset_stop_fp);
-
-bool mtk_get_gpu_pmu_swapnreset_stop(void)
-{
-	if (mtk_get_gpu_pmu_swapnreset_stop_fp != NULL)
-		return mtk_get_gpu_pmu_swapnreset_stop_fp() == 0;
-	return false;
-}
-EXPORT_SYMBOL(mtk_get_gpu_pmu_swapnreset_stop);
-
-/* ------------------------------------------------------------------------- */
 
 typedef struct {
 	 gpu_power_change_notify_fp callback;
@@ -837,113 +810,3 @@ void mtk_notify_gpu_power_change(int power_on)
 	mutex_unlock(&g_power_change.lock);
 }
 EXPORT_SYMBOL(mtk_notify_gpu_power_change);
-
-bool mtk_gpu_tuner_hint_set(char *packagename, enum GPU_TUNER_FEATURE eFeature)
-{
-	return ged_gpu_tuner_hint_set(packagename, eFeature);
-}
-EXPORT_SYMBOL(mtk_gpu_tuner_hint_set);
-
-bool mtk_gpu_tuner_hint_restore(char *packagename,
-	enum GPU_TUNER_FEATURE eFeature)
-{
-	return ged_gpu_tuner_hint_restore(packagename, eFeature);
-}
-EXPORT_SYMBOL(mtk_gpu_tuner_hint_restore);
-
-bool mtk_gpu_tuner_get_stauts_by_packagename(char *packagename, int *feature)
-{
-	struct GED_GPU_TUNER_ITEM item;
-	GED_ERROR err = ged_gpu_get_stauts_by_packagename(packagename, &item);
-
-	if (err == GED_OK)
-		*feature = item.status.feature;
-
-	return err;
-}
-EXPORT_SYMBOL(mtk_gpu_tuner_get_stauts_by_packagename);
-
-/* ------------------------------------------------------------------------ */
-void (*mtk_dvfs_margin_value_fp)(int i32MarginValue) = NULL;
-EXPORT_SYMBOL(mtk_dvfs_margin_value_fp);
-
-bool mtk_dvfs_margin_value(int i32MarginValue)
-{
-	if (mtk_dvfs_margin_value_fp != NULL) {
-		mtk_dvfs_margin_value_fp(i32MarginValue);
-		return true;
-	}
-	return false;
-}
-EXPORT_SYMBOL(mtk_dvfs_margin_value);
-
-int (*mtk_get_dvfs_margin_value_fp)(void) = NULL;
-EXPORT_SYMBOL(mtk_get_dvfs_margin_value_fp);
-
-bool mtk_get_dvfs_margin_value(int *pi32MarginValue)
-{
-	if ((mtk_get_dvfs_margin_value_fp != NULL) &&
-		(pi32MarginValue != NULL)) {
-
-		*pi32MarginValue = mtk_get_dvfs_margin_value_fp();
-		return true;
-	}
-	return false;
-}
-EXPORT_SYMBOL(mtk_get_dvfs_margin_value);
-
-/* -------------------------------------------------------------------------*/
-void (*mtk_loading_base_dvfs_step_fp)(int i32StepValue) = NULL;
-EXPORT_SYMBOL(mtk_loading_base_dvfs_step_fp);
-
-bool mtk_loading_base_dvfs_step(int i32StepValue)
-{
-	if (mtk_loading_base_dvfs_step_fp != NULL) {
-		mtk_loading_base_dvfs_step_fp(i32StepValue);
-		return true;
-	}
-	return false;
-}
-EXPORT_SYMBOL(mtk_loading_base_dvfs_step);
-
-int (*mtk_get_loading_base_dvfs_step_fp)(void) = NULL;
-EXPORT_SYMBOL(mtk_get_loading_base_dvfs_step_fp);
-
-bool mtk_get_loading_base_dvfs_step(int *pi32StepValue)
-{
-	if ((mtk_get_loading_base_dvfs_step_fp != NULL) &&
-		(pi32StepValue != NULL)) {
-		*pi32StepValue = mtk_get_loading_base_dvfs_step_fp();
-		return true;
-	}
-	return false;
-}
-EXPORT_SYMBOL(mtk_get_loading_base_dvfs_step);
-/* ------------------------------------------------------------------------ */
-void (*mtk_timer_base_dvfs_margin_fp)(int i32MarginValue) = NULL;
-EXPORT_SYMBOL(mtk_timer_base_dvfs_margin_fp);
-
-bool mtk_timer_base_dvfs_margin(int i32MarginValue)
-{
-	if (mtk_timer_base_dvfs_margin_fp != NULL) {
-		mtk_timer_base_dvfs_margin_fp(i32MarginValue);
-		return true;
-	}
-	return false;
-}
-EXPORT_SYMBOL(mtk_timer_base_dvfs_margin);
-
-int (*mtk_get_timer_base_dvfs_margin_fp)(void) = NULL;
-EXPORT_SYMBOL(mtk_get_timer_base_dvfs_margin_fp);
-
-bool mtk_get_timer_base_dvfs_margin(int *pi32MarginValue)
-{
-	if ((mtk_get_timer_base_dvfs_margin_fp != NULL) &&
-		(pi32MarginValue != NULL)) {
-
-		*pi32MarginValue = mtk_get_timer_base_dvfs_margin_fp();
-		return true;
-	}
-	return false;
-}
-EXPORT_SYMBOL(mtk_get_timer_base_dvfs_margin);

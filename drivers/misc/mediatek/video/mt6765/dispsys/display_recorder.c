@@ -191,13 +191,10 @@ static const char *_get_event_string(enum DPREC_EVENT event)
 static unsigned long long get_current_time_us(void)
 {
 	unsigned long long time = sched_clock();
-	struct timeval t;
 
 	/* return do_div(time,1000); */
 	return time;
 
-	do_gettimeofday(&t);
-	return (t.tv_sec & 0xFFF) * 1000000 + t.tv_usec;
 }
 
 

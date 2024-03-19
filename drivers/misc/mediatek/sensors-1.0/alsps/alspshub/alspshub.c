@@ -20,10 +20,20 @@
 #include <SCP_sensorHub.h>
 #include "SCP_power_monitor.h"
 #include <linux/pm_wakeup.h>
-
+#include "../../../auxadc/mtk_auxadc.h"
+#include <linux/module.h>
+#include <linux/notifier.h>
+#include <linux/of.h>
+#include <linux/regulator/consumer.h>
+#include <linux/string.h>
+#include <linux/kernel.h>
+#include "sensor_para.h"
 
 #define ALSPSHUB_DEV_NAME     "alsps_hub_pl"
-
+#define BATTERY_ID_CHANNEL_2  2
+#define MAX_USB_VAL 550000
+#define MIN_USB_VAL 460000
+#define HW_VOL_VALUE  3000000
 struct alspshub_ipi_data {
 	struct work_struct init_done_work;
 	atomic_t first_ready_after_boot;
@@ -54,7 +64,12 @@ static int ps_get_data(int *value, int *status);
 
 static int alspshub_local_init(void);
 static int alspshub_local_remove(void);
+static int alshub_factory_enable_calibration(void);
+static int alshub_factory_enable_sensor(bool enable_disable, int64_t sample_periods_ms);
+#define FAC_POLL_TIME 200
+
 static int alspshub_init_flag = -1;
+static bool als_cali_status = false;
 static struct alsps_init_info alspshub_init_info = {
 	.name = "alsps_hub",
 	.init = alspshub_local_init,
@@ -79,6 +94,39 @@ enum {
 	CMC_TRC_CVT_PS = 0x0040,
 	CMC_TRC_DEBUG = 0x8000,
 } CMC_TRC;
+
+void ldo_regulator_init(void)
+{
+	struct regulator *regu_ldo = NULL;
+	int ret;
+
+	pr_info("%s: ++\n", __func__);
+	/* Get ldo regulator handler */
+	regu_ldo = regulator_get(NULL, "irtx_ldo");
+	if (IS_ERR_OR_NULL(regu_ldo)) { /* handle return value */
+		ret = PTR_ERR(regu_ldo);
+		pr_err("%s: get irtx_ldo fail(%d)\n", __func__, ret);
+		return;
+	}
+
+	/* Set ldo to 3V */
+	ret = regulator_set_voltage(regu_ldo, HW_VOL_VALUE, HW_VOL_VALUE);
+	if (ret < 0) {
+		pr_err("%s: set ldo 3V fail(%d)\n", __func__, ret);
+		regulator_put(regu_ldo);
+		return;
+	}
+	/* Enable regulator */
+	ret = regulator_enable(regu_ldo);
+	if (ret < 0) {
+		pr_info("%s: enable ldo fail(%d)\n", __func__, ret);
+		regulator_put(regu_ldo);
+		return;
+	}
+
+	regulator_put(regu_ldo);
+	pr_info("%s: --\n", __func__);
+}
 
 long alspshub_read_ps(u8 *ps)
 {
@@ -233,6 +281,61 @@ static ssize_t alspshub_show_alsval(struct device_driver *ddri, char *buf)
 	return res;
 }
 
+static ssize_t alspshub_store_alscali(struct device_driver *ddri,
+				const char *buf, size_t count)
+{
+	//struct alspshub_ipi_data *obj = obj_ipi_data;
+	int enable = 0, ret = 0, fool_proof_vol = 0;
+	als_cali_status = false;
+	if(NULL == buf){
+		pr_err("%s, buf NULL error\n", __func__);
+		return 0;
+	}
+	//acc_cali_flag = false;
+	ret = kstrtoint(buf, 10, &enable);//change to 10-type
+	if (ret != 0) {
+		pr_err("kstrtoint fail\n");
+		return 0;
+	}
+	pr_info("%s, cali cmd =%d\n", __func__, enable);
+	ret = IMM_GetOneChannelValue_Cali(BATTERY_ID_CHANNEL_2, &fool_proof_vol);
+	if (ret != 0)
+	{
+		pr_err("get fool_proof_vol fail\n");
+		return -1;
+	}
+	pr_info("%s, get fool_proof_vol =%d\n", __func__, fool_proof_vol);
+	if(fool_proof_vol > MAX_USB_VAL || fool_proof_vol < MIN_USB_VAL){
+		pr_err("%s out of usb voltage range\n", __func__);
+		return -1;
+	}
+	if (enable == 1){
+		alshub_factory_enable_sensor(true, FAC_POLL_TIME);//set to default 200ms
+		alshub_factory_enable_calibration();
+	}
+	return count;
+}
+
+static ssize_t alspshub_show_alscali(struct device_driver *ddri, char *buf)
+{
+	struct alspshub_ipi_data *obj = obj_ipi_data;
+
+	if (!obj || !buf) {
+		pr_err("obj_ipi_data is null!!\n");
+		return 0;
+	}
+	//res = alspshub_read_als(&obj->als);
+	//alshub_factory_enable_sensor(false, 0);
+	if(als_cali_status == true){
+		pr_info("return als calibrate result = PASS\n");
+		return snprintf(buf, PAGE_SIZE, "%d\n", 0);
+	}else{
+		pr_info("return als calibrate result = FAIL\n");
+		return snprintf(buf, PAGE_SIZE, "%d\n", 1);
+	}
+
+}
+
 static DRIVER_ATTR(als, 0644, alspshub_show_als, NULL);
 static DRIVER_ATTR(ps, 0644, alspshub_show_ps, NULL);
 static DRIVER_ATTR(alslv, 0644, alspshub_show_alslv, NULL);
@@ -240,6 +343,8 @@ static DRIVER_ATTR(alsval, 0644, alspshub_show_alsval, NULL);
 static DRIVER_ATTR(trace, 0644, alspshub_show_trace,
 					alspshub_store_trace);
 static DRIVER_ATTR(reg, 0644, alspshub_show_reg, NULL);
+static DRIVER_ATTR(alscali, 0664, alspshub_show_alscali, alspshub_store_alscali);//set type 0664
+
 static struct driver_attribute *alspshub_attr_list[] = {
 	&driver_attr_als,
 	&driver_attr_ps,
@@ -247,6 +352,7 @@ static struct driver_attribute *alspshub_attr_list[] = {
 	&driver_attr_alslv,
 	&driver_attr_alsval,
 	&driver_attr_reg,
+	&driver_attr_alscali,
 };
 
 static int alspshub_create_attr(struct device_driver *driver)
@@ -290,6 +396,19 @@ static void alspshub_init_done_work(struct work_struct *work)
 	int32_t cfg_data[2] = {0};
 #endif
 
+	static bool isfirst = true;
+
+	if (sensor_para != NULL) {
+		pr_err("%s, product_type: %d\n", __func__,
+				sensor_para->ps_para.product_name);
+		/* JAT: 1, MRD: 2 */
+		if (isfirst && ((sensor_para->ps_para.product_name == 1) ||
+			(sensor_para->ps_para.product_name == 2))) {
+			ldo_regulator_init();
+			isfirst = false;
+		}
+	}
+
 	if (atomic_read(&obj->scp_init_done) == 0) {
 		pr_err("wait for nvram to set calibration\n");
 		return;
@@ -323,60 +442,60 @@ static void alspshub_init_done_work(struct work_struct *work)
 }
 static int ps_recv_data(struct data_unit_t *event, void *reserved)
 {
-	int err = 0;
 	struct alspshub_ipi_data *obj = obj_ipi_data;
 
 	if (!obj)
-		return 0;
+		return -1;
 
 	if (event->flush_action == FLUSH_ACTION)
-		err = ps_flush_report();
+		ps_flush_report();
 	else if (event->flush_action == DATA_ACTION &&
 			READ_ONCE(obj->ps_android_enable) == true) {
 		__pm_wakeup_event(&obj->ps_wake_lock, msecs_to_jiffies(100));
-		err = ps_data_report(event->proximity_t.oneshot,
+		ps_data_report(event->proximity_t.oneshot,
 			SENSOR_STATUS_ACCURACY_HIGH);
 	} else if (event->flush_action == CALI_ACTION) {
 		spin_lock(&calibration_lock);
 		atomic_set(&obj->ps_thd_val_high, event->data[0]);
 		atomic_set(&obj->ps_thd_val_low, event->data[1]);
 		spin_unlock(&calibration_lock);
-		err = ps_cali_report(event->data);
+		ps_cali_report(event->data);
 	}
-	return err;
+	return 0;
 }
 static int als_recv_data(struct data_unit_t *event, void *reserved)
 {
-	int err = 0;
 	struct alspshub_ipi_data *obj = obj_ipi_data;
 
 	if (!obj)
-		return 0;
+		return -1;
 
 	if (event->flush_action == FLUSH_ACTION)
-		err = als_flush_report();
+		als_flush_report();
 	else if ((event->flush_action == DATA_ACTION) &&
 			READ_ONCE(obj->als_android_enable) == true)
-		err = als_data_report(event->light,
-			SENSOR_STATUS_ACCURACY_MEDIUM);
+		als_data_report(event->light, SENSOR_STATUS_ACCURACY_MEDIUM);
 	else if (event->flush_action == CALI_ACTION) {
+		pr_info("%s, recv als calibrate data\n", __func__);
 		spin_lock(&calibration_lock);
 		atomic_set(&obj->als_cali, event->data[0]);
 		spin_unlock(&calibration_lock);
-		err = als_cali_report(event->data);
+		pr_info("%s, recv als calibrate data = %d, resu = %d, ch0_ratio = %d, ch1_ratio = %d\n", __func__, event->data[0], (event->data[0] >> 31)&0x1, (event->data[0]) & 0xFFFF, (event->data[0] >> 16) & 0x7FFF);//0xFFFF,0x7FFF 16 for get cali data
+		if(event->data[0] > 0){
+			als_cali_status = true;
+			als_cali_report(event->data);
+		}
 	}
-	return err;
+	return 0;
 }
 
 static int rgbw_recv_data(struct data_unit_t *event, void *reserved)
 {
-	int err = 0;
-
 	if (event->flush_action == FLUSH_ACTION)
-		err = rgbw_flush_report();
+		rgbw_flush_report();
 	else if (event->flush_action == DATA_ACTION)
-		err = rgbw_data_report(event->data);
-	return err;
+		rgbw_data_report(event->data);
+	return 0;
 }
 
 static int alshub_factory_enable_sensor(bool enable_disable,
@@ -620,7 +739,7 @@ static int als_enable_nodata(int en)
 	int res = 0;
 	struct alspshub_ipi_data *obj = obj_ipi_data;
 
-	pr_debug("obj_ipi_data als enable value = %d\n", en);
+	pr_info("obj_ipi_data als enable value = %d\n", en);
 
 	if (en == true)
 		WRITE_ONCE(obj->als_android_enable, true);
@@ -654,7 +773,7 @@ static int als_set_delay(u64 ns)
 		pr_err("als_set_delay fail!\n");
 		return err;
 	}
-	pr_debug("als_set_delay (%d)\n", delayms);
+	pr_info("als_set_delay (%d)\n", delayms);
 	return 0;
 #elif defined CONFIG_NANOHUB
 	return 0;
@@ -684,6 +803,7 @@ static int als_set_cali(uint8_t *data, uint8_t count)
 
 	spin_lock(&calibration_lock);
 	atomic_set(&obj->als_cali, buf[0]);
+	pr_info("als_set_cali cali data = %d, %d\n", buf[0] & 0xFFFF, (buf[0] >> 16)&0xFFFF);//0xFFFF, 0xFFFF, 16 set for get cali data
 	spin_unlock(&calibration_lock);
 	return sensor_cfg_to_hub(ID_LIGHT, data, count);
 }
@@ -742,7 +862,7 @@ static int ps_enable_nodata(int en)
 	int res = 0;
 	struct alspshub_ipi_data *obj = obj_ipi_data;
 
-	pr_debug("obj_ipi_data als enable value = %d\n", en);
+	pr_info("obj_ipi_data ps enable value = %d\n", en);
 	if (en == true)
 		WRITE_ONCE(obj->ps_android_enable, true);
 	else
@@ -1056,12 +1176,52 @@ static int alspshub_local_remove(void)
 	return 0;
 }
 
+extern struct sensor_para_t *sensor_para;
+static void hw_sensorhub_get_product_type(void)
+{
+	struct device_node *scpinfo_node = NULL;
+	unsigned int product_name;
+	int ret;
+
+	pr_info("Enter function :%s\n", __func__);
+	if (sensor_para == NULL) {
+		pr_err("sensor_para is NULL!\n");
+		return;
+	}
+	sensor_para->ps_para.product_name = 0;
+	scpinfo_node = of_find_compatible_node(NULL, NULL,
+		"huawei,huawei_scp_info");
+
+	if (scpinfo_node == NULL) {
+		pr_err("Cannot find huawei_scp_info from dts\n");
+		return;
+	} else {
+		ret = of_property_read_u32(scpinfo_node,
+			"product_number", &product_name);
+		if (ret == 0) {
+			sensor_para->ps_para.product_name = product_name;
+			sensor_para->als_para.product_name = product_name;
+			pr_info("find product_name success %d\n", product_name);
+		} else {
+			pr_err("Cannot find product_name from dts\n");
+			sensor_para->ps_para.product_name = 0;
+			sensor_para->als_para.product_name = 0;
+			return;
+		}
+	}
+
+	pr_info("Exit function :%s, product_name: %d\n",
+		__func__, sensor_para->ps_para.product_name);
+	return;
+ }
+
 static int __init alspshub_init(void)
 {
 	if (platform_device_register(&alspshub_device)) {
 		pr_err("alsps platform device error\n");
 		return -1;
 	}
+	hw_sensorhub_get_product_type();
 	alsps_driver_add(&alspshub_init_info);
 	return 0;
 }

@@ -15,5 +15,7 @@
 #define STEPSIGNHUB_H
 
 #include <linux/ioctl.h>
-
+extern bool std_step_c_enable_status;
+extern bool ext_step_c_enable_status;
+extern int ext_step_counter_enable(bool en);
 #endif

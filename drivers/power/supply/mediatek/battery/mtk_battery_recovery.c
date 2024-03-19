@@ -1391,6 +1391,11 @@ void fg_construct_battery_profile_by_qmax(int qmax, int table_index)
 
 	profile_p = fg_get_profile(table_index);
 
+	if (profile_p == NULL) {
+		bm_err("[%s]profile_p = NULL\n", __func__);
+		return;
+	}
+
 	if (table_index == ptable->temperature_tb0) {
 		qmax_t_0ma = qmax;
 
@@ -1414,6 +1419,11 @@ void fg_construct_battery_profile_by_vboot(int _vboot, int table_index)
 	struct FUELGAUGE_PROFILE_STRUCT *profile_p;
 
 	profile_p = fg_get_profile(table_index);
+
+	if (profile_p == NULL) {
+		bm_err("[%s]profile_p = NULL\n", __func__);
+		return;
+	}
 
 	for (j = 0; j < 100; j++)
 		if (profile_p[j].voltage < _vboot)
@@ -1679,6 +1689,11 @@ void fgr_dump_table(int idx)
 	int i;
 
 	profile_p = fg_get_profile(idx);
+
+	if (profile_p == NULL) {
+		bm_err("[%s]profile_p = NULL\n", __func__);
+		return;
+	}
 
 	bm_err(
 		"[fg_dump_table]table idx:%d (i,mah,voltage,resistance,percentage)\n",
