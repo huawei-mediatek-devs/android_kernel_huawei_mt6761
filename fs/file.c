@@ -23,6 +23,12 @@
 #include <linux/rcupdate.h>
 #include <linux/workqueue.h>
 
+#ifdef CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG
+#include <mt-plat/aee.h>
+#define MSG_SIZE_TO_AEE_f 70
+char msg_to_aee_f[MSG_SIZE_TO_AEE_f];
+#endif
+
 unsigned int sysctl_nr_open __read_mostly = 1024*1024;
 unsigned int sysctl_nr_open_min = BITS_PER_LONG;
 /* our min() is unusable in constant expressions ;-/ */
@@ -475,7 +481,6 @@ struct files_struct init_files = {
 		.full_fds_bits	= init_files.full_fds_bits_init,
 	},
 	.file_lock	= __SPIN_LOCK_UNLOCKED(init_files.file_lock),
-	.resize_wait	= __WAIT_QUEUE_HEAD_INITIALIZER(init_files.resize_wait),
 };
 
 static unsigned int find_next_fd(struct fdtable *fdt, unsigned int start)
@@ -540,7 +545,7 @@ static long get_file_name_from_fd(struct files_struct *files,
 		return PTR_ERR(pathname);
 	}  /* do something here with pathname */
 
-	if (pathname != NULL && res_name->name != NULL) {
+	if (pathname != NULL && res_name != NULL) {
 		strncpy(res_name->name, pathname, FD_CHECK_NAME_SIZE - 1);
 		res_name->name[FD_CHECK_NAME_SIZE - 1] = '\0';
 	}
@@ -563,13 +568,16 @@ static void fd_insert(struct over_fd_entry *entry)
 {
 	unsigned int hash = get_hash(entry->name);
 	struct over_fd_entry *find_entry = fd_lookup(hash);
-
+	int ret = 0;
 	/* Can't find the element, just add the element */
 	if (!find_entry) {
 		entry->num_of_fd = 1;
 		entry->hash = hash;
 		list_add_tail(&entry->fd_link, &fd_listhead);
-		radix_tree_insert(&over_fd_tree, hash, (void *)entry);
+		ret = radix_tree_insert(&over_fd_tree, hash, (void *)entry);
+		if (ret) {
+			pr_debug("fd_insert radix_tree_insert fail");
+		}
 	} else {	/* Cover the original element */
 		find_entry->num_of_fd = find_entry->num_of_fd+1;
 		kfree(entry);
@@ -613,13 +621,9 @@ void fd_show_open_files(pid_t pid,
 				struct over_fd_entry, fd_link);
 		if (lentry != NULL) {
 			num_of_entry = lentry->num_of_fd;
-			if (lentry->name != NULL)
-				pr_info("[FDLEAK]OverAllocFDError(PID:%d  fileName:%s Num:%d)\n",
-						pid, lentry->name,
-						num_of_entry);
-			else
-				pr_info("[FDLEAK]OverAllocFDError(PID:%d fileName:%s Num:%d)\n",
-						pid, "NULL", num_of_entry);
+			pr_info("[FDLEAK]OverAllocFDError(PID:%d  fileName:%s Num:%d)\n",
+					pid, lentry->name,
+					num_of_entry);
 			list_del((&fd_listhead)->next);
 			fd_delete(lentry->hash);
 			kfree(lentry);
@@ -703,6 +707,25 @@ out:
 		/*}*/
 	}
 #endif
+#ifdef CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG
+	if (error >= 1023) {
+		dump_stack();
+		snprintf(msg_to_aee_f, MSG_SIZE_TO_AEE_f,
+			"[FDLEAK] [pid:%d] %s alloc_fd %d\n", current->pid,
+			current->comm, error);
+		aee_kernel_warning_api("FDLEAK_DEBUG", 0, DB_OPT_DEFAULT |
+			DB_OPT_LOW_MEMORY_KILLER |
+			DB_OPT_PID_MEMORY_INFO | /* smaps and hprof*/
+			DB_OPT_NATIVE_BACKTRACE |
+			DB_OPT_DUMPSYS_ACTIVITY |
+			DB_OPT_PROCESS_COREDUMP |
+			DB_OPT_DUMPSYS_SURFACEFLINGER |
+			DB_OPT_DUMPSYS_GFXINFO |
+			DB_OPT_DUMPSYS_PROCSTATS,
+			"show kernel & natvie backtace\n", msg_to_aee_f);
+	}
+#endif
+
 	return error;
 }
 

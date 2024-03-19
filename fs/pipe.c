@@ -28,8 +28,11 @@
 
 #include "internal.h"
 
-#if defined(CONFIG_MTK_AEE_FEATURE) && \
-	defined(CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG)
+#ifdef CONFIG_HW_FDLEAK
+#include <chipset_common/hwfdleak/fdleak.h>
+#endif
+
+#ifdef CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG
 #include <mt-plat/aee.h>
 #endif
 
@@ -198,9 +201,9 @@ EXPORT_SYMBOL(generic_pipe_buf_steal);
  *	in the tee() system call, when we duplicate the buffers in one
  *	pipe into another.
  */
-bool generic_pipe_buf_get(struct pipe_inode_info *pipe, struct pipe_buffer *buf)
+void generic_pipe_buf_get(struct pipe_inode_info *pipe, struct pipe_buffer *buf)
 {
-	return try_get_page(buf->page);
+	get_page(buf->page);
 }
 EXPORT_SYMBOL(generic_pipe_buf_get);
 
@@ -243,14 +246,6 @@ static const struct pipe_buf_operations anon_pipe_buf_ops = {
 	.get = generic_pipe_buf_get,
 };
 
-static const struct pipe_buf_operations anon_pipe_buf_nomerge_ops = {
-	.can_merge = 0,
-	.confirm = generic_pipe_buf_confirm,
-	.release = anon_pipe_buf_release,
-	.steal = anon_pipe_buf_steal,
-	.get = generic_pipe_buf_get,
-};
-
 static const struct pipe_buf_operations packet_pipe_buf_ops = {
 	.can_merge = 0,
 	.confirm = generic_pipe_buf_confirm,
@@ -258,12 +253,6 @@ static const struct pipe_buf_operations packet_pipe_buf_ops = {
 	.steal = anon_pipe_buf_steal,
 	.get = generic_pipe_buf_get,
 };
-
-void pipe_buf_mark_unmergeable(struct pipe_buffer *buf)
-{
-	if (buf->ops == &anon_pipe_buf_ops)
-		buf->ops = &anon_pipe_buf_nomerge_ops;
-}
 
 static ssize_t
 pipe_read(struct kiocb *iocb, struct iov_iter *to)
@@ -598,6 +587,9 @@ pipe_release(struct inode *inode, struct file *file)
 	__pipe_unlock(pipe);
 
 	put_pipe_info(inode, pipe);
+#ifdef CONFIG_HW_FDLEAK
+	fdleak_report(FDLEAK_WP_PIPE, 1);
+#endif
 	return 0;
 }
 
@@ -810,6 +802,11 @@ err_inode:
 	return err;
 }
 
+#ifdef CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG
+#define MSG_SIZE_TO_AEE 70
+char msg_to_aee[MSG_SIZE_TO_AEE];
+#endif
+
 static int __do_pipe_flags(int *fd, struct file **files, int flags)
 {
 	int error;
@@ -835,39 +832,6 @@ static int __do_pipe_flags(int *fd, struct file **files, int flags)
 	audit_fd_pair(fdr, fdw);
 	fd[0] = fdr;
 	fd[1] = fdw;
-
-#if defined(CONFIG_MTK_AEE_FEATURE) && \
-	defined(CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG)
-	/* sample and report warning */
-	int greaterFd = (fdr > fdw) ? fdr : fdw;
-
-	if ((greaterFd >= 1000 && greaterFd < 1020) ||
-		(greaterFd >= 2000 && greaterFd < 2012) ||
-		(greaterFd >= 3000 && greaterFd < 3012)) {
-
-		char aee_msg[200];
-		struct task_struct *process = current->group_leader;
-
-		snprintf(aee_msg, sizeof(aee_msg),
-			"[FDLEAK] pipe_fd[%d, %d], %s [tid:%d] [pid:%d],\n"
-			"Process: %s, %d, %d\n",
-			fdr, fdw, current->comm, current->pid, current->tgid,
-			process->comm, process->pid, process->tgid);
-		if (strstr(process->comm, "omx@1.0-service")) {
-			aee_kernel_warning_api("FDLEAK_DEBUG", 0,
-				DB_OPT_DEFAULT |
-				DB_OPT_LOW_MEMORY_KILLER |
-				DB_OPT_PID_MEMORY_INFO | /* smaps and hprof*/
-				DB_OPT_NATIVE_BACKTRACE |
-				DB_OPT_DUMPSYS_ACTIVITY |
-				/* DB_OPT_PROCESS_COREDUMP | */
-				DB_OPT_DUMPSYS_SURFACEFLINGER |
-				DB_OPT_DUMPSYS_GFXINFO |
-				DB_OPT_DUMPSYS_PROCSTATS,
-				"show kernel & natvie backtace\n", aee_msg);
-		}
-	}
-#endif
 	return 0;
 
  err_fdr:
@@ -875,6 +839,22 @@ static int __do_pipe_flags(int *fd, struct file **files, int flags)
  err_read_pipe:
 	fput(files[0]);
 	fput(files[1]);
+#ifdef CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG
+	if (fdr >= 1023 || fdw >= 1023) {
+		snprintf(msg_to_aee, MSG_SIZE_TO_AEE, "[FDLEAK] [pid:%d] %s\n",
+			current->pid, current->comm);
+		aee_kernel_warning_api("FDLEAK_DEBUG", 0, DB_OPT_DEFAULT |
+			DB_OPT_LOW_MEMORY_KILLER |
+			DB_OPT_PID_MEMORY_INFO | /* smaps and hprof*/
+			DB_OPT_NATIVE_BACKTRACE |
+			DB_OPT_DUMPSYS_ACTIVITY |
+			DB_OPT_PROCESS_COREDUMP |
+			DB_OPT_DUMPSYS_SURFACEFLINGER |
+			DB_OPT_DUMPSYS_GFXINFO |
+			DB_OPT_DUMPSYS_PROCSTATS,
+			"show kernel & natvie backtace\n", msg_to_aee);
+	}
+#endif
 	return error;
 }
 
@@ -910,6 +890,9 @@ SYSCALL_DEFINE2(pipe2, int __user *, fildes, int, flags)
 		} else {
 			fd_install(fd[0], files[0]);
 			fd_install(fd[1], files[1]);
+#ifdef CONFIG_HW_FDLEAK
+			fdleak_report(FDLEAK_WP_PIPE, 0);
+#endif
 		}
 	}
 	return error;

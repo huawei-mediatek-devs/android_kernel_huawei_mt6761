@@ -38,7 +38,7 @@
 #include <linux/atomic.h>
 #include <linux/prefetch.h>
 #include <linux/hie.h>
-
+#include <linux/iolimit_cgroup.h>
 /*
  * How many user pages to map in one call to get_user_pages().  This determines
  * the size of a structure in the slab cache
@@ -279,8 +279,8 @@ static ssize_t dio_complete(struct dio *dio, ssize_t ret, bool is_async)
 		 */
 		dio->iocb->ki_pos += transferred;
 
-		if (ret > 0 && dio->op == REQ_OP_WRITE)
-			ret = generic_write_sync(dio->iocb, ret);
+		if (dio->op == REQ_OP_WRITE)
+			ret = generic_write_sync(dio->iocb,  transferred);
 		dio->iocb->ki_complete(dio->iocb, ret, 0);
 	}
 
@@ -416,6 +416,8 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 
 	dio->bio_bdev = bio->bi_bdev;
 
+	blk_throtl_get_quota(bio->bi_bdev, bio->bi_iter.bi_size,
+			     msecs_to_jiffies(100), true);
 	if (sdio->submit_io) {
 		sdio->submit_io(bio, dio->inode, sdio->logical_offset_in_bio);
 		dio->bio_cookie = BLK_QC_T_NONE;
@@ -619,7 +621,6 @@ static int get_more_blocks(struct dio *dio, struct dio_submit *sdio,
 	unsigned long fs_count;	/* Number of filesystem-sized blocks */
 	int create;
 	unsigned int i_blkbits = sdio->blkbits + sdio->blkfactor;
-	loff_t i_size;
 
 	/*
 	 * If there was a memory error and we've overwritten all the
@@ -649,8 +650,8 @@ static int get_more_blocks(struct dio *dio, struct dio_submit *sdio,
 		 */
 		create = dio->op == REQ_OP_WRITE;
 		if (dio->flags & DIO_SKIP_HOLES) {
-			i_size = i_size_read(dio->inode);
-			if (i_size && fs_startblk <= (i_size - 1) >> i_blkbits)
+			if (fs_startblk <= ((i_size_read(dio->inode) - 1) >>
+							i_blkbits))
 				create = 0;
 		}
 
@@ -948,6 +949,14 @@ static int do_direct_IO(struct dio *dio, struct dio_submit *sdio,
 			unsigned this_chunk_bytes;	/* # of bytes mapped */
 			unsigned this_chunk_blocks;	/* # of blocks */
 			unsigned u;
+
+#ifdef CONFIG_CGROUP_IOLIMIT
+			if (dio->op == REQ_OP_WRITE) {
+			        io_write_bandwidth_control(PAGE_SIZE);
+			} else {
+			        io_read_bandwidth_control(PAGE_SIZE);
+			}
+#endif
 
 			if (sdio->blocks_available == 0) {
 				/*

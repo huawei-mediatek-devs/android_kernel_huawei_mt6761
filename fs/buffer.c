@@ -44,6 +44,12 @@
 #include <linux/mpage.h>
 #include <linux/bit_spinlock.h>
 #include <trace/events/block.h>
+#ifdef CONFIG_HUAWEI_IO_TRACING
+#include <iotrace/iotrace.h>
+DEFINE_TRACE(block_write_begin_enter);
+DEFINE_TRACE(block_write_begin_end);
+#endif
+
 #include <linux/hie.h>
 
 static int fsync_buffers_list(spinlock_t *lock, struct list_head *list);
@@ -208,7 +214,6 @@ __find_get_block_slow(struct block_device *bdev, sector_t block)
 	struct buffer_head *head;
 	struct page *page;
 	int all_mapped = 1;
-	static DEFINE_RATELIMIT_STATE(last_warned, HZ, 1);
 
 	index = block >> (PAGE_SHIFT - bd_inode->i_blkbits);
 	page = find_get_page_flags(bd_mapping, index, FGP_ACCESSED);
@@ -236,15 +241,15 @@ __find_get_block_slow(struct block_device *bdev, sector_t block)
 	 * file io on the block device and getblk.  It gets dealt with
 	 * elsewhere, don't buffer_error if we had some unmapped buffers
 	 */
-	ratelimit_set_flags(&last_warned, RATELIMIT_MSG_ON_RELEASE);
-	if (all_mapped && __ratelimit(&last_warned)) {
-		printk("__find_get_block_slow() failed. block=%llu, "
-		       "b_blocknr=%llu, b_state=0x%08lx, b_size=%zu, "
-		       "device %pg blocksize: %d\n",
-		       (unsigned long long)block,
-		       (unsigned long long)bh->b_blocknr,
-		       bh->b_state, bh->b_size, bdev,
-		       1 << bd_inode->i_blkbits);
+	if (all_mapped) {
+		printk("__find_get_block_slow() failed. "
+			"block=%llu, b_blocknr=%llu\n",
+			(unsigned long long)block,
+			(unsigned long long)bh->b_blocknr);
+		printk("b_state=0x%08lx, b_size=%zu\n",
+			bh->b_state, bh->b_size);
+		printk("device %pg blocksize: %d\n", bdev,
+			1 << bd_inode->i_blkbits);
 	}
 out_unlock:
 	spin_unlock(&bd_mapping->private_lock);
@@ -1703,7 +1708,7 @@ int __block_write_full_page(struct inode *inode, struct page *page,
 	struct buffer_head *bh, *head;
 	unsigned int blocksize, bbits;
 	int nr_underway = 0;
-	int write_flags = (wbc->sync_mode == WB_SYNC_ALL ? WRITE_SYNC : 0);
+	int write_flags = wbc_to_write_flag(wbc);
 
 	head = create_page_buffers(page, inode,
 					(1 << BH_Dirty)|(1 << BH_Uptodate));
@@ -1971,6 +1976,10 @@ int __block_write_begin_int(struct page *page, loff_t pos, unsigned len,
 	BUG_ON(to > PAGE_SIZE);
 	BUG_ON(from > to);
 
+#ifdef CONFIG_HUAWEI_IO_TRACING
+	trace_block_write_begin_enter(inode, page, pos, len);
+#endif
+
 	head = create_page_buffers(page, inode, 0);
 	blocksize = head->b_size;
 	bbits = block_size_bits(blocksize);
@@ -2037,6 +2046,9 @@ int __block_write_begin_int(struct page *page, loff_t pos, unsigned len,
 	}
 	if (unlikely(err))
 		page_zero_new_buffers(page, from, to);
+#ifdef CONFIG_HUAWEI_IO_TRACING
+	trace_block_write_begin_end(inode, page, err);
+#endif
 	return err;
 }
 
@@ -3048,13 +3060,6 @@ void guard_bio_eod(int op, struct bio *bio)
 	/* Uhhuh. We've got a bio that straddles the device size! */
 	truncated_bytes = bio->bi_iter.bi_size - (maxsector << 9);
 
-	/*
-	 * The bio contains more than one segment which spans EOD, just return
-	 * and let IO layer turn it into an EIO
-	 */
-	if (truncated_bytes > bvec->bv_len)
-		return;
-
 	/* Truncate the bio.. */
 	bio->bi_iter.bi_size -= truncated_bytes;
 	bvec->bv_len -= truncated_bytes;
@@ -3476,7 +3481,13 @@ int bh_uptodate_or_lock(struct buffer_head *bh)
 }
 EXPORT_SYMBOL(bh_uptodate_or_lock);
 
-int bh_submit_read_crypt(struct inode *inode, struct buffer_head *bh)
+/**
+ * bh_submit_read - Submit a locked buffer for reading
+ * @bh: struct buffer_head
+ *
+ * Returns zero on success and -EIO on error.
+ */
+int bh_submit_read(struct buffer_head *bh)
 {
 	BUG_ON(!buffer_locked(bh));
 
@@ -3487,23 +3498,11 @@ int bh_submit_read_crypt(struct inode *inode, struct buffer_head *bh)
 
 	get_bh(bh);
 	bh->b_end_io = end_buffer_read_sync;
-	submit_bh_crypt(inode, REQ_OP_READ, 0, bh);
+	submit_bh(REQ_OP_READ, 0, bh);
 	wait_on_buffer(bh);
 	if (buffer_uptodate(bh))
 		return 0;
 	return -EIO;
-}
-EXPORT_SYMBOL(bh_submit_read_crypt);
-
-/**
- * bh_submit_read - Submit a locked buffer for reading
- * @bh: struct buffer_head
- *
- * Returns zero on success and -EIO on error.
- */
-int bh_submit_read(struct buffer_head *bh)
-{
-	return bh_submit_read_crypt(NULL, bh);
 }
 EXPORT_SYMBOL(bh_submit_read);
 

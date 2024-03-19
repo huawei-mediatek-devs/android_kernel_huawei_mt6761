@@ -371,7 +371,7 @@ repeat:
 	}
 
 	/* OK, account for the buffers that this operation expects to
-	 * use and add the handle to the running transaction.
+	 * use and add the handle to the running transaction. 
 	 */
 	update_t_max_wait(transaction, ts);
 	handle->h_transaction = transaction;
@@ -385,17 +385,8 @@ repeat:
 		  jbd2_log_space_left(journal));
 	read_unlock(&journal->j_state_lock);
 	current->journal_info = handle;
-	/*
-	 * MTK WA:
-	 * Disable jbd2_handle lockdep checking
-	 * because false alarms may be raised, for example,
-	 *   1. "possible irq lock inversion dependency" by
-	 *      "fscrypt_init_mutex" and "jbd2_handle".
-	 *   2. "potential deadlock" by "jbd2_handle" and "sb_internal".
-	 */
-#if 0
+
 	rwsem_acquire_read(&journal->j_trans_commit_map, 0, 0, _THIS_IP_);
-#endif
 	jbd2_journal_free_transaction(new_transaction);
 	return 0;
 }
@@ -683,14 +674,8 @@ int jbd2__journal_restart(handle_t *handle, int nblocks, gfp_t gfp_mask)
 	read_unlock(&journal->j_state_lock);
 	if (need_to_start)
 		jbd2_log_start_commit(journal, tid);
-	/*
-	 * MTK WA:
-	 * Disable jbd2_handle lockdep checking.
-	 * See start_this_handle() for details.
-	 */
-#if 0
+
 	rwsem_release(&journal->j_trans_commit_map, 1, _THIS_IP_);
-#endif
 	handle->h_buffer_credits = nblocks;
 	ret = start_this_handle(journal, handle, gfp_mask);
 	return ret;
@@ -1226,12 +1211,11 @@ int jbd2_journal_get_undo_access(handle_t *handle, struct buffer_head *bh)
 	struct journal_head *jh;
 	char *committed_data = NULL;
 
+	JBUFFER_TRACE(jh, "entry");
 	if (jbd2_write_access_granted(handle, bh, true))
 		return 0;
 
 	jh = jbd2_journal_add_journal_head(bh);
-	JBUFFER_TRACE(jh, "entry");
-
 	/*
 	 * Do this first --- it can drop the journal lock, so we want to
 	 * make sure that obtaining the committed_data is done
@@ -1342,17 +1326,15 @@ int jbd2_journal_dirty_metadata(handle_t *handle, struct buffer_head *bh)
 
 	if (is_handle_aborted(handle))
 		return -EROFS;
-	if (!buffer_jbd(bh))
-		return -EUCLEAN;
-
+	if (!buffer_jbd(bh)) {
+		ret = -EUCLEAN;
+		goto out;
+	}
 	/*
 	 * We don't grab jh reference here since the buffer must be part
 	 * of the running transaction.
 	 */
 	jh = bh2jh(bh);
-	jbd_debug(5, "journal_head %p\n", jh);
-	JBUFFER_TRACE(jh, "entry");
-
 	/*
 	 * This and the following assertions are unreliable since we may see jh
 	 * in inconsistent state unless we grab bh_state lock. But this is
@@ -1386,6 +1368,9 @@ int jbd2_journal_dirty_metadata(handle_t *handle, struct buffer_head *bh)
 	}
 
 	journal = transaction->t_journal;
+	jbd_debug(5, "journal_head %p\n", jh);
+	JBUFFER_TRACE(jh, "entry");
+
 	jbd_lock_bh_state(bh);
 
 	if (jh->b_modified == 0) {
@@ -1583,21 +1568,14 @@ int jbd2_journal_forget (handle_t *handle, struct buffer_head *bh)
 		/* However, if the buffer is still owned by a prior
 		 * (committing) transaction, we can't drop it yet... */
 		JBUFFER_TRACE(jh, "belongs to older transaction");
-		/* ... but we CAN drop it from the new transaction through
-		 * marking the buffer as freed and set j_next_transaction to
-		 * the new transaction, so that not only the commit code
-		 * knows it should clear dirty bits when it is done with the
-		 * buffer, but also the buffer can be checkpointed only
-		 * after the new transaction commits. */
+		/* ... but we CAN drop it from the new transaction if we
+		 * have also modified it since the original commit. */
 
-		set_buffer_freed(bh);
-
-		if (!jh->b_next_transaction) {
-			spin_lock(&journal->j_list_lock);
-			jh->b_next_transaction = transaction;
-			spin_unlock(&journal->j_list_lock);
-		} else {
+		if (jh->b_next_transaction) {
 			J_ASSERT(jh->b_next_transaction == transaction);
+			spin_lock(&journal->j_list_lock);
+			jh->b_next_transaction = NULL;
+			spin_unlock(&journal->j_list_lock);
 
 			/*
 			 * only drop a reference if this transaction modified
@@ -1784,14 +1762,9 @@ int jbd2_journal_stop(handle_t *handle)
 		if (journal->j_barrier_count)
 			wake_up(&journal->j_wait_transaction_locked);
 	}
-	/*
-	 * MTK WA:
-	 * Disable jbd2_handle lockdep checking.
-	 * See start_this_handle() for details.
-	 */
-#if 0
+
 	rwsem_release(&journal->j_trans_commit_map, 1, _THIS_IP_);
-#endif
+
 	if (wait_for_commit)
 		err = jbd2_log_wait_commit(journal, tid);
 

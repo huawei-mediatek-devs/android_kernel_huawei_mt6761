@@ -260,7 +260,7 @@ static int ovl_copy_up_locked(struct dentry *workdir, struct dentry *upperdir,
 	stat->mode = mode;
 
 	if (new_creds) {
-		revert_creds(old_creds);
+		ovl_revert_creds(old_creds);
 		put_cred(new_creds);
 	}
 
