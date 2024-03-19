@@ -178,14 +178,18 @@ config HARDENED_USERCOPY_PAGESPAN
 	  trying to find such users.
 
 source security/selinux/Kconfig
+source security/hwselinux/Kconfig
 source security/smack/Kconfig
 source security/tomoyo/Kconfig
 source security/apparmor/Kconfig
 source security/loadpin/Kconfig
 source security/yama/Kconfig
-
+source security/check_root/Kconfig
+source security/kernel_stp/Kconfig
+source security/hw_root_scan/Kconfig
 source security/integrity/Kconfig
 source security/hie/Kconfig
+source security/kernel_harden/Kconfig
 
 choice
 	prompt "Default security module"

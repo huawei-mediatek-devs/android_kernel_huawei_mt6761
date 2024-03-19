@@ -3,7 +3,6 @@
 #
 
 subdir-ccflags-y += -Werror
-subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include
 
 obj-$(CONFIG_KEYS)			+= keys/
 subdir-$(CONFIG_SECURITY_SELINUX)	+= selinux
@@ -33,4 +32,13 @@ obj-$(CONFIG_CGROUP_DEVICE)		+= device_cgroup.o
 subdir-$(CONFIG_INTEGRITY)		+= integrity
 obj-$(CONFIG_INTEGRITY)			+= integrity/
 
+# HW Object
+subdir-$(CONFIG_HUAWEI_SELINUX_DSM)	+= hwselinux
+obj-$(CONFIG_HUAWEI_SELINUX_DSM)	+= hwselinux/
+
 obj-$(CONFIG_HIE)			+= hie/
+obj-$(CONFIG_HUAWEI_PROC_CHECK_ROOT)    += check_root/
+obj-$(CONFIG_HW_ROOT_SCAN)		+= hw_root_scan/
+obj-$(CONFIG_HW_KERNEL_STP)		+= kernel_stp/
+obj-$(CONFIG_HUAWEI_KASLR_DEBUGFS) += kernel_harden/hw_kaslr_debugfs.o
+obj-$(CONFIG_HUAWEI_FREELIST_RANDOM_DEBUGFS) += kernel_harden/hw_freelist_random_debugfs.o
