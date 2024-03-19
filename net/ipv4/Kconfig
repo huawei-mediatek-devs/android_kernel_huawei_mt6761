@@ -728,3 +728,15 @@ config TCP_MD5SIG
 	  on the Internet.
 
 	  If unsure, say N.
+
+config TCP_AUTOTUNING
+	bool "tcp autotuning congestion avoid"
+	default n
+
+config TCP_NODELAY
+	bool "tcp no delay"
+	default n
+
+config HW_SYN_LINEAR_RETRY
+	bool "Huawei tcp syn sent linear retry support"
+	default n

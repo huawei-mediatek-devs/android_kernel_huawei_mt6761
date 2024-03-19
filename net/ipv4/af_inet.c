@@ -89,6 +89,7 @@
 #include <linux/netfilter_ipv4.h>
 #include <linux/random.h>
 #include <linux/slab.h>
+#include <linux/netfilter/xt_qtaguid.h>
 
 #include <asm/uaccess.h>
 
@@ -412,6 +413,9 @@ int inet_release(struct socket *sock)
 	if (sk) {
 		long timeout;
 
+#ifdef CONFIG_NETFILTER_XT_MATCH_QTAGUID
+		qtaguid_untag(sock, true);
+#endif
 		/* Applications forget to leave groups before exiting */
 		ip_mc_drop_socket(sk);
 
@@ -1309,7 +1313,6 @@ struct sk_buff *inet_gso_segment(struct sk_buff *skb,
 		if (encap)
 			skb_reset_inner_headers(skb);
 		skb->network_header = (u8 *)iph - skb->head;
-		skb_reset_mac_len(skb);
 	} while ((skb = skb->next));
 
 out:
@@ -1635,6 +1638,11 @@ static __net_init int ipv4_mib_init_net(struct net *net)
 	net->mib.tcp_statistics = alloc_percpu(struct tcp_mib);
 	if (!net->mib.tcp_statistics)
 		goto err_tcp_mib;
+#ifdef CONFIG_HW_WIFIPRO
+	net->mib.wifipro_tcp_statistics = alloc_percpu(struct wifipro_tcp_mib);
+	if (!net->mib.wifipro_tcp_statistics)
+		goto err_wifipro_tcp_mib;
+#endif
 	net->mib.ip_statistics = alloc_percpu(struct ipstats_mib);
 	if (!net->mib.ip_statistics)
 		goto err_ip_mib;
@@ -1677,6 +1685,10 @@ err_net_mib:
 	free_percpu(net->mib.ip_statistics);
 err_ip_mib:
 	free_percpu(net->mib.tcp_statistics);
+#ifdef CONFIG_HW_WIFIPRO
+err_wifipro_tcp_mib:
+    free_percpu(net->mib.wifipro_tcp_statistics);
+#endif
 err_tcp_mib:
 	return -ENOMEM;
 }
@@ -1689,6 +1701,9 @@ static __net_exit void ipv4_mib_exit_net(struct net *net)
 	free_percpu(net->mib.udp_statistics);
 	free_percpu(net->mib.net_statistics);
 	free_percpu(net->mib.ip_statistics);
+#ifdef CONFIG_HW_WIFIPRO
+    free_percpu(net->mib.wifipro_tcp_statistics);
+#endif
 	free_percpu(net->mib.tcp_statistics);
 }
 

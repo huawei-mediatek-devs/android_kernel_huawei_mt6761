@@ -81,3 +81,6 @@ obj-y				+= l3mdev/
 endif
 obj-$(CONFIG_QRTR)		+= qrtr/
 obj-$(CONFIG_NET_NCSI)		+= ncsi/
+obj-$(CONFIG_CHR_NETLINK_MODULE) += chr/
+obj-$(CONFIG_HW_NETWORK_AWARE)  += network_aware/
+obj-$(CONFIG_HW_DPIMARK_MODULE) += hw_dpi_mark/

@@ -20,6 +20,9 @@
 #include "reg.h"
 #include "rdev-ops.h"
 
+#ifdef CONFIG_HUAWEI_WIFI
+extern void wifi_disconnect_report(void);
+#endif
 /*
  * Software SME in cfg80211, using auth/assoc/deauth calls to the
  * driver. This is is for implementing nl80211's connect/disconnect
@@ -722,7 +725,6 @@ void __cfg80211_connect_result(struct net_device *dev, const u8 *bssid,
 		kzfree(wdev->connect_keys);
 		wdev->connect_keys = NULL;
 		wdev->ssid_len = 0;
-		wdev->conn_owner_nlportid = 0;
 		if (bss) {
 			cfg80211_unhold_bss(bss_from_pub(bss));
 			cfg80211_put_bss(wdev->wiphy, bss);
@@ -811,6 +813,11 @@ void cfg80211_connect_bss(struct net_device *dev, const u8 *bssid,
 	list_add_tail(&ev->list, &wdev->event_list);
 	spin_unlock_irqrestore(&wdev->event_lock, flags);
 	queue_work(cfg80211_wq, &rdev->event_work);
+#ifdef CONFIG_HUAWEI_WIFI
+	if(wdev->iftype == NL80211_IFTYPE_STATION){
+		wifi_disconnect_report();
+	}
+#endif
 }
 EXPORT_SYMBOL(cfg80211_connect_bss);
 
@@ -951,7 +958,6 @@ void __cfg80211_disconnected(struct net_device *dev, const u8 *ie,
 
 	wdev->current_bss = NULL;
 	wdev->ssid_len = 0;
-	wdev->conn_owner_nlportid = 0;
 
 	nl80211_send_disconnected(rdev, dev, reason, ie, ie_len, from_ap);
 
@@ -1124,15 +1130,17 @@ int cfg80211_disconnect(struct cfg80211_registered_device *rdev,
 	kzfree(wdev->connect_keys);
 	wdev->connect_keys = NULL;
 
-	wdev->conn_owner_nlportid = 0;
-
 	if (wdev->conn)
 		err = cfg80211_sme_disconnect(wdev, reason);
 	else if (!rdev->ops->disconnect)
 		cfg80211_mlme_down(rdev, dev);
 	else if (wdev->ssid_len)
 		err = rdev_disconnect(rdev, dev, reason);
-
+#ifdef CONFIG_HUAWEI_WIFI
+	if(wdev->iftype == NL80211_IFTYPE_STATION){
+		wifi_disconnect_report();
+	}
+#endif
 	/*
 	 * Clear ssid_len unless we actually were fully connected,
 	 * in which case cfg80211_disconnected() will take care of
@@ -1142,33 +1150,4 @@ int cfg80211_disconnect(struct cfg80211_registered_device *rdev,
 		wdev->ssid_len = 0;
 
 	return err;
-}
-
-/**
- * Used to clean up after the connection / connection attempt owner socket
- * disconnects
- */
-void cfg80211_autodisconnect_wk(struct work_struct *work)
-{
-	struct wireless_dev *wdev =
-		container_of(work, struct wireless_dev, disconnect_wk);
-	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wdev->wiphy);
-
-	wdev_lock(wdev);
-
-	if (wdev->conn_owner_nlportid) {
-		/**
-		 * Use disconnect_bssid if still connecting and ops->disconnect
-		 * not implemented.  Otherwise we can use cfg80211_disconnect.
-		 */
-		if (rdev->ops->disconnect || wdev->current_bss)
-			cfg80211_disconnect(rdev, wdev->netdev,
-					    WLAN_REASON_DEAUTH_LEAVING, true);
-		else
-			cfg80211_mlme_deauth(rdev, wdev->netdev,
-					     wdev->disconnect_bssid, NULL, 0,
-					     WLAN_REASON_DEAUTH_LEAVING, false);
-	}
-
-	wdev_unlock(wdev);
 }

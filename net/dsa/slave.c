@@ -180,14 +180,10 @@ static void dsa_slave_change_rx_flags(struct net_device *dev, int change)
 	struct dsa_slave_priv *p = netdev_priv(dev);
 	struct net_device *master = p->parent->dst->master_netdev;
 
-	if (dev->flags & IFF_UP) {
-		if (change & IFF_ALLMULTI)
-			dev_set_allmulti(master,
-					 dev->flags & IFF_ALLMULTI ? 1 : -1);
-		if (change & IFF_PROMISC)
-			dev_set_promiscuity(master,
-					    dev->flags & IFF_PROMISC ? 1 : -1);
-	}
+	if (change & IFF_ALLMULTI)
+		dev_set_allmulti(master, dev->flags & IFF_ALLMULTI ? 1 : -1);
+	if (change & IFF_PROMISC)
+		dev_set_promiscuity(master, dev->flags & IFF_PROMISC ? 1 : -1);
 }
 
 static void dsa_slave_set_rx_mode(struct net_device *dev)
@@ -1203,9 +1199,6 @@ int dsa_slave_suspend(struct net_device *slave_dev)
 {
 	struct dsa_slave_priv *p = netdev_priv(slave_dev);
 
-	if (!netif_running(slave_dev))
-		return 0;
-
 	netif_device_detach(slave_dev);
 
 	if (p->phy) {
@@ -1222,9 +1215,6 @@ int dsa_slave_suspend(struct net_device *slave_dev)
 int dsa_slave_resume(struct net_device *slave_dev)
 {
 	struct dsa_slave_priv *p = netdev_priv(slave_dev);
-
-	if (!netif_running(slave_dev))
-		return 0;
 
 	netif_device_attach(slave_dev);
 
