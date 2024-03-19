@@ -485,9 +485,14 @@ int AudDrv_GPIO_EXTAMP_Select(int bEnable, int mode)
 	int retval = 0;
 
 #if MT6755_PIN
+#if defined(CONFIG_SND_SOC_MTK_AUDIO_PA)
+	//int extamp_mode;
+#else
 	int extamp_mode;
+#endif
 	int i;
 	mutex_lock(&gpio_request_mutex);
+#ifndef CONFIG_SND_SOC_MTK_AUDIO_PA
 	if (bEnable == 1) {
 		if (mode == 1)
 			extamp_mode = 1;
@@ -521,6 +526,21 @@ int AudDrv_GPIO_EXTAMP_Select(int bEnable, int mode)
 				pr_info("could not set aud_gpios[GPIO_EXTAMP_LOW] pins\n");
 		}
 	}
+#else
+        if (bEnable == 1) {
+
+            for (i = 0; i < mode; i++)
+            {
+                gpio_set_value(EXTAMP_EN,GPIO_OUT_ZERO);
+                udelay(1);
+                gpio_set_value(EXTAMP_EN,GPIO_OUT_ONE);
+                udelay(1);
+            }
+        } else {
+                gpio_set_value(EXTAMP_EN,GPIO_OUT_ZERO);
+        }
+        msleep(50);
+#endif
 	mutex_unlock(&gpio_request_mutex);
 #endif
 	return retval;

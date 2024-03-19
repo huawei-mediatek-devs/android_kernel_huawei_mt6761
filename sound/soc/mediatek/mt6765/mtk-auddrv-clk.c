@@ -331,6 +331,7 @@ void AudDrv_AUDINTBUS_Sel(int parentidx)
 {
 #if !defined(CONFIG_FPGA_EARLY_PORTING)
 
+	int ret = 0;
 
 	if (!aud_clks[CLOCK_MUX_AUDIOINTBUS].clk_prepare ||
 	    !aud_clks[CLOCK_TOP_SYSPLL1_D4].clk_prepare ||
@@ -338,10 +339,27 @@ void AudDrv_AUDINTBUS_Sel(int parentidx)
 		pr_debug("%s(), clk_prepare = false\n", __func__);
 		goto EXIT;
 	}
-	clksys_set_reg(AUDIO_CLK_CFG_4_CLR, 0x3, 0x3);
-	clksys_set_reg(AUDIO_CLK_CFG_4_SET, parentidx, 0x3);
-	pr_info("%s(), parentidx = %d, CLK_CFG_4 = 0x%08x\r\n",
-		__func__, parentidx, clksys_get_reg(AUDIO_CLK_CFG_4));
+
+	/* pr_debug("+AudDrv_AUDINTBUS_Sel, parentidx = %d\n", parentidx); */
+	if (parentidx == 1) {
+		ret = clk_set_parent(aud_clks[CLOCK_MUX_AUDIOINTBUS].clock,
+				     aud_clks[CLOCK_TOP_SYSPLL1_D4].clock);
+		if (ret) {
+			pr_debug("%s clk_set_parent %s-%s fail %d\n", __func__,
+				 aud_clks[CLOCK_MUX_AUDIOINTBUS].name,
+				 aud_clks[CLOCK_TOP_SYSPLL1_D4].name, ret);
+			goto EXIT;
+		}
+	} else if (parentidx == 0) {
+		ret = clk_set_parent(aud_clks[CLOCK_MUX_AUDIOINTBUS].clock,
+				     aud_clks[CLOCK_CLK26M].clock);
+		if (ret) {
+			pr_debug("%s clk_set_parent %s-%s fail %d\n", __func__,
+				 aud_clks[CLOCK_MUX_AUDIOINTBUS].name,
+				 aud_clks[CLOCK_CLK26M].name, ret);
+			goto EXIT;
+		}
+	}
 EXIT:
 	/* pr_debug("-%s()\n", __func__); */
 	return;
@@ -1070,7 +1088,7 @@ void AudDrv_APLL1Tuner_Clk_On(void)
 #else
 		Afe_Set_Reg(AUDIO_TOP_CON0, 0x0 << 19, 0x1 << 19);
 #endif
-		SetApmixedCfg(AP_PLL_CON3, 0x1, 0x1);
+		SetApmixedCfg(AP_PLL_CON5, 0x1, 0x1);
 	}
 	Aud_APLL1_Tuner_cntr++;
 EXIT:
@@ -1084,7 +1102,7 @@ void AudDrv_APLL1Tuner_Clk_Off(void)
 	spin_lock_irqsave(&auddrv_Clk_lock, flags);
 	Aud_APLL1_Tuner_cntr--;
 	if (Aud_APLL1_Tuner_cntr == 0) {
-		SetApmixedCfg(AP_PLL_CON3, 0x0, 0x1);
+		SetApmixedCfg(AP_PLL_CON5, 0x0, 0x1);
 #ifdef PM_MANAGER_API
 		if (aud_clks[CLOCK_APLL1_TUNER].clk_prepare)
 			clk_disable(aud_clks[CLOCK_APLL1_TUNER].clock);
@@ -1126,7 +1144,7 @@ void AudDrv_APLL2Tuner_Clk_On(void)
 #else
 		Afe_Set_Reg(AUDIO_TOP_CON0, 0x0 << 18, 0x1 << 18);
 #endif
-		SetApmixedCfg(AP_PLL_CON3, 0x0, 0x1);
+		SetApmixedCfg(AP_PLL_CON5, 0x1 << 1, 0x1 << 1);
 	}
 	Aud_APLL2_Tuner_cntr++;
 EXIT:
@@ -1140,7 +1158,7 @@ void AudDrv_APLL2Tuner_Clk_Off(void)
 	spin_lock_irqsave(&auddrv_Clk_lock, flags);
 	Aud_APLL2_Tuner_cntr--;
 	if (Aud_APLL2_Tuner_cntr == 0) {
-		SetApmixedCfg(AP_PLL_CON3, 0x0, 0x1);
+		SetApmixedCfg(AP_PLL_CON5, 0x0 << 1, 0x1 << 1);
 #ifdef PM_MANAGER_API
 		if (aud_clks[CLOCK_APLL1_TUNER].clk_prepare)
 			clk_disable(aud_clks[CLOCK_APLL1_TUNER].clock);

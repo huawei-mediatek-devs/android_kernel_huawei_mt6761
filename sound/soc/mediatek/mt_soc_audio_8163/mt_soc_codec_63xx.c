@@ -2569,7 +2569,6 @@ static bool TurnOnADcPowerACC(int ADCType, bool enable)
 			else /* Disable LCH 2.4V, keep 1.4V */
 				Ana_Set_Reg(AUDTOP_CON0, 0x7000, 0x7f80);
 
-			/* Disable RCH 1.4V, 2.4V ALPS00824353 */
 			/* always disable RG_AUDULR_VCMSEL */
 			Ana_Set_Reg(AUDTOP_CON2, 0x00C0, 0x00ff);
 			Ana_Set_Reg(AUDTOP_CON3, 0x0000, 0x00000100);

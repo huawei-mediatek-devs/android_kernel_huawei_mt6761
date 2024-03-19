@@ -353,9 +353,6 @@ static int search_roland_implicit_fb(struct usb_device *dev, int ifnum,
 	return 0;
 }
 
-/* Setup an implicit feedback endpoint from a quirk. Returns 0 if no quirk
- * applies. Returns 1 if a quirk was found.
- */
 static int set_sync_ep_implicit_fb_quirk(struct snd_usb_substream *subs,
 					 struct usb_device *dev,
 					 struct usb_interface_descriptor *altsd,
@@ -434,7 +431,7 @@ add_sync_ep:
 
 	subs->data_endpoint->sync_master = subs->sync_endpoint;
 
-	return 1;
+	return 0;
 }
 
 static int set_sync_endpoint(struct snd_usb_substream *subs,
@@ -472,10 +469,6 @@ static int set_sync_endpoint(struct snd_usb_substream *subs,
 	err = set_sync_ep_implicit_fb_quirk(subs, dev, altsd, attr);
 	if (err < 0)
 		return err;
-
-	/* endpoint set by quirk */
-	if (err > 0)
-		return 0;
 
 	if (altsd->bNumEndpoints < 2)
 		return 0;
@@ -590,6 +583,8 @@ static int set_format(struct snd_usb_substream *subs, struct audioformat *fmt)
 				fmt->iface, fmt->altsetting, err);
 			return -EIO;
 		}
+		dev_info_ratelimited(&dev->dev, "setting usb interface %d:%d\n",
+			fmt->iface, fmt->altsetting);
 		subs->interface = fmt->iface;
 		subs->altset_idx = fmt->altset_idx;
 
@@ -615,10 +610,6 @@ static int set_format(struct snd_usb_substream *subs, struct audioformat *fmt)
 
 	snd_usb_set_format_quirk(subs, fmt);
 
-	dev_info(&dev->dev,
-		"format = %dbit, rate = %d, channels = %d, dir = %d\n",
-		snd_pcm_format_physical_width(subs->pcm_format),
-		subs->cur_rate, subs->channels, subs->direction);
 	return 0;
 }
 

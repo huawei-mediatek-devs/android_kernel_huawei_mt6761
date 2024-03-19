@@ -648,33 +648,27 @@ EXPORT_SYMBOL(snd_interval_refine);
 
 static int snd_interval_refine_first(struct snd_interval *i)
 {
-	const unsigned int last_max = i->max;
-
 	if (snd_BUG_ON(snd_interval_empty(i)))
 		return -EINVAL;
 	if (snd_interval_single(i))
 		return 0;
 	i->max = i->min;
-	if (i->openmin)
+	i->openmax = i->openmin;
+	if (i->openmax)
 		i->max++;
-	/* only exclude max value if also excluded before refine */
-	i->openmax = (i->openmax && i->max >= last_max);
 	return 1;
 }
 
 static int snd_interval_refine_last(struct snd_interval *i)
 {
-	const unsigned int last_min = i->min;
-
 	if (snd_BUG_ON(snd_interval_empty(i)))
 		return -EINVAL;
 	if (snd_interval_single(i))
 		return 0;
 	i->min = i->max;
-	if (i->openmax)
+	i->openmin = i->openmax;
+	if (i->openmin)
 		i->min--;
-	/* only exclude min value if also excluded before refine */
-	i->openmin = (i->openmin && i->min <= last_min);
 	return 1;
 }
 
@@ -1849,6 +1843,8 @@ int snd_pcm_lib_ioctl(struct snd_pcm_substream *substream,
 		      unsigned int cmd, void *arg)
 {
 	switch (cmd) {
+	case SNDRV_PCM_IOCTL1_INFO:
+		return 0;
 	case SNDRV_PCM_IOCTL1_RESET:
 		return snd_pcm_lib_ioctl_reset(substream, arg);
 	case SNDRV_PCM_IOCTL1_CHANNEL_INFO:

@@ -439,7 +439,6 @@ int InitAfeControl(struct device *pDev)
 	AudioMrgStatus = false;
 	InitSramManager(pDev, SramBlockSize);
 	init_irq_manager();
-
 	PowerDownAllI2SDiv();
 
 	init_afe_ops();
@@ -624,14 +623,14 @@ void EnableAPLLTunerbySampleRate(unsigned int SampleRate)
 	if (GetApllbySampleRate(SampleRate) == Soc_Aud_APLL1) {
 		APLL1TunerCounter++;
 		if (APLL1TunerCounter == 1) {
-			Afe_Set_Reg(AFE_APLL1_TUNER_CFG, 0x00000432,
+			Afe_Set_Reg(AFE_APLL1_TUNER_CFG, 0x00000832,
 				    0x0000FFF7);
 			Afe_Set_Reg(AFE_APLL1_TUNER_CFG, 0x1, 0x1);
 		}
 	} else if (GetApllbySampleRate(SampleRate) == Soc_Aud_APLL2) {
 		APLL2TunerCounter++;
 		if (APLL2TunerCounter == 1) {
-			Afe_Set_Reg(AFE_APLL2_TUNER_CFG, 0x00000434,
+			Afe_Set_Reg(AFE_APLL2_TUNER_CFG, 0x00000634,
 				    0x0000FFF7);
 			Afe_Set_Reg(AFE_APLL2_TUNER_CFG, 0x1, 0x1);
 		}
@@ -1394,29 +1393,29 @@ bool SetI2SDacOut(unsigned int SampleRate, bool lowjitter, bool I2SWLen)
 	return true;
 }
 
-bool SetHwDigitalGainMode(enum soc_aud_digital_block AudBlock,
-			  unsigned int SampleRate, unsigned int SamplePerStep)
+bool SetHwDigitalGainMode(unsigned int GainType, unsigned int SampleRate,
+			  unsigned int SamplePerStep)
 {
-	pr_debug("+%s(), AudBlock = %d, SampleRate = %d, SamplePerStep= %d\n",
-		 __func__, AudBlock, SampleRate, SamplePerStep);
-
-	return set_chip_hw_digital_gain_mode(AudBlock,
-					     SampleRate, SamplePerStep);
+	/*
+	 * printk("SetHwDigitalGainMode GainType = %d, SampleRate = %d,
+	 * SamplePerStep= %d\n", GainType, SampleRate, SamplePerStep);
+	 */
+	return set_chip_hw_digital_gain_mode(GainType, SampleRate,
+					     SamplePerStep);
 }
 
-bool SetHwDigitalGainEnable(enum soc_aud_digital_block AudBlock, bool Enable)
+bool SetHwDigitalGainEnable(int GainType, bool Enable)
 {
-	pr_debug("+%s(), AudBlock = %d, Enable = %d\n",
-		 __func__, AudBlock, Enable);
-	return set_chip_hw_digital_gain_enable(AudBlock, Enable);
+	pr_debug("+%s(), GainType = %d, Enable = %d\n", __func__, GainType,
+		 Enable);
+	return set_chip_hw_digital_gain_enable(GainType, Enable);
 }
 
-
-bool SetHwDigitalGain(enum soc_aud_digital_block AudBlock, unsigned int Gain)
+bool SetHwDigitalGain(unsigned int Gain, int GainType)
 {
-	pr_debug("+%s(), AudBlock = %d, Gain = 0x%x\n",
-		 __func__, AudBlock, Gain);
-	return set_chip_hw_digital_gain(AudBlock, Gain);
+	pr_debug("+%s(), Gain = 0x%x, gain type = %d\n", __func__, Gain,
+		 GainType);
+	return set_chip_hw_digital_gain(Gain, GainType);
 }
 
 bool SetModemPcmConfig(int modem_index,
@@ -1618,10 +1617,6 @@ bool SetI2SDacEnable(bool bEnable)
 		SetDLSrcEnable(false);
 		Afe_Set_Reg(AFE_I2S_CON1, bEnable, 0x1);
 		SetADDAEnable(false);
-
-		/* should delayed 1/fs(smallest is 8k) = 125us before afe off */
-		usleep_range(125, 150);
-
 #ifdef CONFIG_FPGA_EARLY_PORTING
 		pr_info("%s(), disable fpga clock divide by 4", __func__);
 		Afe_Set_Reg(FPGA_CFG0, 0x0 << 1, 0x1 << 1);
@@ -3355,8 +3350,7 @@ bool InitSramManager(struct device *pDev, unsigned int sramblocksize)
 			mAud_Sram_Manager.mBlockSize;
 		mAud_Sram_Manager.mAud_Sram_Block[i].mUser = 0;
 		mAud_Sram_Manager.mAud_Sram_Block[i].msram_phys_addr =
-			mAud_Sram_Manager.msram_phys_addr +
-			(sramblocksize * (dma_addr_t)i);
+			mAud_Sram_Manager.msram_phys_addr + (sramblocksize * i);
 		mAud_Sram_Manager.mAud_Sram_Block[i].msram_virt_addr =
 			(void *)((char *)mAud_Sram_Manager.msram_virt_addr +
 				 (sramblocksize * i));

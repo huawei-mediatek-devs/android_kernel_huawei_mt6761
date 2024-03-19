@@ -233,20 +233,20 @@ config MTK_AUDIO_SCP_SPKPROTECT_SUPPORT
 	  The process is done in DSP.
 	  Select Y to enable CONFIG_MTK_AUDIO_SCP_SPKPROTECT_SUPPORT for DSP playback.
 
-config MTK_VOW_BARGE_IN_SUPPORT
-	bool "Support VOW barge-in"
-	help
-	  Only enable this when we support VOW and barge-in.
-	  This improves the hot word recognition accuracy by
-	  applying echo cancellation to remove speaker output signal.
-	  Select Y to enable CONFIG_MTK_VOW_BARGE_IN_SUPPORT for
-	  barge-in feature.
-
 config SND_SOC_MTK_AUDIO_DSP
 	bool "ASoC support for Mediatek audiodsp chip"
 	default n
 	help
 	  This adds dsp driver for Mediatek boards
+	  that can be used with other platforms
+	  Select Y if you have such device.
+	  If unsure select "N".
+
+config SND_SOC_MTK_AUDIO_PA
+	bool "ASoC support for AW speaker amp"
+	default n
+	help
+	  This adds speaker amp for Mediatek boards
 	  that can be used with other platforms
 	  Select Y if you have such device.
 	  If unsure select "N".

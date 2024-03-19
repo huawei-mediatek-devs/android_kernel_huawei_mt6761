@@ -79,4 +79,10 @@ int AudDrv_GPIO_RCVSPK_Select(int bEnable);
 int AudDrv_GPIO_HPDEPOP_Select(int bEnable);
 
 int audio_drv_gpio_aud_clk_pull(bool high);
+#if defined(CONFIG_SND_SOC_MTK_AUDIO_PA)
+#define EXTAMP_EN 485 //332(offset)+153,gpio begin from 332
+#define GPIO_OUT_ZERO 0
+#define GPIO_OUT_ONE  1
+#define GPIO_DIR_OUT  1
+#endif
 #endif

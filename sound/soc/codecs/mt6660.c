@@ -180,6 +180,7 @@ static int mt6660_codec_io_write(struct snd_soc_codec *codec,
 					      reg_size, reg_data);
 #endif /* CONFIG_RT_REGMAP */
 }
+
 static inline int mt6660_chip_power_on(struct snd_soc_codec *codec, int onoff)
 {
 	struct mt6660_chip *ri = snd_soc_codec_get_drvdata(codec);
@@ -192,8 +193,6 @@ static inline int mt6660_chip_power_on(struct snd_soc_codec *codec, int onoff)
 			ret = snd_soc_update_bits(codec,
 						  MT6660_REG_SYSTEM_CTRL,
 						  0x01, 0x00);
-			dev_info(ri->dev, "%s reg0x05 = 0x%x\n", __func__,
-				snd_soc_read(codec, MT6660_REG_IRQ_STATUS1));
 		}
 	} else {
 		if (--ri->pwr_cnt == 0) {
@@ -716,7 +715,7 @@ static inline int _mt6660_chip_power_on(struct mt6660_chip *chip, int onoff)
 		reg_data &= (~0x01);
 	else
 		reg_data |= 0x01;
-	return i2c_smbus_write_byte_data(chip->i2c, reg_addr, reg_data);
+	return i2c_smbus_write_byte_data(chip->i2c, reg_addr, ret);
 }
 
 static inline int _mt6660_read_chip_revision(struct mt6660_chip *chip)
@@ -788,7 +787,8 @@ int mt6660_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		dev_err(chip->dev, "regmap register fail\n");
 		goto probe_fail;
 	}
-	dev_set_name(chip->dev, "MT6660_MT_%d", chip->dev_cnt);
+	dev_set_name(chip->dev, "%s",
+		     kasprintf(GFP_KERNEL, "MT6660_MT_%d", chip->dev_cnt));
 	dev_info(chip->dev, "%s--\n", __func__);
 	return snd_soc_register_codec(chip->dev, &mt6660_codec_driver,
 				      &mt6660_codec_dai, 1);
@@ -827,11 +827,4 @@ module_exit(mt6660_driver_exit);
 MODULE_AUTHOR("CY_Huang <cy_huang@richtek.com>");
 MODULE_DESCRIPTION("MT6660 SPKAMP Driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("1.0.1_G");
-
-/*
- * Driver Version
- *
- * 1.0.1_G
- *	fix _mt6660_chip_power_on Issue
- */
+MODULE_VERSION("1.0.0_G");
