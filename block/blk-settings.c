@@ -249,7 +249,6 @@ void blk_queue_max_hw_sectors(struct request_queue *q, unsigned int max_hw_secto
 	max_sectors = min_not_zero(max_hw_sectors, limits->max_dev_sectors);
 	max_sectors = min_t(unsigned int, max_sectors, BLK_DEF_MAX_SECTORS);
 	limits->max_sectors = max_sectors;
-	q->backing_dev_info->io_pages = max_sectors >> (PAGE_SHIFT - 9);
 }
 EXPORT_SYMBOL(blk_queue_max_hw_sectors);
 
@@ -831,6 +830,19 @@ void blk_queue_flush_queueable(struct request_queue *q, bool queueable)
 	spin_unlock_irq(q->queue_lock);
 }
 EXPORT_SYMBOL_GPL(blk_queue_flush_queueable);
+
+/**
+ * blk_set_queue_depth - tell the block layer about the device queue depth
+ * @q:          the request queue for the device
+ * @depth:      queue depth
+ *
+ */
+void blk_set_queue_depth(struct request_queue *q, unsigned int depth)
+{
+	q->queue_depth = depth;
+	wbt_set_queue_depth(q->rq_wb, depth);
+}
+EXPORT_SYMBOL(blk_set_queue_depth);
 
 /**
  * blk_queue_write_cache - configure queue's write cache
